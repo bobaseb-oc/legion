@@ -113,12 +113,35 @@ test("no snapshot outside the roots; undo refuses a repo outside them and the ho
   expect((await Device.device_undo(rules, "u", "../x") as any).error).toMatch(/Not an agent/);
 });
 
+test("undo never writes a secret's path, even from a planted snapshot", async () => {
+  const { repo, rules } = fixture();
+  // an agent's shell could plant a snapshot holding a .env of its own
+  const head = out(repo, "rev-parse", "HEAD").trim();
+  fs.writeFileSync(repo + "/.env", "AGENT=1\n");
+  git(repo, "add", "-f", ".env");
+  const tree = out(repo, "write-tree").trim();
+  git(repo, "rm", "-q", "--cached", ".env");
+  const planted = out(repo, "commit-tree", "-p", head, "-m", "x", tree).trim();
+  git(repo, "update-ref", "refs/legion/undo/Owl/600", planted);
+  Undo.undo_log(rules.state, "Owl", repo);
+  fs.writeFileSync(repo + "/.env", "USER=1\n");
+  const r = await Device.device_undo(rules, "u", "Owl") as any;
+  expect(r.error).toBeUndefined();
+  expect(fs.readFileSync(repo + "/.env", "utf8")).toBe("USER=1\n");
+});
+
 test("a snapshot that fails never breaks the write; snapshots are pruned to KEEP", async () => {
   const { repo, rules } = fixture();
   fs.writeFileSync(repo + "/.git/HEAD", "garbage\n");
   const w = await run(rules, job("write", { path: repo + "/a.txt", content: "still\n" }, 400));
   expect(w.fail).toBe(false);
   expect(fs.readFileSync(repo + "/a.txt", "utf8")).toBe("still\n");
+  fs.writeFileSync(repo + "/.git/HEAD", "ref: refs/heads/trunk\n");
+  // a state dir that can't be made: the snapshot throws, the write goes on
+  const w2 = await run({ ...rules, state: repo + "/a.txt/state" }, job("write", { path: repo + "/b.txt", content: "on\n" }, 401));
+  expect(w2.fail).toBe(false);
+  expect(fs.readFileSync(repo + "/b.txt", "utf8")).toBe("on\n");
+  fs.writeFileSync(repo + "/b.txt", "b\n");
   fs.writeFileSync(repo + "/.git/HEAD", "ref: refs/heads/trunk\n");
   for (let t = 1; t <= Undo.KEEP + 5; t++) {
     await run(rules, job("edit", { edits: [{ path: repo + "/a.txt", old: "still", new: "still" + t }] }, 1000 + t));
