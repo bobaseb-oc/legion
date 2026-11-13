@@ -37,8 +37,9 @@ const AFTER = "Say what you would change instead: in your report, or, for Unii, 
 // the tools that only read, in every mode
 const READS = ["read", "glob", "grep", "google", "harvest"];
 
-// the tools auto mode's reviewer checks
-const REVIEWED = ["shell", "write", "edit", "computer"];
+// the tools auto mode's reviewer checks (fetch: its URL can carry data
+// off the computer, so plan mode, with no reviewer, refuses it as curl)
+const REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
 
 // RED ZONE (security review follow-up, DRAFT awaiting the user's
 // sign-off): the one list of where a secret may be, in any case (macOS's
@@ -124,7 +125,7 @@ export namespace Modes {
       const not = Modes.readonly(String(input?.command ?? ""));
       return not === null ? null : why + ": " + not + ". " + AFTER;
     }
-    return why + ": " + tool + " can change things. " + AFTER;
+    return why + ": " + (tool === "fetch" ? "fetch sends its URL to a site, and data with it" : tool + " can change things") + ". " + AFTER;
   }
 
   // RED ZONE (security review U3, DRAFT awaiting the user's sign-off):

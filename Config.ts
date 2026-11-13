@@ -63,6 +63,10 @@ export const SEARCHES   = Number(config_get("searches", "10"));
 // a SearXNG on this computer, for the `search` tool (Search.ts; "": none)
 export const SEARXNG    = config_get("searxng_url", "");
 
+// the `fetch` tool, a public web page read as text on this computer
+// (Fetch.ts; 0: none)
+export const FETCHES    = Number(config_get("fetches", "1"));
+
 // the MCP servers the agents may use (Mcp.ts; "": none)
 export const MCP        = config_path(config_get("mcp", ""));
 
