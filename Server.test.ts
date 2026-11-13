@@ -601,6 +601,61 @@ test("routines: added and checked, run now, run by the tick once when due, off, 
   expect(out.left).toBe(20);
 });
 
+// Routines with no view: a chat with a routine on by the clock stays open
+// as its last view leaves, and a restart opens it again (Chat.wake), so
+// its tick runs with no tab or terminal; one with only a review routine,
+// or its routines off, is let go as before. Missed for a day and more
+// (the Mac asleep), it runs once
+const UNVIEWED = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+const user = (id) => ({ id, name: id + "@b.c" });
+Cloud.session(Chat.cloud, user("u1"));
+Cloud.session(Chat.cloud, user("u2"));
+AskAI.ask = (ask, on) => AskAI.tie(on, ask.bill, () => {}, () => {})[0];
+const add = (chat, routine) => Chat.act(chat, "a" + Math.random(), { $: "routine", op: "add", routine }, "");
+const one = Chat.open(user("u1"));
+const two = Chat.open(user("u2"));
+await sleep(100);
+Chat.chats.set("u1", one); // as a view would hold them meanwhile
+Chat.chats.set("u2", two);
+await add(one, { name: "Sweep", task: "t", when: { $: "daily", at: "09:00" } });
+await add(two, { name: "Reviews", task: "", when: { $: "review" } });
+Chat.free(one);
+Chat.free(two);
+const kept = Chat.chats.get("u1") === one;
+const dropped = !Chat.chats.has("u2");
+await Chat.end(one);
+const ended = !Chat.chats.has("u1");
+Chat.wake();
+const woken = Chat.chats.has("u1");
+const unwoken = !Chat.chats.has("u2");
+const back = Chat.chats.get("u1") ?? Chat.open(user("u1"));
+await sleep(100);
+await Chat.act(back, "t1", { $: "routine", op: "toggle", n: 1, on: false }, "");
+Chat.free(back);
+const off = !Chat.chats.has("u1");
+const three = Chat.open(user("u1"));
+await sleep(100);
+await add(three, { name: "Hourly", task: "t", when: { $: "every", hours: 1 } });
+three.mem.routines[1].last = Date.now() - 30 * 3600e3;
+const woke = Chat.ticked(three, Date.now());
+const after = Chat.ticked(three, Date.now() + 60e3);
+console.log(JSON.stringify({ kept, dropped, ended, woken, unwoken, off, woke, after }));
+process.exit(0);
+`;
+
+test("routines with no view: a chat with one on by the clock is kept open and woken after a restart; missed for a day, it runs once", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/unviewed.ts", UNVIEWED);
+  const proc = Bun.spawn([process.execPath, dir + "/unviewed.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ kept: true, dropped: true, ended: true, woken: true, unwoken: true, off: true, woke: 1, after: 0 });
+});
+
 // The digest's themes (the cockpit's Summarize by theme): one compactor
 // call over the merged PRs, its JSON kept only for the digest's authors,
 // lines capped and cut; asked again only when the digest changed; told

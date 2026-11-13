@@ -43,3 +43,70 @@ test("the launcher sees the server up over its socket, not the TCP port", () => 
   expect(out.exitCode).toBe(0);
   expect(fs.readFileSync(said, "utf8")).toContain("--unix-socket " + dir + "/server.sock");
 });
+
+// `legion server --install`: a launchd agent (at login, kept alive) runs
+// the server with no terminal open, so routines run (Server.ts Chat.free);
+// its plist holds paths and settings only, never a key: the server reads
+// the gateway's key at its start from the helper named (UNII_KEY_HELPER,
+// e.g. Claude Code's apiKeyHelper). launchctl and plutil are fakes here,
+// so nothing is installed
+function fakes(): { bin: string; home: string; dir: string; said: string; helper: string } {
+  const bin = fs.mkdtempSync(os.tmpdir() + "/legion-bin-");
+  const said = bin + "/launchctl.args";
+  fs.writeFileSync(bin + "/launchctl", "#!/bin/sh\necho \"$@\" >>" + JSON.stringify(said) + "\n");
+  fs.writeFileSync(bin + "/plutil", "#!/bin/sh\nexit 0\n");
+  fs.writeFileSync(bin + "/bun", "#!/bin/sh\nenv | cut -d= -f1\n");
+  const helper = bin + "/key-helper";
+  fs.writeFileSync(helper, "#!/bin/sh\necho fake-key-from-helper\n");
+  for (const f of ["launchctl", "plutil", "bun", "key-helper"]) {
+    fs.chmodSync(bin + "/" + f, 0o755);
+  }
+  return { bin, home: fs.mkdtempSync(os.tmpdir() + "/legion-home-"), dir: fs.mkdtempSync(os.tmpdir() + "/legion-dir-"), said, helper };
+}
+
+test("legion server --install writes a launchd agent with paths only, no secret, and loads it", () => {
+  const f = fakes();
+  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", LITELLM_API_KEY: "sk-secret-value", UNII_KEY_HELPER: f.helper };
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server", "--install"], { env });
+  expect(out.exitCode).toBe(0);
+  const plist = fs.readFileSync(f.home + "/Library/LaunchAgents/com.oncorps.legion.server.plist", "utf8");
+  expect(plist).toContain("<key>Label</key><string>com.oncorps.legion.server</string>");
+  expect(plist).toContain("<string>" + import.meta.dir + "/local/unii-local.sh</string><string>server-run</string>");
+  expect(plist).toContain("<key>UNII_KEY_HELPER</key><string>" + f.helper + "</string>");
+  expect(plist).toContain("<key>LITELLM_API_BASE</key><string>https://gw.example</string>");
+  expect(plist).toContain("<key>KeepAlive</key><true/>");
+  expect(plist).toContain("<string>" + f.dir + "/server.log</string>");
+  expect(plist).not.toContain("sk-secret-value");
+  expect(plist).not.toContain("fake-key-from-helper");
+  expect(SECRETS.filter((k) => plist.includes(k))).toEqual([]);
+  expect(fs.readFileSync(f.said, "utf8")).toContain("bootstrap gui/");
+  // the device's agent is another label, left alone
+  expect(fs.existsSync(f.home + "/Library/LaunchAgents/com.oncorps.legion.device.plist")).toBe(false);
+});
+
+test("legion server --install refuses with no key helper, or one not an executable absolute path", () => {
+  for (const helper of [undefined, "relative/helper", "/nonexistent/helper"]) {
+    const f = fakes();
+    const env: Record<string, string> = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example" };
+    if (helper !== undefined) {
+      env.UNII_KEY_HELPER = helper;
+    }
+    const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server", "--install"], { env });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr.toString()).toContain("UNII_KEY_HELPER");
+    expect(fs.existsSync(f.home + "/Library/LaunchAgents/com.oncorps.legion.server.plist")).toBe(false);
+  }
+});
+
+test("legion server-run (the agent's) takes the gateway's key from its helper, and fails with none", () => {
+  const f = fakes();
+  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", UNII_KEY_HELPER: f.helper };
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env });
+  expect(out.exitCode).toBe(0);
+  const names = out.stdout.toString().split("\n");
+  expect(names).toContain("ANTHROPIC_API_KEY");
+  expect(names).toContain("UNII_ANTHROPIC_URL");
+  const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env: { ...env, UNII_KEY_HELPER: "" } });
+  expect(none.exitCode).not.toBe(0);
+  expect(none.stdout.toString()).not.toContain("ANTHROPIC_API_KEY");
+});

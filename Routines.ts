@@ -4,7 +4,8 @@
 // a native Legion agent is started on, by the user's leave, daily at a
 // time (the server's local time), every N hours, or for each new review
 // request of the user's (Server.ts Chat.inboxed). The server keeps them
-// with the chat (view.json) and its tick runs those due (Chat.ticked);
+// with the chat (view.json) and its tick runs those due (Chat.ticked),
+// a chat with one on by the clock kept open with no view (timed);
 // this is the pure part: what a routine may say, when it's due, how the
 // terminal's /routine add reads one.
 
@@ -96,6 +97,13 @@ export function routine_next(r: Routine, now: number): number | null {
 export function routine_due(r: Routine, now: number): boolean {
   const next = routine_next(r, now);
   return r.on && next !== null && next <= now;
+}
+
+// whether a chat must stay open with no view for its routines (Server.ts
+// Chat.free, Chat.wake): one is on and by the clock (a review routine
+// runs on an inbox, which only a connected device sends)
+export function timed(routines: Routine[]): boolean {
+  return routines.some((r) => r.on && r.when.$ !== "review");
 }
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
