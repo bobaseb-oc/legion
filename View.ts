@@ -203,6 +203,8 @@ export type Server =
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
   | { $: "look"; id: string; what: Look }  // to devices: show a file or a repo's git (Device.device_look)
   | { $: "harvest"; id: string; entries: unknown[] } // to one device: post the user's submitted timesheet entries (Device.device_harvest)
+  | { $: "undo"; id: string; agent: string } // to one device: the agent's last turn undone (Device.device_undo)
+  | { $: "handoff"; id: string; agent: string; brief: string } // to one device: Claude Code opened on the agent's work (Device.device_handoff)
   | Looked;                                 // to views: what a device showed
 
 // the files pane and git tab (K4): what a view asks a device to show, and
@@ -258,6 +260,9 @@ export type Client =
   | { $: "timesheet"; op: "submit" | "drop"; ns: number[] } // a view: the user's Submit (or drop) of timesheet drafts
   | { $: "harvested"; id: string; results: Harvested[] } // a device: each submitted entry's Harvest id, or why not
   | Looked // a device: what it showed
+  | { $: "undo"; name: string } // a view: that agent's last turn undone on its device (the user's only)
+  | { $: "handoff"; name: string } // a view: Claude Code opened on that agent's work, on its device
+  | { $: "did"; id: string; text?: string; error?: string } // a device: what an undo or a handoff did, or why not
   | { $: "routine"; op: "add"; routine: Given } // a routine added (Routines.ts)
   | { $: "routine"; op: "toggle"; n: number; on: boolean } // routine n on or off
   | { $: "routine"; op: "drop" | "run"; n: number } // routine n dropped, or run now
@@ -296,6 +301,8 @@ export type Act =
   | { $: "Dismiss"; name: string }              // a done agent out of the crew
   | { $: "Approve"; name: string; yes: boolean } // a Claude Code worker asking to start: let it, or not
   | { $: "Stop"; name: string }                 // that agent's work stopped (the Crew view)
+  | { $: "Undo"; name: string }                 // that agent's last turn undone (the Crew view, confirmed)
+  | { $: "Handoff"; name: string }              // that agent's work opened in Claude Code (the Crew view)
   | { $: "Expand"; name: string }               // a manager's workers shown, or folded again
   | { $: "Tell"; name: string; text: string }   // a message to that agent (a tile's box)
   | { $: "Answer"; q: number; text: string }    // an open question answered (the backlog pane)
@@ -675,6 +682,12 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Stop": {
       return [{ $: "stop", name: act.name }];
+    }
+    case "Undo": {
+      return [{ $: "undo", name: act.name }];
+    }
+    case "Handoff": {
+      return [{ $: "handoff", name: act.name }];
     }
     case "Tell": {
       const text = act.text.trim();

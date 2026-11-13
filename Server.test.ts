@@ -445,6 +445,51 @@ test("a view's look goes to the devices; a device's answer, once, to the views",
   expect(out.opened).toEqual({});
 });
 
+// the Crew view's Undo last turn and Open in Claude Code: the user's act
+// goes to ONE terminal of the agent's device (each would undo again, or
+// open a window); an agent at work isn't undone; a device's answer (only a
+// device's, once) becomes a note in the chat
+const CREW_OPS = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const links = [];
+const agent = (name, more) => ({ name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["done it"], user: false, ...more });
+chat.tools.agents.set("Owl", agent("Owl", { device: "box", title: "Fix $(it)" }));
+chat.tools.agents.set("Busy", agent("Busy", { device: "box", runs: true }));
+chat.tools.agents.set("Far", agent("Far", { device: "gone" }));
+const none = await Chat.act(chat, "c0", { $: "undo", name: "Nobody" }, "");
+chat.tools.devices.set("mac", { terms: new Map([["m1", { send: (m) => links.push(["m1", m]) }]]) });
+chat.tools.devices.set("box", { terms: new Map([["b1", { send: (m) => links.push(["b1", m]) }], ["b2", { send: (m) => links.push(["b2", m]) }]]) });
+const busy = await Chat.act(chat, "c1", { $: "undo", name: "Busy" }, "");
+const far = await Chat.act(chat, "c2", { $: "undo", name: "Far" }, "");
+const undo = await Chat.act(chat, "c3", { $: "undo", name: "Owl" }, "");
+const hand = await Chat.act(chat, "c4", { $: "handoff", name: "Owl" }, "");
+const forged = await Chat.act(chat, "c5", { $: "did", id: "c3", text: "fake" }, "");
+const did = await Chat.act(chat, "c6", { $: "did", id: "c3", text: "Undid Owl's last turn." }, "box");
+const twice = await Chat.act(chat, "c7", { $: "did", id: "c3", text: "again" }, "box");
+await new Promise((r) => setTimeout(r, 100));
+console.log(JSON.stringify({ none: none.error ?? null, busy: busy.error ?? null, far: far.error ?? null, undo, hand, forged: "error" in forged, did, twice: "error" in twice, links }));
+process.exit(0);
+`;
+
+test("Undo and Open in Claude Code go to one terminal of the agent's device; its answer, once, is a note", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/crew.ts", CREW_OPS);
+  const proc = Bun.spawn([process.execPath, dir + "/crew.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.none).toMatch(/No agent/);
+  expect(out.busy).toMatch(/at work/);
+  expect(out.far).toMatch(/gone/);
+  expect(out).toMatchObject({ undo: {}, hand: {}, forged: true, did: {}, twice: true });
+  expect(out.links.map(([t, m]: any) => [t, m.$, m.id, m.agent])).toEqual([["b1", "undo", "c3", "Owl"], ["b1", "handoff", "c4", "Owl"]]);
+  expect(out.links[1][1].brief).toContain("Title: Fix $(it)");
+  const log = fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => fs.statSync(dir + "/" + f).isFile()).map((f) => fs.readFileSync(dir + "/" + f, "utf8")).join("\n");
+  expect(log).toContain("Undid Owl's last turn.");
+});
+
 // the timesheet's Submit (K5, RED ZONE): the user's act sends the drafts
 // asked (only those not sent nor sending) to ONE device's terminal, never
 // to every socket (each would post them: billed twice); a device's answer

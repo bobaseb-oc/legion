@@ -452,8 +452,13 @@ function click(ev: MouseEvent): void {
     ev.preventDefault();
     go(path ?? "/");
   }
-  if (a !== undefined) {
-    act(JSON.parse(a));
+  // an undo changes the user's files: asked first
+  const parsed: View.Act | undefined = a === undefined ? undefined : JSON.parse(a);
+  if (parsed?.$ === "Undo" && !confirm("Undo " + parsed.name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.")) {
+    return;
+  }
+  if (parsed !== undefined) {
+    act(parsed);
   }
   if (usd !== undefined) {
     warned(el, () => topup(Number(usd)));

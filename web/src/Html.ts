@@ -255,7 +255,15 @@ export function focus_html(v: View.View): string {
     return `<div class="focus"><b>${esc(name)}</b></div>`;
   }
   const todo = (c.todo ?? []).length === 0 ? "" : `<ol class="todo">${c.todo!.map((x) => `<li class="${esc(x.status)}">${esc(x.text)}</li>`).join("")}</ol>`;
-  return `<div class="focus ${c.status}">${who_html(c)} <span class="meta">${esc(also(c) + c.tier + " · " + c.model + " · " + c.status)} · type to tell it</span>${acts_html(c)}${todo}</div>`;
+  return `<div class="focus ${c.status}">${who_html(c)} <span class="meta">${esc(also(c) + c.tier + " · " + c.model + " · " + c.status)} · type to tell it</span>${acts_html(c)}${ops_html(c)}${todo}</div>`;
+}
+
+// the focus card's Undo last turn (the agent no longer at work; main.ts
+// asks to confirm) and Open in Claude Code (Device.ts does both)
+function ops_html(c: View.Crew): string {
+  const at = c.status === "working" || c.status === "waiting" || c.status === "asking";
+  const undo = at ? "" : `<button class="pbtn" title="put back the files its last turn changed"${act_html({ $: "Undo", name: c.name })}>Undo last turn</button>`;
+  return `<div class="ops">${undo}<button class="pbtn" title="a terminal running claude in its repo, with its brief"${act_html({ $: "Handoff", name: c.name })}>Open in Claude Code</button></div>`;
 }
 
 // Home | Inbox (its count) | Chat | Crew, the one shown marked; the pill (View.view_pill) on Crew,
