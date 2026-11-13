@@ -436,10 +436,17 @@ export namespace Agent {
   // gateway's 429 like a rate limit's, but asking again cannot help) fails
   // at once, saying so; else busy (asked again) if passing, down if not
   export function verdict(res: Response, why: string): Step {
-    if (SPENT.test(why)) {
+    if (Agent.spent(why)) {
       return Agent.fail("The AI gateway's spending limit is reached, so asking again will not help: ask its admin to raise it. (" + why.slice(0, 300) + ")", [], "fail");
     }
     return Agent.fail(why, [], Agent.passing(res) ? "busy" : "down");
+  }
+
+  // whether a failure is a spent budget or quota: a gateway's words, or a
+  // call's end verdict failed, which quotes them (Memory.ts builds rough
+  // lines then)
+  export function spent(why: string): boolean {
+    return SPENT.test(why);
   }
 
   // the wait before try k + 1, s: the service's retry-after, else 2^k,

@@ -373,7 +373,8 @@ export namespace Chat {
     return { ...Pick.ask(chat.pick), system, searches: 0, server: "" };
   }
 
-  // at rest (nothing runs): pays, and lets go of a chat nobody views;
+  // at rest (nothing runs): pays, and lets go of a chat nobody views but
+  // one whose routines tick (Routines.timed);
   // one ending or moving does that once at its rest (Chat.ending), and
   // one ended or moved never (it pays where it is, or as it closes)
   export function free(chat: Chat): void {
@@ -387,7 +388,7 @@ export namespace Chat {
       return;
     }
     Chat.cloud.billing.settle(acct.user);
-    if (chat.socks.size === 0) {
+    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines)) {
       clearInterval(chat.tick);
       Tools.close(chat.tools);
       Memory.stop(chat.mem);
@@ -998,14 +999,16 @@ export namespace Chat {
     return {};
   }
 
-  // the chats a restart cut at work or importing, opened; one that fails
+  // the chats a restart cut at work or importing, or with a routine on by
+  // the clock (its tick runs with no view: Routines.timed), opened; one that fails
   // to load is logged and left (its user's page gets the error), never
   // keeping the worker, which serves every other user, from starting
   export function wake(): void {
     const dir = config.DIR + "/users/";
     for (const id of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
       const user = Main.shard(id) === Main.index ? Cloud.user(Chat.cloud, id) : null;
-      if (user !== null && ((Memory.saved(dir + id)?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH))) {
+      const saved = user === null ? null : Memory.saved(dir + id);
+      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? []))) {
         Main.event("waking the chat of user " + id, () => Chat.open(user));
       }
     }
@@ -1825,7 +1828,9 @@ const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
   // --------
   // The user's (Routines.ts), kept with the chat: each starts a native
   // agent, the user's (its report takes no turn). The tick runs those due
-  // while the chat is open (a view or a device connected); a review
+  // while the chat is open: a view or a device connected, or with none, a
+  // routine on by the clock (Chat.free keeps it, Chat.wake opens it after
+  // a restart). One missed while the Mac slept runs once on waking; a review
   // routine, on each inbox, a review of each new review request of the
   // user's, AUTOS at most at once (the first inbox it sees only seeds it)
 

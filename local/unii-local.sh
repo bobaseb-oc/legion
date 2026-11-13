@@ -14,6 +14,10 @@
 #   legion device       this computer runs the agents' jobs with no terminal open
 #                     (foreground; `legion device --install` keeps one running
 #                     at login with launchd, `--uninstall` removes it)
+#   legion server --install  keep the server running at login with launchd
+#                     (routines run with no tab or terminal open; it reads the
+#                     gateway's key from $UNII_KEY_HELPER at each start),
+#                     `--uninstall` removes it
 #   legion log          follow the server's log (sign-in links print there)
 #   legion knowledge    rebuild ~/.unii-prime/knowledge.json (OKF, graphify guides,
 #                     repo digests and cards; local/prime/knowledge.ts)
@@ -91,6 +95,31 @@ server_exec() {
     bun "$ROOT/Server.ts" "$PORT"
 }
 
+# the server as launchd runs it (`legion server --install`): the gateway's
+# key, never in its plist, is read at each start from the helper named
+# (an absolute path to an executable that prints it, as Claude Code's
+# apiKeyHelper). A server already up (one `legion` started) is waited on:
+# its lock lets one serve at a time (Server.ts Main.lock)
+server_run() {
+  if [[ -z "${LITELLM_API_KEY:-}" ]]; then
+    key_helper_check || return 1
+    LITELLM_API_KEY="$("$UNII_KEY_HELPER")" || { echo "legion: $UNII_KEY_HELPER failed: no key for the server" >&2; return 1; }
+    [[ -n "$LITELLM_API_KEY" ]] || { echo "legion: $UNII_KEY_HELPER printed no key" >&2; return 1; }
+    export LITELLM_API_KEY
+  fi
+  searxng_start
+  skills_make
+  mcp_make
+  server_exec
+}
+
+key_helper_check() {
+  if [[ "${UNII_KEY_HELPER:-}" != /* || ! -f "$UNII_KEY_HELPER" || ! -x "$UNII_KEY_HELPER" ]]; then
+    echo "legion: set UNII_KEY_HELPER to the absolute path of an executable that prints the gateway's key (e.g. Claude Code's apiKeyHelper)" >&2
+    return 1
+  fi
+}
+
 # Claude Code's logs staged anew (local/prime/logs.ts), redacted, so the
 # chat's import, asked at its start, finds what was said since the last
 logs_make() {
@@ -153,6 +182,52 @@ device_uninstall() {
   echo "legion: device agent removed" >&2
 }
 
+# `legion server --install`: the same for the server (its own label), so
+# routines run while the Mac is on and you are logged in, with no tab or
+# terminal open. Its plist gets PATH, UNII_* settings, the gateway's URL
+# and the key helper's path, never a key
+SERVER_LABEL="com.oncorps.legion.server"
+SERVER_PLIST="$HOME/Library/LaunchAgents/$SERVER_LABEL.plist"
+server_install() {
+  local env="" name
+  key_helper_check || return 1
+  : "${LITELLM_API_BASE:?set LITELLM_API_BASE}"
+  for name in PATH HOME UNII_PORT UNII_DIR UNII_PICK UNII_COMPACTOR UNII_RULES UNII_SEARXNG_PORT LITELLM_API_BASE UNII_KEY_HELPER; do
+    if [[ -n "${!name:-}" ]]; then
+      env+="    <key>$name</key><string>$(xml "${!name}")</string>"$'\n'
+    fi
+  done
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat >"$SERVER_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$SERVER_LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$(xml "$ROOT/local/unii-local.sh")</string><string>server-run</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+$env  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardErrorPath</key><string>$(xml "$LOG")</string>
+  <key>StandardOutPath</key><string>$(xml "$LOG")</string>
+</dict>
+</plist>
+PLIST
+  plutil -lint "$SERVER_PLIST" >/dev/null
+  launchctl bootout "gui/$(id -u)/$SERVER_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$SERVER_PLIST"
+  echo "legion: server agent installed ($SERVER_PLIST); its log: $LOG; legion server --uninstall removes it" >&2
+}
+server_uninstall() {
+  launchctl bootout "gui/$(id -u)/$SERVER_LABEL" 2>/dev/null || true
+  rm -f "$SERVER_PLIST"
+  echo "legion: server agent removed" >&2
+}
+
 # the MCP servers the agents may use (local/mcp.ts): Claude Code's and
 # the extra ones installed in local/tools, no secret written (each is read
 # from ~/.claude.json as its server opens)
@@ -205,6 +280,9 @@ server_stop() {
   else
     echo "legion: no server started by this script is running" >&2
   fi
+  if [[ -f "$SERVER_PLIST" ]]; then
+    echo "legion: launchd keeps a server running (legion server --uninstall stops it)" >&2
+  fi
   if command -v docker >/dev/null && docker stop "$SEARX_NAME" >/dev/null 2>&1; then
     echo "legion: SearXNG stopped" >&2
   fi
@@ -222,6 +300,13 @@ case "${1:-}" in
       *)           server_start && term_exec device "$URL" ;;
     esac ;;
   device-run) term_exec device "$URL" ;;
+  server)
+    case "${2:-}" in
+      --install)   server_install ;;
+      --uninstall) server_uninstall ;;
+      *)           echo "legion: legion server --install | --uninstall (legion serve runs it in the foreground)" >&2; exit 2 ;;
+    esac ;;
+  server-run) server_run ;;
   log)   exec tail -f "$LOG" ;;
   knowledge) bun "$ROOT/local/prime/knowledge.ts" && echo "legion: then, in the chat: /import ~/.unii-prime/knowledge.json" >&2 ;;
   mcp-login)  mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" ;;

@@ -116,3 +116,29 @@ test("weekly on a day at a time: due on that day once its time passed, then a we
   expect(Routines.routine_parse("weekly Mon 08:30 Plan: plan the week")).toMatchObject({ when: { $: "weekly", day: 1, at: "08:30" } });
   expect(typeof Routines.routine_parse("weekly funday 09:00 X: y")).toBe("string");
 });
+
+// the Mac asleep through several of its times (or the server down): on
+// waking, a routine runs once, not once per slot missed, then at its next
+test("missed while asleep: due once on waking, not once per slot missed", () => {
+  const daily = routine({ $: "daily", at: "09:00" }, { last: at(9, 1, 9) }); // ran Monday, asleep till Thursday 15:00
+  expect(Routines.routine_due(daily, at(15))).toBe(true);
+  expect(Routines.routine_due({ ...daily, last: at(15) }, at(15, 1))).toBe(false);
+  expect(Routines.routine_next({ ...daily, last: at(15) }, at(15, 1))).toBe(at(9, 0, 13));
+  const every = routine({ $: "every", hours: 2 }, { last: at(8, 0, 11) }); // 14 slots missed
+  expect(Routines.routine_due(every, at(15))).toBe(true);
+  expect(Routines.routine_due({ ...every, last: at(15) }, at(16, 59))).toBe(false);
+  const weekly = routine({ $: "weekly", day: 5, at: "09:00" }, { made: at(8, 0, 1), last: at(9, 1, 6) }); // three Fridays slept through
+  expect(Routines.routine_due(weekly, at(10, 0, 27))).toBe(true);
+  expect(Routines.routine_due({ ...weekly, last: at(10, 0, 27) }, at(11, 0, 27))).toBe(false);
+});
+
+// whether a chat's routines need it kept open with no view (Server.ts
+// Chat.free, Chat.wake): one on, by the clock; a review routine runs on
+// an inbox, which only a connected device sends
+test("timed: a routine on, by the clock, keeps its chat open; off or on review, not", () => {
+  expect(Routines.timed([routine({ $: "daily", at: "09:00" })])).toBe(true);
+  expect(Routines.timed([routine({ $: "every", hours: 3 }, { on: false }), routine({ $: "weekly", day: 5, at: "09:00" })])).toBe(true);
+  expect(Routines.timed([routine({ $: "daily", at: "09:00" }, { on: false })])).toBe(false);
+  expect(Routines.timed([routine({ $: "review" })])).toBe(false);
+  expect(Routines.timed([])).toBe(false);
+});
