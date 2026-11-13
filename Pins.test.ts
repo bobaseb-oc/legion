@@ -162,12 +162,12 @@ test("search reads a long log in steps: the event loop runs meanwhile, and a sea
   const mem = Memory.load(DIR + "/long", () => SHARE);
   mem.hold[0] = "held";
   Memory.push(mem, Array.from({ length: 3000 }, (_, k) => ({ kind: "user" as const, text: "line " + k })));
-  let ticks = 0;
-  const timer = setInterval(() => ticks++, 0);
-  const found = await Memory.find(mem, "line 0");
-  clearInterval(timer);
+  // what was queued as it began has run by the time it answers
+  let ran = false;
+  setImmediate(() => (ran = true));
+  const [found, before] = await Memory.find(mem, "line 0").then((f) => [f, ran] as const);
   expect(found.hits.map((h) => h.i)).toEqual([0]);
-  expect(ticks).toBeGreaterThan(0);
+  expect(before).toBe(true);
   let asked = 0;
   const cut = await Memory.find(mem, "line 0", () => ++asked < 10);
   expect(cut.hits).toEqual([]);
@@ -219,6 +219,7 @@ test("the server: a pin is a view's act, checked; the state tells it; no agent t
   expect(out.device).toMatch(/web/);
   expect(out.bad.every((e: string | null) => typeof e === "string")).toBe(true);
   expect(out.bad[1]).toMatch(new RegExp("No message " + (out.at + 99)));
+  expect([out.bad[0], out.bad[2], out.bad[3]].every((e: string) => e.startsWith("No pin"))).toBe(true); // the act's shape, checked before Memory's
   expect(out.off).toEqual({});
   expect(out.pins).toEqual([]);
   expect(out.tools.length).toBeGreaterThan(5);
