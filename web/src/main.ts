@@ -123,6 +123,9 @@ const C = {
   pal     : 0, // the palette's pick
   doc     : null as string | null, // the transcript picked
   reading : new Map<string, number>(), // transcripts asked to be summarized, not yet: since when
+  away    : null as Cockpit.Seen | null, // the look Home's away card counts from (away_active)
+  awayed  : false, // the away card drawn on Home, its look kept till Got it or Home is left
+  left    : 0, // when the user's look was last kept
 };
 
 function $<T extends HTMLElement>(sel: string): T {
@@ -335,6 +338,77 @@ function signed(): void {
   BOX.removeAttribute("autocomplete");
   BOX.value = sessionStorage.getItem(kept("draft")) ?? "";
   BOX.dispatchEvent(new Event("input"));
+  C.away = away_back();
+  document.addEventListener("pointerdown", () => away_active(false));
+  document.addEventListener("keydown", () => away_active(false));
+  document.addEventListener("visibilitychange", () => (document.hidden ? away_keep() : away_active(true)));
+}
+
+// While you were away
+// ===================
+// The user's last look is kept in this browser (kept("away-seen"): when,
+// each agent's status; Cockpit.away_seen), each time they act (at most a
+// minute apart) and when the tab is hidden. Home's card counts from the
+// look kept before they acted again (C.away), and holds it once drawn,
+// till Got it or Home is left: back on Home, it is gone.
+
+function away_read(): Cockpit.Seen | null {
+  const s = localStorage.getItem(kept("away-seen"));
+  const seen: unknown = s === null ? null : JSON.parse(s);
+  return typeof seen === "object" && seen !== null && typeof (seen as Cockpit.Seen).at === "number" && typeof (seen as Cockpit.Seen).crew === "object" ? seen as Cockpit.Seen : null;
+}
+
+// the look now kept (none before the view came: its agents unknown)
+function away_keep(): void {
+  if (P.guest || !v.up) {
+    return;
+  }
+  C.left = Date.now();
+  localStorage.setItem(kept("away-seen"), JSON.stringify(Cockpit.away_seen(v, C.left)));
+}
+
+// the look kept last, if the user has been away since (AWAY or more)
+function away_back(): Cockpit.Seen | null {
+  const was = away_read();
+  return was !== null && Date.now() - was.at >= Cockpit.AWAY ? was : null;
+}
+
+// the user acts (or comes back to the tab: now): back from away, the card
+// (if not drawn) counts from the look kept last; this look then kept
+function away_active(now: boolean): void {
+  if (!now && Date.now() - C.left < 60e3) {
+    return;
+  }
+  const back = C.awayed ? null : away_back();
+  away_keep();
+  if (back !== null) {
+    C.away = back;
+    if (C.page === "home") {
+      draw(true);
+    }
+  }
+}
+
+// Home's card: what happened since C.away (the inbox's rows changed since
+// it was last entered, its kept stamps), now drawn
+function away_now(): Cockpit.Away | null {
+  if (C.away === null) {
+    return null;
+  }
+  const now = Date.now();
+  const stamps = localStorage.getItem(kept("inbox-seen"));
+  const inbox = stamps === null ? 0 : Cockpit.inbox_changed(Cockpit.inbox_sections(v.inbox, v.crew, "", now), JSON.parse(stamps));
+  const away = Cockpit.away(v, C.away, now, inbox);
+  C.awayed ||= away !== null;
+  return away;
+}
+
+// the card done with (Got it, or Home left after it was drawn): the look
+// it counts from is now
+function away_done(): void {
+  C.awayed = false;
+  C.away = null;
+  away_keep();
 }
 
 function submit(): void {
@@ -1240,6 +1314,9 @@ function page_bars(mode: View.Mode): boolean {
   $("#page").hidden = !page;
   $("#log").hidden = page;
   $("#pfilter").hidden = mode !== "inbox";
+  if (C.awayed && mode !== "home") {
+    away_done(); // Home left after its away card was read: back there, it is gone
+  }
   if (!page) {
     C.page = "";
     $("#picks").hidden = true;
@@ -1273,7 +1350,7 @@ function page_bars(mode: View.Mode): boolean {
   } else if (mode === "home") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
-    markup($("#page .pbody"), Pages.home_html(v, new Date()));
+    markup($("#page .pbody"), Pages.home_html(v, new Date(), away_now()));
   } else {
     $("#picks").hidden = true;
     markup($("#page .ptop"), [`<div class="phead"><h2>${mode[0].toUpperCase() + mode.slice(1)}</h2></div>`]);
@@ -1450,6 +1527,10 @@ function page_click(ev: MouseEvent): void {
   // the side columns put away, or back
   if (el.closest("[data-new-agent]") !== null) {
     new_agent();
+  }
+  // Got it: the away card gone, the user's look now
+  if (el.closest("[data-away-seen]") !== null) {
+    away_done();
   }
   if (el.closest("[data-focus]") !== null) {
     document.body.classList.toggle("focus");

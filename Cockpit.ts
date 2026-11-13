@@ -5,7 +5,7 @@
 // filtered, and what changed since the user looked.
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
-import { view_needs, view_questions, type Act, type Crew, type View } from "./View.ts";
+import { view_needs, view_notes, view_questions, type Act, type Crew, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -223,6 +223,56 @@ export function home_apps(v: View): { inbox: string; questions: string; routines
 // the inbox's notifications, newest first, the 12 last
 export function home_activity(v: View): Note[] {
   return [...(v.inbox?.notes ?? [])].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+}
+
+// While you were away
+// ===================
+// Home's card when the user comes back: what happened since their last
+// look (main.ts keeps it in the browser, kept("away-seen")), worked out
+// here from the view, no model asked. Questions and notes only counted:
+// their text is the Questions pane's.
+
+// away this long, the card shows; the most agents (and routines) it lists
+export const AWAY = 2 * 3600e3;
+export const AWAY_LIST = 5;
+
+// a look: when, each agent's status then
+export type Seen = { at: number; crew: Record<string, Crew["status"]> };
+// an agent done or failed since (why: its report's last line, if told)
+export type AwayAgent = { name: string; title: string; status: "done" | "failed"; why: string };
+// how long away; the agents (failed first, capped; more: the rest), how
+// many done and failed; the routines run; new open questions, new notes
+// and the inbox's rows changed, counted
+export type Away = { span: string; agents: AwayAgent[]; more: number; done: number; failed: number; routines: string[]; questions: number; notes: number; inbox: number };
+
+// the look the user leaves now
+export function away_seen(v: View, now: number): Seen {
+  return { at: now, crew: Object.fromEntries(v.crew.map((c) => [c.name, c.status])) };
+}
+
+// what happened since the look (none kept, the first look; or away less
+// than AWAY; or nothing: none): Unii's own agents done, any agent failed,
+// each only if not so at the look; inbox: the rows changed (inbox_changed)
+export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away | null {
+  if (seen === null || now - seen.at < AWAY) {
+    return null;
+  }
+  const fresh = (c: Crew) => seen.crew[c.name] !== c.status;
+  const why = (c: Crew) => (v.pulses.get(c.name)?.last ?? "").split("\n")[0].trim();
+  const failed = v.crew.filter((c) => c.status === "failed" && fresh(c)).map((c): AwayAgent => ({ name: c.name, title: c.title ?? c.name, status: "failed", why: why(c) }));
+  const done = v.crew.filter((c) => c.status === "done" && c.parent === "main" && fresh(c)).map((c): AwayAgent => ({ name: c.name, title: c.title ?? c.name, status: "done", why: "" }));
+  const agents = [...failed, ...done];
+  const ran = (v.routines ?? []).filter((r) => r.last !== null && r.last > seen.at).map((r) => r.name);
+  const after = (q: { date: string }) => Date.parse(q.date) > seen.at;
+  const questions = view_questions(v).filter(after).length;
+  const notes = view_notes(v).filter(after).length;
+  if (agents.length + ran.length + questions + notes + inbox === 0) {
+    return null;
+  }
+  return {
+    span: age(now - seen.at), agents: agents.slice(0, AWAY_LIST), more: Math.max(0, agents.length - AWAY_LIST), done: done.length, failed: failed.length,
+    routines: ran.slice(0, AWAY_LIST), questions, notes, inbox,
+  };
 }
 
 // Sidebar, bar, palette

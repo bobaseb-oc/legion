@@ -225,3 +225,58 @@ test("the palette: pages, commands, agents and inbox PRs; the words typed filter
   v.crew.push(agent("T", "working", { title: "Inbox triage" }));
   expect(Cockpit.palette(v, "inbox").map((i) => i.label)).toEqual(["Inbox", "Inbox triage", "Refresh the inbox"]); // starting so first
 });
+
+// While you were away (Cockpit.away): away at least AWAY since the last
+// look and something happened since: the agents done (Unii's own) or
+// failed (any, its last line why), the routines run, new open questions
+// and notes only counted (their text is the Questions pane's), the inbox's
+// rows changed; lists capped; else nothing to show
+test("away: only after AWAY since the last look, and only if something happened", () => {
+  const v = View.view_new();
+  v.crew = [agent("A", "done")];
+  const seen = (at: number, crew: Record<string, View.Status> = {}): Cockpit.Seen => ({ at, crew });
+  expect(Cockpit.away(v, null, NOW)).toBeNull(); // the first look: nothing called new
+  expect(Cockpit.away(v, seen(NOW - Cockpit.AWAY + 60e3), NOW)).toBeNull(); // not away long enough
+  expect(Cockpit.away(v, seen(NOW - Cockpit.AWAY), NOW)?.agents.map((a) => a.name)).toEqual(["A"]);
+  expect(Cockpit.away(v, seen(NOW - 3 * 3600e3, { A: "done" }), NOW)).toBeNull(); // done already when last looked
+  expect(Cockpit.AWAY).toBe(2 * 3600e3);
+  expect(Cockpit.away_seen(v, NOW)).toEqual({ at: NOW, crew: { A: "done" } });
+});
+
+test("away: agents failed first (why: its last line), then done; capped with a count of the rest", () => {
+  const v = View.view_new();
+  const at = NOW - 5 * 3600e3;
+  v.crew = [
+    agent("W", "working"), agent("S", "stopped"), agent("Sub", "done", { parent: "M1" }), agent("Old", "done"),
+    agent("F", "failed", { parent: "M1", title: "fix <ci>" }),
+    ...["D1", "D2", "D3", "D4", "D5"].map((n) => agent(n, "done", { title: "task " + n })),
+  ];
+  v.pulses.set("F", { $: "pulse", name: "F", status: "failed", act: "", last: "tests red\nmore" });
+  const a = Cockpit.away(v, { at, crew: { Old: "done", F: "working" } }, NOW)!;
+  expect(a.span).toBe("5h");
+  expect(a.done).toBe(5);
+  expect(a.failed).toBe(1);
+  expect(a.agents[0]).toEqual({ name: "F", title: "fix <ci>", status: "failed", why: "tests red" });
+  expect(a.agents.map((x) => x.name)).toEqual(["F", "D1", "D2", "D3", "D4"]);
+  expect(a.agents.length).toBe(Cockpit.AWAY_LIST);
+  expect(a.more).toBe(1);
+});
+
+test("away: routines run since, questions and notes counted only (never their text), the inbox's changes", () => {
+  const v = View.view_new();
+  const at = NOW - 3 * 3600e3;
+  const routine = (id: number, last: number | null) => ({ id, name: "r<" + id + ">", task: "t", when: { $: "review" as const }, tier: "worker" as const, on: true, last, made: 0 });
+  v.routines = [routine(1, NOW - 3600e3), routine(2, at - 60e3), routine(3, null)];
+  const q = (id: number, date: number, fyi?: true) => ({ id, text: "secret question " + id, at: 0, date: new Date(date).toISOString(), ...(fyi ? { fyi } : {}) });
+  v.questions = [q(1, at - 60e3), q(2, NOW - 60e3), q(3, NOW - 120e3), q(4, NOW - 60e3, true)];
+  const a = Cockpit.away(v, { at, crew: {} }, NOW, 4)!;
+  expect(a.routines).toEqual(["r<1>"]);
+  expect(a.questions).toBe(2);
+  expect(a.notes).toBe(1);
+  expect(a.inbox).toBe(4);
+  expect(JSON.stringify(a)).not.toContain("secret question");
+  v.routines = [];
+  v.questions = [q(1, at - 60e3)];
+  expect(Cockpit.away(v, { at, crew: {} }, NOW, 0)).toBeNull(); // nothing new since
+  expect(Cockpit.away(v, { at, crew: {} }, NOW, 2)?.inbox).toBe(2); // the inbox alone is something
+});

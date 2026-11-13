@@ -126,9 +126,30 @@ function card_html(c: Cockpit.Card): string {
 
 const KIND_MARK: Record<string, string> = { review: "◎", assign: "▣", mention: "@", ci: "✗", security: "⚠", other: "•" };
 
+// While you were away (Cockpit.away): how long, the agents done or failed
+// (a failed one's why), the routines run, links to what is counted (the
+// questions' and notes' text stays in the Questions pane); Got it marks
+// it seen (main.ts reads data-away-seen)
+export function away_html(a: Cockpit.Away): string {
+  const n = (k: number, one: string, many = one + "s") => k + " " + (k === 1 ? one : many);
+  const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
+  const head = `<div class="awh"><b>While you were away</b><span class="meta">${esc([a.span, ...counts].join(" · "))}</span><button class="pbtn" data-away-seen title="hide this till you are away again">Got it</button></div>`;
+  const agent = (x: Cockpit.AwayAgent) => `<a class="awa ${x.status}" href="#crew/${esc(encodeURIComponent(x.name))}"><span class="mk">${MARK[x.status]}</span><span class="t">${esc(x.title)}</span>`
+    + `${x.why === "" ? "" : `<span class="meta">${esc(x.why)}</span>`}</a>`;
+  const more = a.more === 0 ? "" : `<a class="meta" href="#crew">+${a.more} more</a>`;
+  const ran = a.routines.length === 0 ? "" : `<p class="meta">Routines ran: ${esc(a.routines.join(", "))}</p>`;
+  const links = [
+    a.questions === 0 ? "" : `<a href="#chat">${n(a.questions, "new question")}</a>`,
+    a.notes === 0 ? "" : `<a href="#chat">${n(a.notes, "new note")}</a>`,
+    a.inbox === 0 ? "" : `<a href="#inbox">${n(a.inbox, "inbox change")}</a>`,
+  ].filter((x) => x !== "");
+  return `<section class="away">${head}${a.agents.map(agent).join("")}${more}${ran}${links.length === 0 ? "" : `<p class="awl">${links.join(" · ")}</p>`}</section>`;
+}
+
 // Home: the head (date, greeting, who needs the user; New agent, Focus),
-// the stats, Unii's agents working then done, the apps, the activity
-export function home_html(v: View.View, now: Date): string[] {
+// the card of what happened while away (if any), the stats, Unii's
+// agents working then done, the apps, the activity
+export function home_html(v: View.View, now: Date, away: Cockpit.Away | null = null): string[] {
   const day = now.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
   const head = `<div class="phead home"><p class="meta">${esc(day)}</p><h2>${esc(Cockpit.home_greeting(now))}</h2><p class="meta">${esc(Cockpit.home_line(v))}</p>`
     + `<button class="pbtn" data-new-agent title="start an agent on a task (/agent)">New agent</button><button class="pbtn" data-focus title="hide the side columns">Focus</button></div>`;
@@ -147,7 +168,7 @@ export function home_html(v: View.View, now: Date): string[] {
   const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
     + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}</section>`
     + `<section><h3>Activity</h3>${Cockpit.home_activity(v).map((n) => `<a class="act" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc(n.title)}</span><span class="meta">${esc(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
-  return [head, stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
+  return [head, ...(away === null ? [] : [away_html(away)]), stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 
 // the agents with files to show (Files), the timesheet drafts waiting for
