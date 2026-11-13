@@ -90,6 +90,22 @@ test("the focus card: the agent in focus with its actions, or Unii's chat", () =
   expect(Html.focus_html(v)).not.toContain("Stop");
 });
 
+// the focus card's Undo last turn (only once the agent is no longer at
+// work; the page asks to confirm) and Open in Claude Code; the acts they
+// make go to the server as the user's
+test("the focus card: Undo last turn when not at work, Open in Claude Code always", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Run", "main", "working"), crew("Done", "main", "done")] });
+  View.view_act(v, { $: "Goto", name: "Run" });
+  expect(Html.focus_html(v)).not.toContain(act({ $: "Undo", name: "Run" }));
+  expect(Html.focus_html(v)).toContain(act({ $: "Handoff", name: "Run" }));
+  View.view_act(v, { $: "Goto", name: "Done" });
+  expect(Html.focus_html(v)).toContain(act({ $: "Undo", name: "Done" }) + '">Undo last turn</button>');
+  expect(Html.focus_html(v)).toContain(act({ $: "Handoff", name: "Done" }) + '">Open in Claude Code</button>');
+  expect(View.view_act(v, { $: "Undo", name: "Done" })).toEqual([{ $: "undo", name: "Done" }]);
+  expect(View.view_act(v, { $: "Handoff", name: "Done" })).toEqual([{ $: "handoff", name: "Done" }]);
+});
+
 // a row's activity line: at work, what it does now; else its report's
 // last line; escaped
 test("a tree row shows its pulse: what it does at work, its last line done", () => {

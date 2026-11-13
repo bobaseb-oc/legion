@@ -137,6 +137,7 @@ type Chat = {
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
   looks?: Set<string>; // the looks asked of the devices, not yet answered (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
+  dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
 };
 
 // a chat as it moves to another process (Chat.move): its user (an id:
@@ -1418,6 +1419,13 @@ export namespace Chat {
       case "looked": {
         return Chat.looked(chat, device, msg);
       }
+      case "undo":
+      case "handoff": {
+        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""));
+      }
+      case "did": {
+        return Chat.did(chat, device, msg);
+      }
       case "fetch": {
         if (Tools.opened(chat.tools).length === 0) {
           return { error: "No device is up to read the inbox: open a terminal (legion), or run legion device (legion device --install keeps one running)." };
@@ -1677,6 +1685,44 @@ export namespace Chat {
     Chat.change(chat);
     const sent = chat.mem.drafts.filter((d) => ns.includes(d.n) && d.state === "sent").length;
     Chat.note(chat, "Timesheet: " + sent + " of " + ns.length + " entries submitted to Harvest" + (sent < ns.length ? "; the rest failed (the Timesheet page says why)." : "."));
+    return {};
+  }
+
+  // the Crew view's Undo last turn (an agent not at work) and Open in
+  // Claude Code (its brief: Tools.handoff), the user's acts (no agent has
+  // a tool for them), to ONE live terminal of the agent's device (each
+  // would undo again, or open a window); none known: any device's, for a
+  // handoff. The device checks its own roots (Device.device_undo, _handoff)
+  export function crew_op(chat: Chat, id: string, op: "undo" | "handoff", name: string): Answer {
+    const agent = chat.tools.agents.get(name);
+    if (agent === undefined) {
+      return { error: "No agent " + name.slice(0, 64) + "." };
+    }
+    if (op === "undo" && Tools.working(chat.tools).includes(agent)) {
+      return { error: name + " is at work: stop it first, then undo its last turn." };
+    }
+    if (op === "undo" && agent.device === undefined) {
+      return { error: name + " changed nothing on a device: nothing to undo." };
+    }
+    const devices = Tools.opened(chat.tools).filter(([d]) => agent.device === undefined || d === agent.device);
+    const link = devices.flatMap(([, d]) => [...d.terms.values()]).find((l) => l.live?.() !== false);
+    if (link === undefined) {
+      return { error: agent.device === undefined ? "No device is up: open a terminal (legion), or run legion device." : agent.device + " is gone: open a terminal (legion) there, or run legion device." };
+    }
+    (chat.dids ??= new Set()).add(id);
+    link.send(op === "undo" ? { $: "undo", id, agent: name } : { $: "handoff", id, agent: name, brief: Tools.handoff(agent) });
+    return {};
+  }
+
+  // a device's answer to an undo or a handoff sent it: only a device's,
+  // once, a note in the chat (so Unii knows the user undid an agent)
+  export function did(chat: Chat, device: string, msg: any): Answer {
+    const id = String(msg?.id ?? "");
+    if (device === "" || !chat.dids?.delete(id)) {
+      return { error: "No undo or handoff " + id.slice(0, 40) + " waits for a device's answer." };
+    }
+    const text = typeof msg.text === "string" ? msg.text : "Not done: " + String(msg.error ?? "no answer").slice(0, 300);
+    Chat.note(chat, text.slice(0, 600));
     return {};
   }
 

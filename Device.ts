@@ -17,6 +17,7 @@ import { Google } from "./Google.ts";
 import { Harvest, type Creds, type New } from "./Harvest.ts";
 import * as Inbox from "./Inbox.ts";
 import { Machine, type Job } from "./Machine.ts";
+import * as Undo from "./Undo.ts";
 import * as View from "./View.ts";
 
 // a job running here: its stop, its send to the background (a shell's),
@@ -25,8 +26,10 @@ export type Run = { abort: AbortController; away: AbortController; name: string 
 
 // where jobs work (the device's work dir; its home repo, Unii's own),
 // whether it does computer use, what runs a job (Machine.run; a test's),
-// the repos the cockpit shows (its spaces: UNII_SPACES; none: the home repo)
-export type Rules = { work: string; home?: string; computer: boolean; run?: typeof Machine.run; spaces?: string[] };
+// the repos the cockpit shows (its spaces: UNII_SPACES; none: the home repo),
+// where it keeps the undo list and Claude Code briefs (state: $UNII_DIR,
+// else ~/.unii; a test's)
+export type Rules = { work: string; home?: string; computer: boolean; run?: typeof Machine.run; spaces?: string[]; state?: string };
 
 export const NO_COMPUTER = "This device does no computer use (UNII_COMPUTER=1 lets it).";
 
@@ -55,6 +58,7 @@ export async function device_run(jobs: Map<string, Run>, id: string, job: Job, r
   const away  = new AbortController();
   jobs.set(id, { abort, away, name: job.name });
   const run  = rules.run ?? Machine.run;
+  await device_snap(rules, job);
   const out  = job.name === "computer" && !rules.computer ? { text: NO_COMPUTER, fail: true } : await run(job, rules.work, abort.signal, away.signal, rules.home);
   const size = Buffer.byteLength(JSON.stringify(out));
   const most = View.FRAME - 1024;
@@ -673,6 +677,179 @@ async function look_git(rules: Rules, what: View.Look & { kind: "git" }): Promis
   return { path: dir, op: String(what.op), text: r.out.slice(0, LOOK_BYTES) };
 }
 
+// Undo and handoff
+// ----------------
+// An agent's turn snapshotted before its first change (device_snap), its
+// last one undone by the user (device_undo), its work handed to Claude Code
+// in a terminal (device_handoff): only in repos under the roots
+// (look_under), never the home dir, only where git may run
+// (device_trusted). Undo.ts does the git.
+
+// where the undo list and Claude Code's briefs are kept
+function state(rules: Rules): string {
+  return rules.state ?? home(process.env.UNII_DIR ?? "~/.unii");
+}
+
+// the turns snapshotted here, by agent, repo and turn (one each), and the
+// most kept before they are let go
+const SNAPPED = new Set<string>();
+const SNAPPED_MOST = 2000;
+
+// a repo an agent may be undone or handed off in: its real path, under the
+// roots, not the home dir; else why not
+function device_place(rules: Rules, repo: string): string | { why: string } {
+  const real = look_under(rules, repo);
+  if (typeof real !== "string") {
+    return real;
+  }
+  return real === real_or_none(os.homedir()) ? { why: real + " is the home dir: not undone nor handed off there." } : real;
+}
+
+// before a job that may change files (its snap: its agent's turn), each
+// repo it changes (a write's or an edit's files', a shell's dir's)
+// snapshotted, once a turn; never throws, never refuses the job
+export async function device_snap(rules: Rules, job: Job): Promise<void> {
+  const turn = job.snap;
+  const agent = String(job.cwd);
+  if (!Number.isSafeInteger(turn) || turn! <= 0 || agent === "main" || !Undo.NAME.test(agent)) {
+    return;
+  }
+  try {
+    const cwd = Machine.dir(job, rules.work, rules.home);
+    const input = job.input ?? {};
+    const paths = job.name === "write" ? [path.resolve(cwd, String(input.path))]
+      : job.name === "edit" ? (Array.isArray(input.edits) ? input.edits : []).map((e: any) => path.resolve(cwd, String(e?.path)))
+      : job.name === "shell" ? [cwd] : [];
+    const tops = new Set(paths.map((p: string) => Undo.undo_top(device_git, p)).filter((t: string | null): t is string => t !== null));
+    for (const top of tops) {
+      const key = agent + "\0" + top + "\0" + turn;
+      if (SNAPPED.has(key)) {
+        continue;
+      }
+      if (SNAPPED.size >= SNAPPED_MOST) {
+        SNAPPED.clear();
+      }
+      SNAPPED.add(key);
+      if (typeof device_place(rules, top) !== "string" || !await device_trusted(top, exec)) {
+        continue;
+      }
+      if (Undo.undo_snap(device_git, top, Undo.undo_ref("undo", agent, turn!)) !== null) {
+        Undo.undo_log(state(rules), agent, top);
+        Undo.undo_prune(device_git, top, "undo", agent);
+      }
+    }
+  } catch (err: any) {
+    console.error("snapshot for " + agent + ": " + String(err?.message ?? err));
+  }
+}
+
+// the repos an agent snapshotted that are still here, each checked
+// (device_place); a string: why not
+function device_repos(rules: Rules, agent: string): string[] | string {
+  const tops: string[] = [];
+  for (const repo of Undo.undo_repos(state(rules), agent).filter((r) => fs.existsSync(r))) {
+    const at = device_place(rules, repo);
+    if (typeof at !== "string") {
+      return at.why;
+    }
+    tops.push(at);
+  }
+  return tops;
+}
+
+// the user's undo of an agent's last turn: every repo it snapshotted then
+// put back (Undo.undo_restore), each checked before any changes
+export async function device_undo(rules: Rules, id: string, agent: string): Promise<View.Client> {
+  const no = (why: string): View.Client => ({ $: "did", id, error: why.slice(0, 300) });
+  if (!Undo.NAME.test(agent)) {
+    return no("Not an agent's name.");
+  }
+  try {
+    const tops = device_repos(rules, agent);
+    if (typeof tops === "string") {
+      return no(tops);
+    }
+    const last = tops.map((top) => [top, Undo.undo_refs(device_git, top, "undo", agent).at(-1) ?? 0] as const);
+    const turn = Math.max(0, ...last.map(([, t]) => t));
+    const targets = last.filter(([, t]) => t === turn && turn > 0).map(([top]) => top);
+    if (targets.length === 0) {
+      return no("Nothing to undo for " + agent + ": no snapshot of its turns is left here.");
+    }
+    const ref = Undo.undo_ref("undo", agent, turn);
+    for (const top of targets) {
+      const why = !await device_trusted(top, exec) ? top + ": not run: not this user's, or its git config names a filter or textconv driver." : Undo.undo_check(device_git, top, ref);
+      if (why !== null) {
+        return no(why);
+      }
+    }
+    const now = Date.now();
+    const said = targets.map((top) => {
+      const r = Undo.undo_restore(device_git, top, ref, agent, now);
+      return typeof r === "string" ? r : path.basename(top) + ": " + r.restored + " files restored, " + r.deleted + " deleted";
+    });
+    return { $: "did", id, text: "Undid " + agent + "'s last turn. " + said.join("; ") + ". The tree before the undo is kept as " + Undo.undo_ref("redo", agent, now) + "." };
+  } catch (err: any) {
+    return no(String(err?.message ?? err));
+  }
+}
+
+// a string as one sh word: single-quoted, its quotes closed and escaped
+function sh_word(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+// an agent's work handed to Claude Code: in the repo it last snapshotted
+// (else its work dir), a terminal running `claude` primed with the brief
+// (the server's: its title, todo, repos, last words). The brief goes to a
+// 0600 file; a 0700 .command script reads it (nothing of the agent's is
+// in the script; the paths in it single-quoted), deletes both, and runs
+// claude in the dir. launch: opens the script (term_open; a test's)
+export const BRIEF_MOST = 16_000;
+export async function device_handoff(rules: Rules, id: string, agent: string, brief: string, launch: (script: string) => Promise<string> = term_open): Promise<View.Client> {
+  const no = (why: string): View.Client => ({ $: "did", id, error: why.slice(0, 300) });
+  if (!Undo.NAME.test(agent)) {
+    return no("Not an agent's name.");
+  }
+  if (typeof brief !== "string" || brief === "" || brief.length > BRIEF_MOST) {
+    return no("A brief of at most " + BRIEF_MOST + " characters is needed.");
+  }
+  try {
+    const raw = Undo.undo_repos(state(rules), agent).filter((r) => fs.existsSync(r)).at(-1)
+      ?? [path.join(home(rules.work), agent), home(rules.work)].find((d) => fs.existsSync(d))!;
+    const dir = device_place(rules, raw);
+    if (typeof dir !== "string") {
+      return no(dir.why);
+    }
+    const at = path.join(state(rules), "handoff");
+    fs.mkdirSync(at, { recursive: true, mode: 0o700 });
+    fs.chmodSync(at, 0o700);
+    const stem = path.join(at, agent + "-" + Date.now() + "-" + crypto.randomUUID().slice(0, 8));
+    const file = stem + ".md";
+    const script = stem + ".command";
+    fs.writeFileSync(file, brief, { mode: 0o600, flag: "wx" });
+    const lines = [
+      "#!/bin/sh",
+      "cd -- " + sh_word(dir) + " || exit 1",
+      "brief=\"$(cat -- " + sh_word(file) + ")\" || exit 1",
+      "rm -f -- " + sh_word(file) + " " + sh_word(script),
+      "exec claude \"$brief\"",
+    ];
+    fs.writeFileSync(script, lines.join("\n") + "\n", { mode: 0o700, flag: "wx" });
+    return { $: "did", id, text: "Opened Claude Code on " + agent + "'s work in " + dir + " (" + await launch(script) + ")." };
+  } catch (err: any) {
+    return no(String(err?.message ?? err));
+  }
+}
+
+// a .command script opened in Terminal (macOS's open: no shell)
+async function term_open(script: string): Promise<string> {
+  const proc = Bun.spawn(["open", "-a", "Terminal", script], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  if (await proc.exited !== 0) {
+    throw new Error("Terminal didn't open it: " + (await new Response(proc.stderr).text()).trim().slice(0, 200));
+  }
+  return "Terminal";
+}
+
 // the reads a device does for the cockpit, the terminal's and legion
 // device's alike: the inbox now, every `every` ms (0: never again) and on
 // the server's "fetch"; a transcript's text on its "read". Returns what
@@ -695,6 +872,12 @@ export function device_reads(rules: Rules, send: (msg: View.Client) => void, run
     }
     if (msg.$ === "harvest") {
       void device_harvest(msg.id, msg.entries).then(send);
+    }
+    if (msg.$ === "undo") {
+      void device_undo(rules, msg.id, String(msg.agent)).then(send);
+    }
+    if (msg.$ === "handoff") {
+      void device_handoff(rules, msg.id, String(msg.agent), msg.brief).then(send);
     }
   };
 }
