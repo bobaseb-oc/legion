@@ -741,3 +741,23 @@ pre.code .sha { font: inherit; color: var(--accent); padding: 0; text-decoration
 .fx.here { background: var(--block); }
 p.fx { cursor: default; }
 .fsec { color: var(--soft); }
+
+/* pins: a chat message's 📌 beside its Copy, shown on hover or once pinned */
+.pin { position: absolute; right: 30px; bottom: calc(100% + 4px); z-index: 1; width: 26px; height: 26px; border: 0; border-radius: 6px; background: var(--paper); font-size: 13px; opacity: 0; filter: grayscale(1); cursor: pointer; user-select: none; }
+.pin:hover { background: var(--hover); }
+.msg > .copy + .pin + * { margin-top: 0; }
+.msg:hover > .pin { opacity: .7; }
+.msg.pinned > .pin { opacity: 1; filter: none; }
+.msg.pinned { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* the Memory page: search, pins, the tree's map (Pages.memory_html) */
+.msearch input { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; margin-bottom: 8px; }
+.mhit, .mx { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; font: inherit; font-size: 12.5px; line-height: 1.5; padding: 3px 6px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.mhit:hover, .mx:hover { background: var(--hover); }
+.mhit mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 2px; }
+.mpins, .mmap { margin-top: 14px; }
+.mpins h3, .mmap h3 { margin: 4px 0; font-size: 13px; }
+.mpin { display: flex; align-items: center; }
+.mpin .mhit { flex: 1; white-space: nowrap; }
+.mpin .x { border: 0; background: none; color: var(--soft); cursor: pointer; padding: 0 6px; }
+.mx { white-space: nowrap; padding-left: calc(var(--d, 0) * 16px + 6px); }

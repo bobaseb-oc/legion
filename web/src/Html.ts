@@ -74,7 +74,10 @@ function row_make(row: View.Row): string {
       const tall = ["user", "work"].includes(row.kind) && row.text.length + 80 * row.text.split("\n").length > TALL;
       const fold = tall ? `<div class="clip">${body}</div><details class="more"><summary></summary></details>` : body;
       const who = row.who === "" ? "" : ` data-who="${esc(row.who)}"`;
-      return `<div class="msg ${row.kind}"${at}${who}>${copy}${fold}${pics}</div>`;
+      // a chat message's pin (none on an agent's page: no id); pinned or
+      // not is the state's, marked by main.ts, so the row is made once
+      const pin = row.id === null ? "" : `<button class="pin"${act_html({ $: "Pin", i: row.id })} title="Pin: kept whole in every call's view (again: unpin)">📌</button>`;
+      return `<div class="msg ${row.kind}"${at}${who}>${copy}${pin}${fold}${pics}</div>`;
     }
     case "Cap": {
       return `<p class="cap">${esc(row.text)}</p>`;

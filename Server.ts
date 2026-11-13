@@ -50,7 +50,7 @@ import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
-import { email_ask, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
+import { email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
 import * as config from "./Config.ts";
 import hello_md from "./hello.md" with { type: "text" };
 import app_js from "./web/app.js" with { type: "file" };
@@ -1138,7 +1138,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, pins: chat.mem.pinned };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1253,6 +1253,16 @@ export namespace Chat {
         const parts = Memory.roots(chat.mem.count).map(({ l, i }): Part => [i * 2 ** l, 2 ** l]);
         Chat.teach(chat, sock, parts);
         Chat.send(sock, { $: "root", parts });
+        return {};
+      }
+      // the user's search of their chat (the Memory page): answered at
+      // once, its hits sent as found (Chat.search)
+      case "search": {
+        const q = typeof msg.q === "string" ? msg.q.trim() : "";
+        if (q === "" || q.length > FIND) {
+          return { error: q === "" ? "Search for what?" : "A search is " + FIND + " characters at most." };
+        }
+        void Chat.search(chat, sock, q);
         return {};
       }
       // what the view has in sight: those it hears the deltas and
@@ -1469,8 +1479,43 @@ export namespace Chat {
         Chat.change(chat);
         return {};
       }
+      case "pin": {
+        return Chat.pin(chat, device, msg);
+      }
     }
     return { error: "No act " + msg.$ + "." };
+  }
+
+  // the user's pin of a chat message, or unpin (Memory.pin): a view's act
+  // only, as no agent may pin (a device's socket is within an agent's
+  // reach: refused); i an index, on a boolean; past a cap, refused with why.
+  // State, as a pick is: not recorded
+  export function pin(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Pins are the user's: pin from the web." };
+    }
+    if (!Number.isInteger(msg.i) || typeof msg.on !== "boolean") {
+      return { error: "No pin " + JSON.stringify(msg.i)?.slice(0, 40) + "." };
+    }
+    const why = Memory.pin(chat.mem, msg.i, msg.on);
+    if (why !== null) {
+      return { error: why };
+    }
+    Chat.change(chat);
+    return {};
+  }
+
+  // a socket's search (Memory.find), its hits sent to it; a newer one
+  // of the socket's, or the socket gone, ends it
+  const searches = new WeakMap<Sock, string>();
+  export async function search(chat: Chat, sock: Sock, q: string): Promise<void> {
+    const key = crypto.randomUUID();
+    searches.set(sock, key);
+    const on = () => searches.get(sock) === key && chat.socks.has(sock);
+    const found = await Memory.find(chat.mem, q, on).catch(Chat.fail);
+    if (on() && "hits" in found) {
+      Chat.send(sock, { $: "found", q, ...found });
+    }
   }
 
   // why the user can't start work now (no credit, a balance read first:

@@ -80,7 +80,28 @@ export type State = {
   trouble?  : string | null; // why the last summary failed and asks again (Memory's trouble)
   routines? : Routine[];     // the user's (Routines.ts)
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
+  pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
 };
+
+// a message the user pinned (Memory.pin), kept whole in every call's view:
+// its index, kind, date, its text's head (SHOWN chars), its bytes there
+export type Pin = { i: number; kind: Kind; date: string; text: string; size: number };
+
+// a search's hit (Memory.find): its message's index, kind, date, and a
+// snippet around the match
+export type Hit = { i: number; kind: Kind; date: string; text: string };
+
+// a search asked (the Memory page): its query, its hits (null: not yet
+// answered), whether there were more than FOUND
+export type Found = { q: string; hits: Hit[] | null; more: boolean };
+
+// the most pins, and their bytes in all (they come off the view's 128 KB);
+// a search's query chars and hits at most; a pin's or a hit's text shown
+export const PINS   = 12;
+export const PINNED = 16000;
+export const FIND   = 200;
+export const FOUND  = 50;
+export const SHOWN  = 200;
 
 // an agent of the chat, at work or done (till dismissed): who started it
 // ("main": Unii), what it is, its model, how it is, since when its run
@@ -133,7 +154,7 @@ export type TreeRow = CrewRow & { kids: number; rollup: string; open: boolean };
 export type Mode = "chat" | "crew" | Deck;
 // the cockpit's pages (Cockpit.ts, web/src/Pages.ts): #home, #inbox, ...
 // (not "Page": an agent's page is)
-export const PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet"] as const;
+export const PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
 export type Deck = (typeof PAGES)[number];
 
 // a tile of the Crew grid: an agent Unii started, a dot per agent under
@@ -170,6 +191,10 @@ export type View = State & {
   unfolded  : Set<string>; // the explorer's folders open
   workspaces: string[]; // the explorer's workspaces open, roots each (main.ts keeps them)
   opened    : string | null; // what a device said of the last file opened in an editor
+  roots     : Part[] | null; // the tree's roots (the Memory page's map), as last asked
+  mapped    : Set<string>; // the map's lines open ("id+n")
+  found     : Found | null; // the last search (the Memory page)
+  seek      : number | null; // a message to bring in sight in the chat (Seek), once drawn
   notes : string[];
   tab   : string;
   out   : Post[];
@@ -203,6 +228,7 @@ export type Server =
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
   | { $: "look"; id: string; what: Look }  // to devices: show a file or a repo's git (Device.device_look)
   | { $: "harvest"; id: string; entries: unknown[] } // to one device: post the user's submitted timesheet entries (Device.device_harvest)
+  | { $: "found"; q: string; hits: Hit[]; more: boolean } // a search's hits (Memory.find), to the view that asked
   | Looked;                                 // to views: what a device showed
 
 // the files pane and git tab (K4): what a view asks a device to show, and
@@ -262,7 +288,9 @@ export type Client =
   | { $: "routine"; op: "toggle"; n: number; on: boolean } // routine n on or off
   | { $: "routine"; op: "drop" | "run"; n: number } // routine n dropped, or run now
   | { $: "consent"; n: number; yes: boolean } // a waiting call (auto's reviewer couldn't check it): run it, or not
-  | { $: "plan"; yes: boolean; mode?: Perm; text?: string }; // the plan waiting: approved (then this mode), or sent back with feedback
+  | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
+  | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
+  | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "found"
 
 // an act not answered: with its id, the socket it went by, what its
 // answer does, what a message said (shown while offline: view_tail)
@@ -316,6 +344,11 @@ export type Act =
   | { $: "Workspace"; path: string; on: boolean } // a root opened in the explorer, unfolded, or closed
   | { $: "Bang"; command: string; dir: string }  // a command run in a folder (the Files page's box)
   | { $: "Timesheet"; op: "submit" | "drop"; ns: number[] } // timesheet drafts submitted to Harvest, or dropped (K5)
+  | { $: "Pin"; i: number }                     // a chat message pinned, or unpinned if it is (its pin button, the Memory page)
+  | { $: "Roots" }                              // the tree's roots asked (the Memory page's map)
+  | { $: "Map"; id: number; n: number }         // a map line opened into its two (asked once), or folded
+  | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
+  | { $: "Search"; q: string }                  // the chat searched (the Memory page's box)
 
 // what a page draws, top to bottom
 export type Row =
@@ -464,6 +497,10 @@ export function view_new(): View {
     unfolded  : new Set(),
     workspaces: [],
     opened    : null,
+    roots     : null,
+    mapped    : new Set(),
+    found     : null,
+    seek      : null,
     notes     : [],
     tab       : crypto.randomUUID(),
     out       : [],
@@ -524,6 +561,14 @@ export function view_hear(v: View, msg: Server): Client[] {
     }
     case "root": {
       v.fold = v.fold === null ? null : msg.parts;
+      v.roots = msg.parts;
+      return [];
+    }
+    case "found": {
+      // an older search's answer: dropped
+      if (v.found?.q === msg.q) {
+        v.found = { q: msg.q, hits: msg.hits, more: msg.more };
+      }
       return [];
     }
     case "entry": {
@@ -715,6 +760,46 @@ export function view_act(v: View, act: Act): Client[] {
     case "Source": {
       v.source = act.on;
       return [];
+    }
+    case "Pin": {
+      return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
+    }
+    case "Roots": {
+      return [{ $: "root" }];
+    }
+    case "Map": {
+      // a tree part: n a power of two, id a multiple of it
+      const key = act.id + "+" + act.n;
+      if (!(Number.isInteger(act.id) && act.id >= 0 && act.n >= 2 && Number.isInteger(Math.log2(act.n)) && act.id % act.n === 0)) {
+        return [];
+      }
+      if (v.mapped.delete(key)) {
+        return [];
+      }
+      v.mapped.add(key);
+      return [{ $: "zoom", part: [act.id, act.n] }];
+    }
+    case "Seek": {
+      // the chat's part holding it, then each half holding it, opened
+      // (asked of the server as Open does); past the turn it shows whole
+      const top = v.parts.find(([id, n]) => id <= act.id && act.id < id + n);
+      if (top === undefined) {
+        return [];
+      }
+      v.fold = null;
+      v.seek = act.id;
+      const out: Client[] = [];
+      for (let n = top[1]; n >= 1 && act.id < v.turn; n /= 2) {
+        const id = act.id - (act.id % n);
+        v.open.set(id + "+" + n, true);
+        out.push(...(n > 1 ? [{ $: "zoom" as const, part: [id, n] as Part }] : []));
+      }
+      return out;
+    }
+    case "Search": {
+      const q = act.q.trim().slice(0, FIND);
+      v.found = q === "" ? null : { q, hits: null, more: false };
+      return q === "" ? [] : [{ $: "search", q }];
     }
     case "List": {
       if (v.dirs.has(act.path)) {
@@ -1239,7 +1324,7 @@ export function view_path(text: string): string | null {
 
 // the web's route by its hash, and back
 export function view_route(hash: string): Route {
-  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }

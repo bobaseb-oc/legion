@@ -53,12 +53,20 @@
 // agent's log, docs/agent/<Name>.jsonl, is read as it is, and moves onto
 // a tree (kept beside it) only as the agent logs again: reading one asks
 // no summary.
+//
+// Pins are the user's (Server.ts "pin", a view's act: no agent's tool):
+// messages each turn's view has whole, however old, before its lines
+// (<pinned>), PINS at most, PINNED bytes in all, which come off the chat's
+// view's `high`, so a call still sees the chat in HIGH; kept in view.json.
+// Search is the user's too (find): the messages holding a text, newest
+// first, read STEP at a time between turns of the event loop.
 
 import * as fs from "node:fs";
 import { AskAI, type Ask, type Bill, type Block, type Call, type End as Ended, type Img, type Kind, type Pay, type Say, type Served } from "./AskAI.ts";
 import { clip_page, clip_pages } from "./Clip.ts";
 import { type Mode, Modes } from "./Modes.ts";
-import type { Draft, Question, Summary } from "./View.ts";
+import type { Draft, Hit, Pin, Question, Summary } from "./View.ts";
+import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import type { Routine } from "./Routines.ts";
 import * as config from "./Config.ts";
 import { Disk } from "./Disk.ts";
@@ -111,7 +119,7 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; summaries?: Record<string, Summary> };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; summaries?: Record<string, Summary>; pins?: number[] };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
@@ -151,6 +159,8 @@ export type Memory = {
   drafts : Draft[];  // the timesheet's (Tools.timesheet), drafted: the last one's number
   drafted: number;
   summaries: Record<string, Summary>;
+  pins   : number[]; // the messages the user pinned (Memory.pin), in order; pinned: as views list them
+  pinned : Pin[];
   work   : string[];
   nodes  : Map<number, string>;
   agents : Map<string, Memory>;
@@ -220,6 +230,9 @@ const IMAGES = "/docs/images/";
 
 const AGENTS = "/docs/agent/";
 
+// the messages a search reads between turns of the event loop
+const STEP = 256;
+
 // a compaction's task, before its <input>: one message to compress
 // (level 0), or two lines to merge
 const LEAF = `Compaction: compress message {id} into one line of at most ${NODE} bytes
@@ -243,7 +256,7 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, summaries: {}, work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
     };
@@ -266,6 +279,8 @@ export namespace Memory {
     while (Memory.message(mem, mem.count - 1)?.more) {
       mem.count -= 1;
     }
+    const pins = Array.isArray(saved?.pins) ? saved.pins.filter((i) => Number.isInteger(i) && i >= 0 && i < mem.count) : [];
+    Memory.pins_set(mem, [...new Set(pins)].sort((a, b) => a - b).slice(0, PINS));
     Memory.open(mem, mem.view, saved);
     Memory.open(mem, mem.seen, saved?.seen ?? saved);
     Memory.roots(mem.count).flatMap((part) => Memory.todo(mem, part)).forEach((part) => Memory.ready(mem, part, true));
@@ -296,7 +311,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, summaries: mem.summaries, work: mem.work, ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, summaries: mem.summaries, pins: mem.pins, work: mem.work, ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }
@@ -1096,7 +1111,12 @@ ${Memory.cut(line)}| ← LIMIT`;
       blocks.push({ text: lines.slice(k * BLOCK, (k + 1) * BLOCK).join(""), mark: k === whole - 1 });
     }
     blocks.push({ text: lines.slice(whole * BLOCK).join("") + "</chat>\n", mark: false });
-    return blocks;
+    // the chat's view (not the compactions') opens with the user's pins
+    // before `end` (those after come whole anyway), unmarked: a pin made
+    // is read anew once
+    const pins = parts === mem.view.parts ? mem.pins.filter((i) => i < end) : [];
+    const pinned = pins.map((i) => Memory.pin_line(Memory.message(mem, i)!)).join("");
+    return pins.length === 0 ? blocks : [{ text: "<pinned>\n" + pinned + "</pinned>\n", mark: false }, ...blocks];
   }
 
   export function part(mem: Memory, id: number, n: number): Part | null {
@@ -1231,6 +1251,82 @@ h4 { margin: .8em 0 .2em; color: #888; font-weight: normal; } pre { margin: 0; w
       }
     }
     yield "</section>\n";
+  }
+
+  // Pins
+  // ----
+
+  // a pin as a view has it: its message as models read it, newlines kept
+  export function pin_line(root: Root): string {
+    return root.i + "+1|" + Memory.show(root) + "\n";
+  }
+
+  // the pins set: as views list them, and the chat's view's budget less
+  // their bytes
+  export function pins_set(mem: Memory, pins: number[]): void {
+    const roots = pins.map((i) => Memory.message(mem, i)!);
+    mem.pins = pins;
+    mem.pinned = roots.map((r) => ({ i: r.i, kind: r.kind, date: r.date, text: r.text.slice(0, SHOWN), size: Memory.bytes(Memory.pin_line(r)) }));
+    mem.view.high = HIGH - mem.pinned.reduce((n, p) => n + p.size, 0);
+  }
+
+  // message i pinned (on) or unpinned, as it is already: nothing; null:
+  // done, else why not (no such message, PINS or PINNED passed). The view
+  // merges to its new budget at once
+  export function pin(mem: Memory, i: number, on: boolean): string | null {
+    const root = Memory.message(mem, i);
+    if (root === null) {
+      return "No message " + i + ".";
+    }
+    if (mem.pins.includes(i) === on) {
+      return null;
+    }
+    const size = mem.pinned.reduce((n, p) => n + p.size, 0) + Memory.bytes(Memory.pin_line(root));
+    if (on && mem.pins.length >= PINS) {
+      return "At most " + PINS + " pins: unpin one first.";
+    }
+    if (on && size > PINNED) {
+      return "Pins hold " + PINNED / 1000 + " KB in all, and this one would make " + (size / 1000).toFixed(1) + " KB: unpin one, or pin a shorter message.";
+    }
+    Memory.pins_set(mem, on ? [...mem.pins, i].sort((a, b) => a - b) : mem.pins.filter((k) => k !== i));
+    Memory.fit(mem);
+    Memory.save(mem);
+    return null;
+  }
+
+  // Search
+  // ------
+
+  // the messages whose text holds q, any case, newest first: FOUND at most
+  // (more: there were others), STEP read between turns of the event loop,
+  // till `on` says to stop (a newer search, the view gone)
+  export async function find(mem: Memory, q: string, on: () => boolean = () => true): Promise<{ hits: Hit[]; more: boolean }> {
+    const low = q.toLowerCase();
+    const hits: Hit[] = [];
+    for (let i = mem.count - 1, k = 0; i >= 0; i--, k++) {
+      if (k % STEP === STEP - 1) {
+        await new Promise((ok) => setImmediate(ok));
+      }
+      if (!on()) {
+        break;
+      }
+      const root = Memory.message(mem, i)!;
+      const at = root.text.toLowerCase().indexOf(low);
+      if (at < 0) {
+        continue;
+      }
+      if (hits.length === FOUND) {
+        return { hits, more: true };
+      }
+      hits.push({ i, kind: root.kind, date: root.date, text: Memory.snippet(root.text, at, q.length) });
+    }
+    return { hits, more: false };
+  }
+
+  // a text around its match at `at` (n chars), on one line, a cut marked
+  export function snippet(text: string, at: number, n: number): string {
+    const [a, b] = [Math.max(0, at - 60), Math.min(text.length, at + n + 100)];
+    return (a > 0 ? "…" : "") + Memory.flat(text.slice(a, b)).toWellFormed() + (b < text.length ? "…" : "");
   }
 
   // Agents

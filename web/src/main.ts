@@ -300,6 +300,7 @@ function chat(): void {
   $("#side").addEventListener("click", page_click);
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
+  $("#page").addEventListener("submit", memory_find);
   document.addEventListener("keydown", palette_keys);
   $("#pq").oninput = () => {
     C.pal = 0;
@@ -453,7 +454,12 @@ function click(ev: MouseEvent): void {
     go(path ?? "/");
   }
   if (a !== undefined) {
-    act(JSON.parse(a));
+    const made: View.Act = JSON.parse(a);
+    act(made);
+    // a jump (the Memory page): to the chat, where paint brings it in sight
+    if (made.$ === "Seek") {
+      location.hash = "#chat";
+    }
   }
   if (usd !== undefined) {
     warned(el, () => topup(Number(usd)));
@@ -1026,11 +1032,17 @@ function paint(): void {
   P.frame = 0;
   P.stick = true;
   bars();
+  const redrawn = P.rows;
   if (P.rows) {
     markup($("#log .rows"), View.view_body(v).map(Html.row_html));
     P.rows = false;
   }
   markup($("#log .tail"), View.view_tail(v).map(Html.row_html));
+  pinned(redrawn);
+  if (sought()) {
+    P.shown = shown;
+    return;
+  }
   if (shown !== P.shown) {
     P.shown = shown;
     scrollTo(0, v.fold === null ? doc.scrollHeight : 0);
@@ -1048,6 +1060,36 @@ function paint(): void {
   if (el !== undefined) {
     scrollBy(0, el.getBoundingClientRect().top - at.top);
   }
+}
+
+// the chat's messages the user pinned marked (style.css), the rows made
+// once (Html.row_html) whatever the state says: as rows are drawn anew,
+// or the pins change
+let PINNED = "";
+function pinned(redrawn: boolean): void {
+  const pins = new Set(v.page === null ? (v.pins ?? []).map((p) => String(p.i)) : []);
+  const key = [...pins].join();
+  if (!redrawn && key === PINNED) {
+    return;
+  }
+  PINNED = key;
+  for (const el of document.querySelectorAll<HTMLElement>("#log .rows .msg[data-a]")) {
+    el.classList.toggle("pinned", pins.has(el.dataset.a!));
+  }
+}
+
+// the message a jump asked for (View's Seek), once drawn in the chat:
+// brought in sight and flashed; whether it was
+function sought(): boolean {
+  const el = v.seek === null || v.page !== null ? null : document.querySelector<HTMLElement>(`#log .rows .msg[data-a="${v.seek}"]`);
+  if (el === null) {
+    return false;
+  }
+  v.seek = null;
+  el.scrollIntoView({ block: "center" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1200);
+  return true;
 }
 
 // the header's and the footer's parts that change, and the notes, a
@@ -1274,6 +1316,14 @@ function page_bars(mode: View.Mode): boolean {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), Pages.home_html(v, new Date()));
+  } else if (mode === "memory") {
+    // the tree's roots asked anew each time the page is entered
+    if (C.page !== "memory") {
+      act({ $: "Roots" });
+    }
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    markup($("#page .pbody"), Pages.memory_html(v));
   } else {
     $("#picks").hidden = true;
     markup($("#page .ptop"), [`<div class="phead"><h2>${mode[0].toUpperCase() + mode.slice(1)}</h2></div>`]);
@@ -1385,6 +1435,17 @@ function files_run(ev: SubmitEvent): void {
   act(dir === "" ? { $: "Send", text: "!" + command, images: [] } : { $: "Bang", command, dir });
   box.value = "";
   toast("Running " + command.slice(0, 60) + ": its output comes in the chat.");
+}
+
+// the Memory page's search box sent: the chat searched on the server
+// (an empty one clears the hits)
+function memory_find(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.msearch");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Search", q: form.querySelector("input")!.value });
 }
 
 // the Routines page's form sent: a routine added (the server checks it)

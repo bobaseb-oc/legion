@@ -24,6 +24,9 @@ and again. So recent lines cover one message each, and older lines cover more. A
 message not summarized yet shows as "(not summarized yet: zoom it)". A text too
 long for one message is split over several in a row.
 
+Messages the user pinned come first, whole, inside <pinned> tags, as
+"id+1|kind: text": they matter to the user however old they are.
+
 Tools:
 - zoom(id, n) opens line id+n into the two lines it was made from;
 - zoom(id, 1) gives message id whole, with its images
