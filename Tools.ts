@@ -242,7 +242,8 @@ A summary tags each item with its kind: user (the user's words), unii
 subagent or a computer task, starting "[Name]"). A short message is its own line, word for word. Recent lines
 cover one message each; the older the messages, the more a line covers.
 A message not summarized yet shows as "(not summarized yet: zoom it)".
-No message appears in full, not even the last ones. A text too long for
+No message appears in full, not even the last ones, but those the user
+pinned: they come first, whole, inside <pinned> tags. A text too long for
 one message is split over several in a row.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
