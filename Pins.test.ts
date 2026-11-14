@@ -176,7 +176,7 @@ test("search reads a long log in steps: the event loop runs meanwhile, and a sea
 
 // the server's side: a pin is a view's act (a device's is refused: an
 // agent's reach), checked; the state tells the pins; no agent has a pin
-// tool; a search is a socket's read, checked, answered "found" to it
+// tool; a search is a socket's read, checked, answered "recalled" to it
 const SERVER = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
 const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
@@ -204,8 +204,8 @@ const off = await Chat.act(chat, "p7", { $: "pin", i: at, on: false }, "");
 const tools = Tools.list(chat.tools, "main").map((s) => s.name);
 const asks = [Chat.ask(chat, sock, { $: "search", q: "" }), Chat.ask(chat, sock, { $: "search", q: "x".repeat(201) }), Chat.ask(chat, sock, { $: "search", q: 5 })];
 const asked = Chat.ask(chat, sock, { $: "search", q: " zebra " });
-for (let k = 0; k < 50 && !sent.some((m) => m.$ === "found"); k++) await Bun.sleep(10);
-console.log(JSON.stringify({ at, ok, state, device: device.error ?? null, bad: bad.map((a) => a.error ?? null), off, pins: chat.mem.pins, tools, asks: asks.map((a) => a.error ?? null), asked, found: sent.filter((m) => m.$ === "found") }));
+for (let k = 0; k < 50 && !sent.some((m) => m.$ === "recalled"); k++) await Bun.sleep(10);
+console.log(JSON.stringify({ at, ok, state, device: device.error ?? null, bad: bad.map((a) => a.error ?? null), off, pins: chat.mem.pins, tools, asks: asks.map((a) => a.error ?? null), asked, found: sent.filter((m) => m.$ === "recalled") }));
 process.exit(0);
 `;
 
@@ -226,5 +226,5 @@ test("the server: a pin is a view's act, checked; the state tells it; no agent t
   expect(out.tools.filter((n: string) => /pin/i.test(n))).toEqual([]);
   expect(out.asks.every((e: string | null) => typeof e === "string")).toBe(true);
   expect(out.asked).toEqual({});
-  expect(out.found).toEqual([{ $: "found", q: "zebra", hits: [expect.objectContaining({ i: out.at + 1, kind: "unii", text: "A Zebra <it>" })], more: false }]);
+  expect(out.found).toEqual([{ $: "recalled", q: "zebra", hits: [expect.objectContaining({ i: out.at + 1, kind: "unii", text: "A Zebra <it>" })], more: false }]);
 });

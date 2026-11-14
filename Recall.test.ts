@@ -72,13 +72,13 @@ test("a jump to a message opens the chat's blocks over it, down to it, and marks
 test("search: the query trimmed and capped, asked of the server; its hits drawn escaped, the match marked, each a jump", () => {
   const v = View.view_new();
   expect(View.view_act(v, { $: "Search", q: "  " })).toEqual([]);
-  expect(v.found).toBeNull();
+  expect(v.recall).toBeNull();
   expect(View.view_act(v, { $: "Search", q: " Needle " + "x".repeat(300) })).toEqual([{ $: "search", q: ("Needle " + "x".repeat(300)).slice(0, View.FIND) }]);
   expect(Pages.memory_html(v).join("")).toContain("Searching");
   View.view_act(v, { $: "Search", q: "needle" });
-  View.view_hear(v, { $: "found", q: "other", hits: [{ i: 1, kind: "user", date: DATE, text: "stale" }], more: false });
-  expect(v.found?.hits).toBeNull(); // an older search's answer
-  View.view_hear(v, { $: "found", q: "needle", hits: [{ i: 7, kind: "unii", date: DATE, text: "…a <img src=x onerror=alert(1)> NEEDLE & more…" }], more: true });
+  View.view_hear(v, { $: "recalled", q: "other", hits: [{ i: 1, kind: "user", date: DATE, text: "stale" }], more: false });
+  expect(v.recall?.hits).toBeNull(); // an older search's answer
+  View.view_hear(v, { $: "recalled", q: "needle", hits: [{ i: 7, kind: "unii", date: DATE, text: "…a <img src=x onerror=alert(1)> NEEDLE & more…" }], more: true });
   const html = Pages.memory_html(v).join("");
   expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; <mark>NEEDLE</mark> &amp; more");
   expect(html).not.toContain("<img");
@@ -87,7 +87,7 @@ test("search: the query trimmed and capped, asked of the server; its hits drawn 
   expect(html).toContain("2026-11-13 10:20");
   expect(html).toMatch(/newest 50 shown/);
   expect(html).toContain('value="needle"');
-  View.view_hear(v, { $: "found", q: "needle", hits: [], more: false });
+  View.view_hear(v, { $: "recalled", q: "needle", hits: [], more: false });
   expect(Pages.memory_html(v).join("")).toContain("No message has");
 });
 

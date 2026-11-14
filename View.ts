@@ -93,7 +93,7 @@ export type Hit = { i: number; kind: Kind; date: string; text: string };
 
 // a search asked (the Memory page): its query, its hits (null: not yet
 // answered), whether there were more than FOUND
-export type Found = { q: string; hits: Hit[] | null; more: boolean };
+export type Recall = { q: string; hits: Hit[] | null; more: boolean };
 
 // the most pins, and their bytes in all (they come off the view's 128 KB);
 // a search's query chars and hits at most; a pin's or a hit's text shown
@@ -190,10 +190,14 @@ export type View = State & {
   dirs      : Map<string, Listing>; // the explorer's folders asked of a device, by path (@roots: the roots)
   unfolded  : Set<string>; // the explorer's folders open
   workspaces: string[]; // the explorer's workspaces open, roots each (main.ts keeps them)
-  opened    : string | null; // what a device said of the last file opened in an editor
+  told      : string | null; // what a device said of the last file opened in an editor or saved
+  found     : Found | null; // the last find or search across the workspaces (⌘P, ⌘⇧F)
+  gateway   : Gateway | null; // the server's report of the gateway: its budget, when it was last busy
+  editing   : boolean; // the file shown in an editing box (RED ZONE: saved only as shown)
+  line      : number | null; // the line the file asked was opened at (path:42), marked to scroll to
   roots     : Part[] | null; // the tree's roots (the Memory page's map), as last asked
   mapped    : Set<string>; // the map's lines open ("id+n")
-  found     : Found | null; // the last search (the Memory page)
+  recall    : Recall | null; // the last search of the chat (the Memory page)
   seek      : number | null; // a message to bring in sight in the chat (Seek), once drawn
   notes : string[];
   tab   : string;
@@ -227,22 +231,29 @@ export type Server =
   | { $: "read"; id: string }             // to devices: read that transcript Doc (Device.device_transcript)
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
   | { $: "look"; id: string; what: Look }  // to devices: show a file or a repo's git (Device.device_look)
+  | ({ $: "gateway" } & Gateway)            // to views: the gateway's budget (Gateway.ts) and when the AI service was last busy
   | { $: "harvest"; id: string; entries: unknown[] } // to one device: post the user's submitted timesheet entries (Device.device_harvest)
   | { $: "undo"; id: string; agent: string } // to one device: the agent's last turn undone (Device.device_undo)
   | { $: "handoff"; id: string; agent: string; brief: string } // to one device: Claude Code opened on the agent's work (Device.device_handoff)
-  | { $: "found"; q: string; hits: Hit[]; more: boolean } // a search's hits (Memory.find), to the view that asked
+  | { $: "recalled"; q: string; hits: Hit[]; more: boolean } // a search's hits (Memory.find), to the view that asked
   | Looked;                                 // to views: what a device showed
 
 // the files pane and git tab (K4): what a view asks a device to show, and
 // what it showed (or why not)
-export type Look = { kind: "file"; path: string; agent?: string } | { kind: "git"; repo: string; op: string; rev?: string } | { kind: "dir" | "open"; path: string };
+export type Look = { kind: "file"; path: string; agent?: string; line?: number } | { kind: "git"; repo: string; op: string; rev?: string } | { kind: "dir" | "open"; path: string } | { kind: "find" | "grep"; path: string; q: string } | { kind: "save"; path: string; text: string; base: string };
 export type Harvested = { n: number; id?: number; error?: string };
 // a "dir"'s text: a line an entry, "d name" (a folder), "f name" (a file)
-// or "s name" (a secret's: listed, never shown); "open": what opened it
-export type Looked = { $: "looked"; id: string; kind: LookKind; path?: string; op?: string; text?: string; error?: string };
-export type LookKind = "file" | "git" | "dir" | "open";
+// or "s name" (a secret's: listed, never shown); "open", "save": what was
+// done; "find": a line a file (from the workspace), "grep": file:line:text;
+// q: what was looked for; hash: a file's text's sha256 as shown (a save's base)
+export type Looked = { $: "looked"; id: string; kind: LookKind; path?: string; op?: string; q?: string; hash?: string; text?: string; error?: string };
+export type LookKind = "file" | "git" | "dir" | "open" | "find" | "grep" | "save";
 export type Listing = { text?: string; error?: string }; // a folder's answer; neither: asked, not yet answered
-export const LOOK_KINDS: readonly LookKind[] = ["file", "git", "dir", "open"];
+// budget: this member's daily one (none known: null); busy: when a model
+// last answered busy (ms; 0: not since the server started)
+export type Gateway = { budget: { spend: number; max: number; reset: string | null } | null; busy: number };
+export type Found = { kind: "find" | "grep"; q: string; by: Map<string, Listing> }; // each workspace's answer
+export const LOOK_KINDS: readonly LookKind[] = ["file", "git", "dir", "open", "find", "grep", "save"];
 
 // a message a person sends: its text, its images
 export type Sent = { text: string; images?: Blob[] };
@@ -295,7 +306,7 @@ export type Client =
   | { $: "consent"; n: number; yes: boolean } // a waiting call (auto's reviewer couldn't check it): run it, or not
   | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
-  | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "found"
+  | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
 
 // an act not answered: with its id, the socket it went by, what its
 // answer does, what a message said (shown while offline: view_tail)
@@ -349,6 +360,9 @@ export type Act =
   | { $: "List"; path: string }                  // a folder asked of a device, once (@roots: the roots)
   | { $: "Tree"; path: string }                  // an explorer's folder unfolded (asked once) or folded
   | { $: "Workspace"; path: string; on: boolean } // a root opened in the explorer, unfolded, or closed
+  | { $: "Find"; kind: "find" | "grep"; q: string } // files by name, or lines by text, in every workspace open ("": cleared)
+  | { $: "Edit"; on: boolean }                   // the file shown in an editing box, or not
+  | { $: "Save"; text: string }                  // the file shown saved as edited (RED ZONE), if still as shown
   | { $: "Bang"; command: string; dir: string }  // a command run in a folder (the Files page's box)
   | { $: "Timesheet"; op: "submit" | "drop"; ns: number[] } // timesheet drafts submitted to Harvest, or dropped (K5)
   | { $: "Pin"; i: number }                     // a chat message pinned, or unpinned if it is (its pin button, the Memory page)
@@ -503,10 +517,14 @@ export function view_new(): View {
     dirs      : new Map(),
     unfolded  : new Set(),
     workspaces: [],
-    opened    : null,
+    told      : null,
+    found     : null,
+    gateway   : null,
+    editing   : false,
+    line      : null,
     roots     : null,
     mapped    : new Set(),
-    found     : null,
+    recall    : null,
     seek      : null,
     notes     : [],
     tab       : crypto.randomUUID(),
@@ -536,17 +554,37 @@ export function view_hear(v: View, msg: Server): Client[] {
       v.themes = msg.themes.by;
       return [];
     }
+    case "gateway": {
+      v.gateway = { budget: msg.budget, busy: msg.busy };
+      return [];
+    }
     case "looked": {
       if (msg.kind === "dir") {
         v.dirs.set(msg.path ?? "", msg.error === undefined ? { text: msg.text ?? "" } : { error: msg.error });
         return [];
       }
       if (msg.kind === "open") {
-        v.opened = msg.error ?? msg.text ?? null;
+        v.told = msg.error ?? msg.text ?? null;
         return [];
+      }
+      if (msg.kind === "find" || msg.kind === "grep") {
+        const f = v.found;
+        if (f !== null && f.kind === msg.kind && f.q === msg.q && f.by.has(msg.path ?? "")) {
+          f.by.set(msg.path ?? "", msg.error === undefined ? { text: msg.text ?? "" } : { error: msg.error });
+        }
+        return [];
+      }
+      if (msg.kind === "save") {
+        v.told = msg.error ?? msg.text ?? null;
+        if (msg.error !== undefined || msg.path === undefined) {
+          return [];
+        }
+        v.editing = false;
+        return [{ $: "look", what: { kind: "file", path: msg.path } }];
       }
       v.looked = msg;
       v.source = false;
+      v.editing = false;
       return [];
     }
     case "look":
@@ -571,10 +609,10 @@ export function view_hear(v: View, msg: Server): Client[] {
       v.roots = msg.parts;
       return [];
     }
-    case "found": {
+    case "recalled": {
       // an older search's answer: dropped
-      if (v.found?.q === msg.q) {
-        v.found = { q: msg.q, hits: msg.hits, more: msg.more };
+      if (v.recall?.q === msg.q) {
+        v.recall = { q: msg.q, hits: msg.hits, more: msg.more };
       }
       return [];
     }
@@ -768,10 +806,17 @@ export function view_act(v: View, act: Act): Client[] {
       return [{ $: "themes" }];
     }
     case "Look": {
-      return [{ $: "look", what: act.what }];
+      if (act.what.kind !== "file") {
+        return [{ $: "look", what: act.what }];
+      }
+      // its line kept here, not sent: the file comes whole
+      const { line, ...what } = act.what;
+      v.line = line ?? null;
+      return [{ $: "look", what }];
     }
     case "Source": {
       v.source = act.on;
+      v.line = act.on ? v.line : null; // rendered again: no line to mark
       return [];
     }
     case "Pin": {
@@ -811,7 +856,7 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Search": {
       const q = act.q.trim().slice(0, FIND);
-      v.found = q === "" ? null : { q, hits: null, more: false };
+      v.recall = q === "" ? null : { q, hits: null, more: false };
       return q === "" ? [] : [{ $: "search", q }];
     }
     case "List": {
@@ -827,6 +872,19 @@ export function view_act(v: View, act: Act): Client[] {
       }
       v.unfolded.add(act.path);
       return view_act(v, { $: "List", path: act.path });
+    }
+    case "Find": {
+      const q = act.q.trim();
+      v.found = q === "" ? null : { kind: act.kind, q, by: new Map(v.workspaces.map((w) => [w, {}])) };
+      return v.workspaces.length === 0 || q === "" ? [] : v.workspaces.map((path) => ({ $: "look", what: { kind: act.kind, path, q } }));
+    }
+    case "Edit": {
+      v.editing = act.on;
+      return [];
+    }
+    case "Save": {
+      const l = v.looked;
+      return l?.kind !== "file" || l.path === undefined || l.hash === undefined || l.error !== undefined ? [] : [{ $: "look", what: { kind: "save", path: l.path, text: act.text, base: l.hash } }];
     }
     case "Workspace": {
       v.workspaces = v.workspaces.filter((w) => w !== act.path);
@@ -1180,7 +1238,9 @@ export function view_pill(v: View): string {
 // the web: offline first, the folder Unii works in and its branch, its
 // model, the agents at work, today's LiteLLM spend (Cost.ts; * stale),
 // the mode, the orchestrator's questions open
-export type StatusLine = { up: boolean; dir: string; branch: string | null; model: string; working: number; spend: { spend: number | null; stale: boolean }; questions?: number; mode?: Perm; waiting?: number };
+// budget: the gateway's for this member (Gateway.ts); busy: the AI
+// service answered busy within BUSY_FOR
+export type StatusLine = { up: boolean; dir: string; branch: string | null; model: string; working: number; spend: { spend: number | null; stale: boolean }; questions?: number; mode?: Perm; waiting?: number; budget?: { spend: number; max: number } | null; busy?: boolean };
 
 export function status_text(s: StatusLine): string {
   const usd = (n: number) => (n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2));
@@ -1190,6 +1250,8 @@ export function status_text(s: StatusLine): string {
     s.model,
     ...(s.working === 0 ? [] : [s.working + (s.working === 1 ? " agent" : " agents") + " at work"]),
     ...(s.spend.spend === null ? [] : [usd(s.spend.spend) + (s.spend.stale ? "*" : "") + " today"]),
+    ...(s.budget ? ["gateway $" + Math.round(s.budget.spend) + "/$" + Math.round(s.budget.max)] : []),
+    ...(s.busy ? ["⚠ AI service busy"] : []),
     ...(s.mode === undefined ? [] : [s.mode + " mode"]),
     ...(!s.waiting ? [] : [s.waiting + " waiting for you"]),
     ...(!s.questions ? [] : [s.questions + (s.questions === 1 ? " question" : " questions") + " (/questions)"]),
@@ -1204,7 +1266,13 @@ export function view_status(v: View): string {
     return "";
   }
   const spend = { spend: s.spend, stale: s.stale };
-  return s.device + ": " + status_text({ up: v.up, dir: s.dir, branch: s.branch, model: v.pick?.model ?? "?", working: v.agents.length, spend, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v) });
+  return s.device + ": " + status_text({ up: v.up, dir: s.dir, branch: s.branch, model: v.pick?.model ?? "?", working: v.agents.length, spend, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, Date.now()) });
+}
+
+// whether the AI service answered busy lately (the server's gateway report)
+export const BUSY_FOR = 5 * 60e3;
+export function view_busy(v: View, now: number): boolean {
+  return (v.gateway?.busy ?? 0) > 0 && now - v.gateway!.busy <= BUSY_FOR;
 }
 
 // what waits for the person besides questions: the plan, calls
@@ -1333,6 +1401,12 @@ export function view_path(text: string): string | null {
   }
   const pathy = /^(~|\.{1,2})?\/?[\w.@+-]+(\/[\w.@+-]+)+\/?$/.test(p) || /^[\w.@+-]+$/.test(p);
   return pathy && (p.includes("/") ? /[\w-]\.[\w]+$|\/$/.test(p) || PATH_EXT.test(p) : PATH_EXT.test(p)) ? p : null;
+}
+
+// a path's line, as path:42 or path:42:7 names it; none: null
+export function view_line(text: string): number | null {
+  const m = /:(\d{1,7})(?::\d+)?$/.exec(text.trim());
+  return m === null ? null : Number(m[1]);
 }
 
 // the web's route by its hash, and back
