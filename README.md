@@ -52,6 +52,31 @@ How it works
 - **Every window is a view.** The server owns the chat. A browser tab
   or `legion` in a terminal shows it live, and any of them can send a
   message, stop the work or change the model.
+- **Pins, a map and a search of your memory.** A message's 📌 keeps it
+  whole in every call's view, however old (12 pins, 16 KB, taken from
+  the 128 KB; only you can pin, from the web). The Memory page
+  (#memory) walks the tree from its roots down to each message, and
+  searches the whole chat word for word on the server (no model call,
+  50 hits, newest first).
+- **Undo an agent.** Before an agent's first change in a turn, the
+  device snapshots each repo it changes under the roots as
+  `refs/legion/undo/<agent>/<turn>` (a temporary index: your working
+  tree, index and stash are untouched; untracked files in, ignored and
+  secret ones out; 20 kept per agent and repo). The Crew card's "Undo
+  last turn" puts the files back after asking; the state before is
+  kept as `refs/legion/redo/…`, and it refuses if the agent committed
+  since. "Open in Claude Code" opens Terminal running `claude` in the
+  agent's repo with a brief of its title, todo and last words.
+- **While you were away.** Back after 2 h or more, Home opens with one
+  card: agents done or failed (and why), routines run, and counts of
+  new questions, notes and inbox changes linking to their panes. Got it
+  hides it. Your last look is kept per browser.
+- **Web fetch.** `fetch` reads a public page as text from the server's
+  computer: GET only, no cookies, 80/443, 3 redirects each checked
+  again, 2 MB, 15 s. Private, loopback, link-local and metadata
+  addresses and local names are refused. Auto mode reviews every fetch
+  (a URL can carry data out), plan mode refuses it; `fetches: 0` turns
+  it off.
 
 The design is in the header comment of each file. Start with Memory.ts
 (the tree and the view), Server.ts (the chat and its turns), Tools.ts
@@ -159,15 +184,26 @@ What is known not to work, or not checked yet:
   safe only because the server is loopback-only and single-user.
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
-- **No web fetch.** The vendor's fetch tool doesn't work on Bedrock,
-  and there is no replacement yet. Search goes through SearXNG only.
-- **The gateway's budget stops the compactor.** Over budget, summaries
-  stop. Turns now go on after 60 s with lines unsummarized, but the
-  tree only catches up once the budget is back.
+- **Web fetch has a DNS-rebinding window.** Bun's fetch resolves the
+  name itself, so a name that turns private only for that lookup gets
+  through; the name is resolved again after each fetch and a change is
+  refused, and auto mode's reviewer sees every URL.
+- **Over budget, summaries are rough.** New lines are a message's first
+  sentence, marked "(rough)", with no model call. The compactor tries
+  once every 30 minutes or at the next UTC day, and once that works it
+  rewrites the rough lines in the background, oldest first.
+- **Undo covers writes and edits.** A shell run in its own folder is
+  snapshotted there; `cd /repo && sed -i …` from elsewhere is not,
+  unless a write or edit in that repo came first in the turn. Claude
+  Code workers' changes aren't covered. Pins and search are web only.
 - **Cockpit limits.** Jira tickets need `acli jira auth login` on the
   device. Agent cost on Home is an estimate at list price, not the
   gateway's bill; the 7-day spend sums the daily cost caches present.
-  Routines run only while a view or a device is connected. Google
+  Routines run while the server runs: a chat with a routine on by the
+  clock stays open with no tab or terminal, and one missed while the
+  Mac slept runs once on waking. `UNII_KEY_HELPER=<absolute path to a
+  program that prints the gateway key> legion server --install` keeps
+  the server running at login (`--uninstall` removes it). Google
   (calendar, transcripts, Gmail, Chat, read-only) needs `legion
   google-login` on the device, and Chat needs a Chat app configured in
   the Google Cloud project; agents read it with the `google` tool. The

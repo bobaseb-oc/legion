@@ -772,3 +772,20 @@ today feeds the same path.
 - Also (user's ask): several workspaces at once, picked from the roots, kept per browser.
 - Proof: Device 17/17, Server look test, Pages 15/15; mutants 7/7 killed; suite 422 pass, 3 known fails.
 - Next, separate Red Zone PR: in-browser edit + save (user's ask).
+
+## Memory and crew extras (feat/memory-crew, one PR)
+Five slices, each in its own worktree off feat/memory-crew, red tests first, merged here.
+- [x] M1 Pins: user-only pin act (web; device refused, no agent tool), <pinned> block in the chat's view, 12 pins / 16 KB off HIGH, kept in view.json → verify: Pins.test.ts
+- [x] M2 Memory page (#memory): roots via root/zoom reads, lines unfold to messages, Seek jumps to the chat → verify: Pages/View tests
+- [x] M3 Search: server-side case-insensitive substring over main/, q ≤ 200, ≤ 50 hits, yields every 256 messages, newer search cancels → verify: Recall.test.ts
+- [x] Undo: snapshot per agent/repo/turn before the first write/edit/non-plan shell (Undo.ts, Device.device_snap), temp index, secrets out, 20 kept; "Undo last turn" (confirmed, user act only) keeps a redo ref, refuses HEAD moved / outside roots / home dir → verify: Undo.test.ts, Tools/Server tests
+- [x] Open in Claude Code: brief (Tools.handoff) to a 0600 file, 0700 .command reads it, single-quoted device paths only → verify: injection test
+- [x] Away card on Home (Cockpit.away, Pages.away_html): ≥ 2 h away, failed first, cap 5, questions/notes as counts + links only → verify: Cockpit/Pages tests
+- [x] Fetch.ts `fetch` tool: SSRF guard (v4/v6 ranges, literal IP forms, local and own hosts, every address, per-hop redirect check, re-resolve after), 2 MB, 15 s, content types, HTML to text; auto reviews, plan refuses, `fetches: 0` off → verify: Fetch.test.ts, Modes test
+- [x] Routines with no tab: cause was Chat.free dropping viewless chats, Chat.wake skipping routine chats, no launchd server; Routines.timed keeps/wakes them; `legion server --install` (key via UNII_KEY_HELPER, none in the plist) → verify: Server/Routines/Launcher tests
+- [x] Rough summaries while the budget is spent (Agent.spent, Memory.rough/redo), persisted, redone oldest first once the gateway answers → verify: rough.test.ts
+- [x] Consent and reviewer text name "the server" for a call with no device (fetch) → verify: Tools.test.ts
+- Proof: mutation checks per slice (pins/map/search 21, undo/handoff 16, away 10, fetch 31, routines/rough 14), all killed; merged suite 474 pass, 2 known fails (local/prime logs).
+- [ ] RED ZONE sign-off: Fetch.ts address guard; Undo.ts restore; UNII_KEY_HELPER launch path
+- [ ] User: `legion stop`, then `UNII_KEY_HELPER=/Users/Shared/bin/get-litellm-key.sh legion server --install`
+- [ ] By hand: Open in Claude Code (sandbox blocks `open`), Undo on a throwaway repo, away card after 2 h, 📌 and Memory page in a browser

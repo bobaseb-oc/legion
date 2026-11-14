@@ -604,7 +604,7 @@ export namespace Tools {
     if (action.length > REVIEW_ACTION) {
       return null;
     }
-    const text = "The user's latest messages, oldest first:\n" + (said.length > REVIEW_TEXT ? "…" + said.slice(-REVIEW_TEXT) : said || "(none)") + "\n\nThe agent: " + who + ". Its task:\n" + cut(task) + "\n\nThe action: " + name + " on device " + String(device) + ":\n" + action + "\n";
+    const text = "The user's latest messages, oldest first:\n" + (said.length > REVIEW_TEXT ? "…" + said.slice(-REVIEW_TEXT) : said || "(none)") + "\n\nThe agent: " + who + ". Its task:\n" + cut(task) + "\n\nThe action: " + name + (device === undefined ? " on the server" : " on device " + String(device)) + ":\n" + action + "\n";
     let call: Call;
     try {
       call = AskAI.ask({ ...Pick.ask(config.COMPACTOR), system: REVIEW, blocks: [{ text, mark: false }], searches: 0, server: "", bill: mem?.pay?.("agent", "review") }, () => {});
@@ -640,6 +640,12 @@ export namespace Tools {
     return Google.fence(source, text, "An MCP tool's answer");
   }
 
+  // where a call runs, as the user reads it: its device, or the server's
+  // computer for a tool with none (fetch)
+  export function where(device: unknown): string {
+    return device === undefined ? "the server" : String(device);
+  }
+
   // a call put to the user (auto mode's reviewer couldn't check it): it
   // waits in Tools.consents for their yes or no; a stop is a no
   export function ask_user(tools: Tools, who: string, name: string, args: any, signal: AbortSignal): Promise<boolean> {
@@ -647,7 +653,7 @@ export namespace Tools {
     const id = Math.max(0, ...list.keys()) + 1;
     const { device, ...input } = args ?? {};
     const all = name === "shell" ? String(input.command) : name + " " + JSON.stringify(input);
-    const what = (all.length > 2000 ? all.slice(0, 2000) + "… (" + (all.length - 2000) + " more characters not shown)" : all) + " (on " + String(device) + ")";
+    const what = (all.length > 2000 ? all.slice(0, 2000) + "… (" + (all.length - 2000) + " more characters not shown)" : all) + " (on " + Tools.where(device) + ")";
     return new Promise<boolean>((done) => {
       const answer = (yes: boolean) => {
         if (list.delete(id)) {

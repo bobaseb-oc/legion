@@ -624,3 +624,16 @@ test("handoff brief: a fixed head, the agent's text as data, controls out, cappe
   expect(brief).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   expect(Tools.handoff({ ...a, replies: ["x".repeat(50_000)] }).length).toBeLessThanOrEqual(8000);
 });
+
+test("a call with no device (fetch) is shown as on the server, never 'undefined'", async () => {
+  const tools = { hooks: { change() {} } } as any;
+  const stop = new AbortController();
+  const waiting = Tools.ask_user(tools, "main", "fetch", { url: "https://example.com/" }, stop.signal);
+  const [c] = Tools.consents(tools);
+  expect(c!.what).toContain("(on the server)");
+  expect(c!.what).not.toContain("undefined");
+  stop.abort();
+  expect(await waiting).toBe(false);
+  expect(Tools.where(undefined)).toBe("the server");
+  expect(Tools.where("mac")).toBe("mac");
+});
