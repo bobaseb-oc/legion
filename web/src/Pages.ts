@@ -11,6 +11,7 @@ import * as Cockpit from "../../Cockpit.ts";
 import type { Inbox } from "../../Inbox.ts";
 import * as Routines from "../../Routines.ts";
 import type * as View from "../../View.ts";
+import { FIND, FOUND, PINNED, PINS, SHOWN } from "../../View.ts";
 import { block_html, esc } from "./Html.ts";
 import { md_parse } from "../../Md.ts";
 import { hl_lang, hl_lines } from "../../Hl.ts";
@@ -126,9 +127,30 @@ function card_html(c: Cockpit.Card): string {
 
 const KIND_MARK: Record<string, string> = { review: "◎", assign: "▣", mention: "@", ci: "✗", security: "⚠", other: "•" };
 
+// While you were away (Cockpit.away): how long, the agents done or failed
+// (a failed one's why), the routines run, links to what is counted (the
+// questions' and notes' text stays in the Questions pane); Got it marks
+// it seen (main.ts reads data-away-seen)
+export function away_html(a: Cockpit.Away): string {
+  const n = (k: number, one: string, many = one + "s") => k + " " + (k === 1 ? one : many);
+  const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
+  const head = `<div class="awh"><b>While you were away</b><span class="meta">${esc([a.span, ...counts].join(" · "))}</span><button class="pbtn" data-away-seen title="hide this till you are away again">Got it</button></div>`;
+  const agent = (x: Cockpit.AwayAgent) => `<a class="awa ${x.status}" href="#crew/${esc(encodeURIComponent(x.name))}"><span class="mk">${MARK[x.status]}</span><span class="t">${esc(x.title)}</span>`
+    + `${x.why === "" ? "" : `<span class="meta">${esc(x.why)}</span>`}</a>`;
+  const more = a.more === 0 ? "" : `<a class="meta" href="#crew">+${a.more} more</a>`;
+  const ran = a.routines.length === 0 ? "" : `<p class="meta">Routines ran: ${esc(a.routines.join(", "))}</p>`;
+  const links = [
+    a.questions === 0 ? "" : `<a href="#chat">${n(a.questions, "new question")}</a>`,
+    a.notes === 0 ? "" : `<a href="#chat">${n(a.notes, "new note")}</a>`,
+    a.inbox === 0 ? "" : `<a href="#inbox">${n(a.inbox, "inbox change")}</a>`,
+  ].filter((x) => x !== "");
+  return `<section class="away">${head}${a.agents.map(agent).join("")}${more}${ran}${links.length === 0 ? "" : `<p class="awl">${links.join(" · ")}</p>`}</section>`;
+}
+
 // Home: the head (date, greeting, who needs the user; New agent, Focus),
-// the stats, Unii's agents working then done, the apps, the activity
-export function home_html(v: View.View, now: Date): string[] {
+// the card of what happened while away (if any), the stats, Unii's
+// agents working then done, the apps, the activity
+export function home_html(v: View.View, now: Date, away: Cockpit.Away | null = null): string[] {
   const day = now.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
   const head = `<div class="phead home"><p class="meta">${esc(day)}</p><h2>${esc(Cockpit.home_greeting(now))}</h2><p class="meta">${esc(Cockpit.home_line(v))}</p>`
     + `<button class="pbtn" data-new-agent title="start an agent on a task (/agent)">New agent</button><button class="pbtn" data-focus title="hide the side columns">Focus</button></div>`;
@@ -145,9 +167,9 @@ export function home_html(v: View.View, now: Date): string[] {
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? (next.map((e) => `<div class="next"><span class="when">${esc(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>`)
     : `<p class="meta">${esc(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
   const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
-    + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}</section>`
+    + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>`
     + `<section><h3>Activity</h3>${Cockpit.home_activity(v).map((n) => `<a class="act" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc(n.title)}</span><span class="meta">${esc(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
-  return [head, stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
+  return [head, ...(away === null ? [] : [away_html(away)]), stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 
 // the agents with files to show (Files), the timesheet drafts waiting for
@@ -185,7 +207,7 @@ export function side_html(v: View.View, mode: View.Mode, now: number): string[] 
   const pages = [
     ["home", "Home", 0], ["inbox", "Inbox", Cockpit.inbox_badge(v.inbox)], ["chat", "Chat", (v.questions ?? []).length],
     ["crew", "Crew", working], ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length], ["digest", "Digest", 0], ["transcripts", "Transcripts", 0],
-    ["files", "Files", with_files(v)], ["timesheet", "Timesheet", drafts_open(v)],
+    ["files", "Files", with_files(v)], ["timesheet", "Timesheet", drafts_open(v)], ["memory", "Memory", (v.pins ?? []).length],
   ] as const;
   const nav = `<nav class="spages">${pages.map(([m, label, k]) => `<a href="#${m}"${here(m)}>${label}${n(k)}</a>`).join("")}</nav>`;
   const search = `<button class="ssearch" data-palette title="⌘K or Ctrl+P">Search or run… <kbd>⌘K</kbd></button>`;
@@ -485,4 +507,70 @@ export function timesheet_html(v: View.View): string[] {
     return `<div class="tday"><h3>${esc(day)} <span class="meta">${total} h</span></h3>${of.map(row).join("")}</div>`;
   }).join("");
   return [head, body];
+}
+
+// the Memory page: the search box (main.ts sends it) and its hits, the
+// pins, and the map of the tree, read-only: a line, the n messages from
+// id summarized, opens into the two it was made from (the server's zoom,
+// as the chat's blocks), down to the messages; a message's, or a hit's or
+// a pin's, is a jump to it in the chat (View's Seek)
+export function memory_html(v: View.View): string[] {
+  const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
+  const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
+  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
+}
+
+// an ISO date as the page shows it (UTC, to the minute)
+function minute(date: string): string {
+  return date.slice(0, 16).replace("T", " ");
+}
+
+// a text escaped, the first match of q in it marked
+function marked(text: string, q: string): string {
+  const at = q === "" ? -1 : text.toLowerCase().indexOf(q.toLowerCase());
+  return at < 0 ? esc(text) : esc(text.slice(0, at)) + "<mark>" + esc(text.slice(at, at + q.length)) + "</mark>" + esc(text.slice(at + q.length));
+}
+
+function recall_html(h: View.Hit, q: string): string {
+  return `<button class="mhit"${act_html({ $: "Seek", id: h.i })} title="show it in the chat"><span class="meta">#${h.i} · ${esc(minute(h.date))} · ${esc(h.kind)}</span> ${marked(h.text, q)}</button>`;
+}
+
+function hits_html(found: View.Recall | null): string {
+  if (found === null) {
+    return "";
+  }
+  if (found.hits === null) {
+    return `<p class="meta">Searching…</p>`;
+  }
+  if (found.hits.length === 0) {
+    return `<p class="meta">No message has “${esc(found.q)}”.</p>`;
+  }
+  const more = found.more ? `<p class="meta">The newest ${FOUND} shown: search for more words to reach older ones.</p>` : "";
+  return `<div class="mhits">${found.hits.map((h) => recall_html(h, found.q)).join("")}${more}</div>`;
+}
+
+function pins_html(pins: View.Pin[]): string {
+  const kb = (pins.reduce((t, p) => t + p.size, 0) / 1000).toFixed(1);
+  const head = `<h3>Pinned <span class="meta">${pins.length} of ${PINS} · ${kb} of ${PINNED / 1000} KB</span></h3>`;
+  const rows = pins.map((p) => `<div class="mpin">${recall_html(p, "")}<button class="x" title="unpin"${act_html({ $: "Pin", i: p.i })}>×</button></div>`).join("");
+  return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's 📌 in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
+}
+
+function map_html(v: View.View): string {
+  const lines = v.roots === null ? `<p class="meta">Loading…</p>` : v.roots.map((part) => line_html(v, part, 0)).join("") || `<p class="meta">No messages yet.</p>`;
+  return `<section class="mmap"><h3>Map <span class="meta">the tree, oldest first</span></h3>${lines}</section>`;
+}
+
+function line_html(v: View.View, [id, n]: View.Part, depth: number): string {
+  const pad = ` style="--d:${depth}"`;
+  if (n === 1) {
+    const e = v.whole.get(id);
+    const when = e?.date === undefined ? "" : " · " + esc(minute(e.date));
+    return `<button class="mx m0"${pad}${act_html({ $: "Seek", id })} title="show it in the chat"><span class="meta">#${id}${when}</span> ${esc(e === undefined ? "…" : e.kind + ": " + e.text.slice(0, SHOWN))}</button>`;
+  }
+  const open = v.mapped.has(id + "+" + n);
+  const node = v.nodes.get(id + "+" + n);
+  const when = node?.to ? " · to " + esc(minute(node.to)) : "";
+  const row = `<button class="mx"${pad}${act_html({ $: "Map", id, n })}>${open ? "▾" : "▸"} <span class="meta">#${id}–${id + n - 1} · ${n}x${when}</span> ${esc(node?.text ?? "(not summarized yet)")}</button>`;
+  return row + (open ? line_html(v, [id, n / 2], depth + 1) + line_html(v, [id + n / 2, n / 2], depth + 1) : "");
 }

@@ -520,7 +520,7 @@ function look_css(kind, look) {
 var MODES = ["plan", "auto", "full"];
 var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
-var REVIEWED = ["shell", "write", "edit", "computer"];
+var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
 var DOTS = String.raw`\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.claude\.json`;
 var DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(gh|gcloud)|Library\/Keychains`;
 var SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
@@ -634,7 +634,7 @@ var Modes;
       const not = Modes.readonly(String(input?.command ?? ""));
       return not === null ? null : why + ": " + not + ". " + AFTER;
     }
-    return why + ": " + tool + " can change things. " + AFTER;
+    return why + ": " + (tool === "fetch" ? "fetch sends its URL to a site, and data with it" : tool + " can change things") + ". " + AFTER;
   }
   Modes2.allows = allows;
   const MCP_FILE = /file|path|dir/i;
@@ -1431,7 +1431,12 @@ var PACE = 0.0001;
 var email_ask = (github) => "First, what's your email" + (github ? " or @github" : "") + "? I'll send you a quick sign-up link.";
 var OPENING = 3;
 var SUMMARIES = "summaries";
-var PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet"];
+var PINS = 12;
+var PINNED = 16000;
+var FIND = 200;
+var FOUND = 50;
+var SHOWN = 200;
+var PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
 var MAIN = "Legion";
 var TURN = "Unii's turn";
 var WIRE = 2;
@@ -1503,6 +1508,10 @@ function view_new() {
     gateway: null,
     editing: false,
     line: null,
+    roots: null,
+    mapped: new Set,
+    recall: null,
+    seek: null,
     notes: [],
     tab: crypto.randomUUID(),
     out: [],
@@ -1582,6 +1591,13 @@ function view_hear(v, msg) {
     }
     case "root": {
       v.fold = v.fold === null ? null : msg.parts;
+      v.roots = msg.parts;
+      return [];
+    }
+    case "recalled": {
+      if (v.recall?.q === msg.q) {
+        v.recall = { q: msg.q, hits: msg.hits, more: msg.more };
+      }
       return [];
     }
     case "entry": {
@@ -1724,6 +1740,12 @@ function view_act(v, act) {
     case "Stop": {
       return [{ $: "stop", name: act.name }];
     }
+    case "Undo": {
+      return [{ $: "undo", name: act.name }];
+    }
+    case "Handoff": {
+      return [{ $: "handoff", name: act.name }];
+    }
     case "Tell": {
       const text = act.text.trim();
       return text === "" ? [] : [{ $: "tell", name: act.name, text }];
@@ -1769,6 +1791,43 @@ function view_act(v, act) {
       v.source = act.on;
       v.line = act.on ? v.line : null;
       return [];
+    }
+    case "Pin": {
+      return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
+    }
+    case "Roots": {
+      return [{ $: "root" }];
+    }
+    case "Map": {
+      const key = act.id + "+" + act.n;
+      if (!(Number.isInteger(act.id) && act.id >= 0 && act.n >= 2 && Number.isInteger(Math.log2(act.n)) && act.id % act.n === 0)) {
+        return [];
+      }
+      if (v.mapped.delete(key)) {
+        return [];
+      }
+      v.mapped.add(key);
+      return [{ $: "zoom", part: [act.id, act.n] }];
+    }
+    case "Seek": {
+      const top = v.parts.find(([id, n]) => id <= act.id && act.id < id + n);
+      if (top === undefined) {
+        return [];
+      }
+      v.fold = null;
+      v.seek = act.id;
+      const out = [];
+      for (let n = top[1];n >= 1 && act.id < v.turn; n /= 2) {
+        const id = act.id - act.id % n;
+        v.open.set(id + "+" + n, true);
+        out.push(...n > 1 ? [{ $: "zoom", part: [id, n] }] : []);
+      }
+      return out;
+    }
+    case "Search": {
+      const q = act.q.trim().slice(0, FIND);
+      v.recall = q === "" ? null : { q, hits: null, more: false };
+      return q === "" ? [] : [{ $: "search", q }];
     }
     case "List": {
       if (v.dirs.has(act.path)) {
@@ -2081,7 +2140,7 @@ function view_line(text) {
   return m === null ? null : Number(m[1]);
 }
 function view_route(hash) {
-  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }
@@ -2501,7 +2560,8 @@ function row_make(row) {
 `).length > TALL;
       const fold = tall ? `<div class="clip">${body}</div><details class="more"><summary></summary></details>` : body;
       const who = row.who === "" ? "" : ` data-who="${esc2(row.who)}"`;
-      return `<div class="msg ${row.kind}"${at}${who}>${copy}${fold}${pics}</div>`;
+      const pin = row.id === null ? "" : `<button class="pin"${act_html({ $: "Pin", i: row.id })} title="Pin: kept whole in every call's view (again: unpin)">\uD83D\uDCCC</button>`;
+      return `<div class="msg ${row.kind}"${at}${who}>${copy}${pin}${fold}${pics}</div>`;
     }
     case "Cap": {
       return `<p class="cap">${esc2(row.text)}</p>`;
@@ -2632,7 +2692,12 @@ function focus_html(v) {
     return `<div class="focus"><b>${esc2(name)}</b></div>`;
   }
   const todo = (c.todo ?? []).length === 0 ? "" : `<ol class="todo">${c.todo.map((x) => `<li class="${esc2(x.status)}">${esc2(x.text)}</li>`).join("")}</ol>`;
-  return `<div class="focus ${c.status}">${who_html(c)} <span class="meta">${esc2(also(c) + c.tier + " · " + c.model + " · " + c.status)} · type to tell it</span>${acts_html(c)}${todo}</div>`;
+  return `<div class="focus ${c.status}">${who_html(c)} <span class="meta">${esc2(also(c) + c.tier + " · " + c.model + " · " + c.status)} · type to tell it</span>${acts_html(c)}${ops_html(c)}${todo}</div>`;
+}
+function ops_html(c) {
+  const at = c.status === "working" || c.status === "waiting" || c.status === "asking";
+  const undo = at ? "" : `<button class="pbtn" title="put back the files its last turn changed"${act_html({ $: "Undo", name: c.name })}>Undo last turn</button>`;
+  return `<div class="ops">${undo}<button class="pbtn" title="a terminal running claude in its repo, with its brief"${act_html({ $: "Handoff", name: c.name })}>Open in Claude Code</button></div>`;
 }
 function mode_html(mode, pill, asked = 0, perm, inbox = 0, notes = 0) {
   const here = (m) => m === mode ? ` class="here"` : "";
@@ -2961,6 +3026,40 @@ function home_apps(v) {
 function home_activity(v) {
   return [...v.inbox?.notes ?? []].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
 }
+var AWAY = 2 * 3600000;
+var AWAY_LIST = 5;
+function away_seen(v, now) {
+  return { at: now, crew: Object.fromEntries(v.crew.map((c) => [c.name, c.status])) };
+}
+function away(v, seen, now, inbox = 0) {
+  if (seen === null || now - seen.at < AWAY) {
+    return null;
+  }
+  const fresh = (c) => seen.crew[c.name] !== c.status;
+  const why = (c) => (v.pulses.get(c.name)?.last ?? "").split(`
+`)[0].trim();
+  const failed = v.crew.filter((c) => c.status === "failed" && fresh(c)).map((c) => ({ name: c.name, title: c.title ?? c.name, status: "failed", why: why(c) }));
+  const done = v.crew.filter((c) => c.status === "done" && c.parent === "main" && fresh(c)).map((c) => ({ name: c.name, title: c.title ?? c.name, status: "done", why: "" }));
+  const agents = [...failed, ...done];
+  const ran = (v.routines ?? []).filter((r) => r.last !== null && r.last > seen.at).map((r) => r.name);
+  const after = (q) => Date.parse(q.date) > seen.at;
+  const questions = view_questions(v).filter(after).length;
+  const notes = view_notes(v).filter(after).length;
+  if (agents.length + ran.length + questions + notes + inbox === 0) {
+    return null;
+  }
+  return {
+    span: age(now - seen.at),
+    agents: agents.slice(0, AWAY_LIST),
+    more: Math.max(0, agents.length - AWAY_LIST),
+    done: done.length,
+    failed: failed.length,
+    routines: ran.slice(0, AWAY_LIST),
+    questions,
+    notes,
+    inbox
+  };
+}
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3001,6 +3100,7 @@ var PAGE_ITEMS = [
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
   { label: "Files", hint: "page · g f", go: { href: "#files" } },
   { label: "Timesheet", hint: "page · g s", go: { href: "#timesheet" } },
+  { label: "Memory", hint: "page · search, pins, the tree", go: { href: "#memory" } },
   { label: "New agent…", hint: "command · /agent", go: { cmd: "new-agent" } },
   { label: "Refresh the inbox", hint: "command", go: { act: { $: "Fetch" } } },
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },
@@ -3114,7 +3214,21 @@ function card_html(c) {
   return `<div class="hcard ${c.status}"><div class="hc1"><span class="hchip who">${esc2(c.name)}</span><span class="meta">${esc2(c.status)}</span><span class="age">${esc2(c.age)}</span></div>` + `<b class="ht">${esc2(c.title)}</b><div class="hc2">${chips}${c.cost === "" ? "" : `<span class="cost">${esc2(c.cost)}</span>`}${under}</div><div class="hc3">${acts}</div></div>`;
 }
 var KIND_MARK = { review: "◎", assign: "▣", mention: "@", ci: "✗", security: "⚠", other: "•" };
-function home_html(v, now) {
+function away_html(a) {
+  const n = (k, one, many = one + "s") => k + " " + (k === 1 ? one : many);
+  const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
+  const head = `<div class="awh"><b>While you were away</b><span class="meta">${esc2([a.span, ...counts].join(" · "))}</span><button class="pbtn" data-away-seen title="hide this till you are away again">Got it</button></div>`;
+  const agent = (x) => `<a class="awa ${x.status}" href="#crew/${esc2(encodeURIComponent(x.name))}"><span class="mk">${MARK[x.status]}</span><span class="t">${esc2(x.title)}</span>` + `${x.why === "" ? "" : `<span class="meta">${esc2(x.why)}</span>`}</a>`;
+  const more = a.more === 0 ? "" : `<a class="meta" href="#crew">+${a.more} more</a>`;
+  const ran = a.routines.length === 0 ? "" : `<p class="meta">Routines ran: ${esc2(a.routines.join(", "))}</p>`;
+  const links = [
+    a.questions === 0 ? "" : `<a href="#chat">${n(a.questions, "new question")}</a>`,
+    a.notes === 0 ? "" : `<a href="#chat">${n(a.notes, "new note")}</a>`,
+    a.inbox === 0 ? "" : `<a href="#inbox">${n(a.inbox, "inbox change")}</a>`
+  ].filter((x) => x !== "");
+  return `<section class="away">${head}${a.agents.map(agent).join("")}${more}${ran}${links.length === 0 ? "" : `<p class="awl">${links.join(" · ")}</p>`}</section>`;
+}
+function home_html(v, now, away = null) {
   const day = now.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
   const head = `<div class="phead home"><p class="meta">${esc2(day)}</p><h2>${esc2(home_greeting(now))}</h2><p class="meta">${esc2(home_line(v))}</p>` + `<button class="pbtn" data-new-agent title="start an agent on a task (/agent)">New agent</button><button class="pbtn" data-focus title="hide the side columns">Focus</button></div>`;
   const stats = `<div class="stats">${home_stats(v).map((s) => `<a class="stat" href="${s.href}"><span class="meta">${esc2(s.label)}</span><b>${esc2(s.value)}</b><span class="meta">${esc2(s.sub)}</span></a>`).join("")}</div>`;
@@ -3127,8 +3241,8 @@ function home_html(v, now) {
   const next = up_next(v, now.getTime());
   const meet = (url) => url === "" ? "" : `<a class="pbtn" href="${esc2(url)}" target="_blank" rel="noopener noreferrer">Join</a>`;
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? next.map((e) => `<div class="next"><span class="when">${esc2(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc2(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>` : `<p class="meta">${esc2(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
-  return [head, stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
+  return [head, ...away === null ? [] : [away_html(away)], stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 function with_files(v) {
   return v.crew.filter((c) => (c.files ?? []).length > 0).length;
@@ -3159,7 +3273,8 @@ function side_html(v, mode, now) {
     ["digest", "Digest", 0],
     ["transcripts", "Transcripts", 0],
     ["files", "Files", with_files(v)],
-    ["timesheet", "Timesheet", drafts_open(v)]
+    ["timesheet", "Timesheet", drafts_open(v)],
+    ["memory", "Memory", (v.pins ?? []).length]
   ];
   const nav = `<nav class="spages">${pages.map(([m, label, k]) => `<a href="#${m}"${here(m)}>${label}${n(k)}</a>`).join("")}</nav>`;
   const search = `<button class="ssearch" data-palette title="⌘K or Ctrl+P">Search or run… <kbd>⌘K</kbd></button>`;
@@ -3392,6 +3507,57 @@ function timesheet_html(v) {
   }).join("");
   return [head, body];
 }
+function memory_html(v) {
+  const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
+  const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc2(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
+  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
+}
+function minute(date) {
+  return date.slice(0, 16).replace("T", " ");
+}
+function marked(text, q) {
+  const at = q === "" ? -1 : text.toLowerCase().indexOf(q.toLowerCase());
+  return at < 0 ? esc2(text) : esc2(text.slice(0, at)) + "<mark>" + esc2(text.slice(at, at + q.length)) + "</mark>" + esc2(text.slice(at + q.length));
+}
+function recall_html(h, q) {
+  return `<button class="mhit"${act_html2({ $: "Seek", id: h.i })} title="show it in the chat"><span class="meta">#${h.i} · ${esc2(minute(h.date))} · ${esc2(h.kind)}</span> ${marked(h.text, q)}</button>`;
+}
+function hits_html(found) {
+  if (found === null) {
+    return "";
+  }
+  if (found.hits === null) {
+    return `<p class="meta">Searching…</p>`;
+  }
+  if (found.hits.length === 0) {
+    return `<p class="meta">No message has “${esc2(found.q)}”.</p>`;
+  }
+  const more = found.more ? `<p class="meta">The newest ${FOUND} shown: search for more words to reach older ones.</p>` : "";
+  return `<div class="mhits">${found.hits.map((h) => recall_html(h, found.q)).join("")}${more}</div>`;
+}
+function pins_html(pins) {
+  const kb = (pins.reduce((t, p) => t + p.size, 0) / 1000).toFixed(1);
+  const head = `<h3>Pinned <span class="meta">${pins.length} of ${PINS} · ${kb} of ${PINNED / 1000} KB</span></h3>`;
+  const rows = pins.map((p) => `<div class="mpin">${recall_html(p, "")}<button class="x" title="unpin"${act_html2({ $: "Pin", i: p.i })}>×</button></div>`).join("");
+  return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's \uD83D\uDCCC in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
+}
+function map_html(v) {
+  const lines = v.roots === null ? `<p class="meta">Loading…</p>` : v.roots.map((part) => line_html2(v, part, 0)).join("") || `<p class="meta">No messages yet.</p>`;
+  return `<section class="mmap"><h3>Map <span class="meta">the tree, oldest first</span></h3>${lines}</section>`;
+}
+function line_html2(v, [id, n], depth) {
+  const pad = ` style="--d:${depth}"`;
+  if (n === 1) {
+    const e = v.whole.get(id);
+    const when = e?.date === undefined ? "" : " · " + esc2(minute(e.date));
+    return `<button class="mx m0"${pad}${act_html2({ $: "Seek", id })} title="show it in the chat"><span class="meta">#${id}${when}</span> ${esc2(e === undefined ? "…" : e.kind + ": " + e.text.slice(0, SHOWN))}</button>`;
+  }
+  const open2 = v.mapped.has(id + "+" + n);
+  const node = v.nodes.get(id + "+" + n);
+  const when = node?.to ? " · to " + esc2(minute(node.to)) : "";
+  const row = `<button class="mx"${pad}${act_html2({ $: "Map", id, n })}>${open2 ? "▾" : "▸"} <span class="meta">#${id}–${id + n - 1} · ${n}x${when}</span> ${esc2(node?.text ?? "(not summarized yet)")}</button>`;
+  return row + (open2 ? line_html2(v, [id, n / 2], depth + 1) + line_html2(v, [id + n / 2, n / 2], depth + 1) : "");
+}
 
 // web/src/main.ts
 var APP = window.webkit?.messageHandlers?.unii ?? null;
@@ -3446,7 +3612,10 @@ var C = {
   stamped: -1,
   pal: 0,
   doc: null,
-  reading: new Map
+  reading: new Map,
+  away: null,
+  awayed: false,
+  left: 0
 };
 function $(sel) {
   return document.querySelector(sel);
@@ -3591,6 +3760,7 @@ function chat() {
   $("#side").addEventListener("click", page_click);
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
+  $("#page").addEventListener("submit", memory_find);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -3626,6 +3796,55 @@ function signed() {
   BOX.removeAttribute("autocomplete");
   BOX.value = sessionStorage.getItem(kept("draft")) ?? "";
   BOX.dispatchEvent(new Event("input"));
+  C.away = away_back();
+  document.addEventListener("pointerdown", () => away_active(false));
+  document.addEventListener("keydown", () => away_active(false));
+  document.addEventListener("visibilitychange", () => document.hidden ? away_keep() : away_active(true));
+}
+function away_read() {
+  const s = localStorage.getItem(kept("away-seen"));
+  const seen = s === null ? null : JSON.parse(s);
+  return typeof seen === "object" && seen !== null && typeof seen.at === "number" && typeof seen.crew === "object" ? seen : null;
+}
+function away_keep() {
+  if (P.guest || !v.up) {
+    return;
+  }
+  C.left = Date.now();
+  localStorage.setItem(kept("away-seen"), JSON.stringify(away_seen(v, C.left)));
+}
+function away_back() {
+  const was = away_read();
+  return was !== null && Date.now() - was.at >= AWAY ? was : null;
+}
+function away_active(now) {
+  if (!now && Date.now() - C.left < 60000) {
+    return;
+  }
+  const back = C.awayed ? null : away_back();
+  away_keep();
+  if (back !== null) {
+    C.away = back;
+    if (C.page === "home") {
+      draw(true);
+    }
+  }
+}
+function away_now() {
+  if (C.away === null) {
+    return null;
+  }
+  const now = Date.now();
+  const stamps = localStorage.getItem(kept("inbox-seen"));
+  const inbox = stamps === null ? 0 : inbox_changed(inbox_sections(v.inbox, v.crew, "", now), JSON.parse(stamps));
+  const away2 = away(v, C.away, now, inbox);
+  C.awayed ||= away2 !== null;
+  return away2;
+}
+function away_done() {
+  C.awayed = false;
+  C.away = null;
+  away_keep();
 }
 function submit() {
   const text = BOX.value.trim();
@@ -3728,8 +3947,15 @@ function click(ev) {
     ev.preventDefault();
     go(path ?? "/");
   }
-  if (a !== undefined) {
-    act(JSON.parse(a));
+  const parsed = a === undefined ? undefined : JSON.parse(a);
+  if (parsed?.$ === "Undo" && !confirm("Undo " + parsed.name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.")) {
+    return;
+  }
+  if (parsed !== undefined) {
+    act(parsed);
+    if (parsed.$ === "Seek") {
+      location.hash = "#chat";
+    }
   }
   if (usd !== undefined) {
     warned(el, () => topup2(Number(usd)));
@@ -4185,11 +4411,17 @@ function paint() {
   P.frame = 0;
   P.stick = true;
   bars();
+  const redrawn = P.rows;
   if (P.rows) {
     markup($("#log .rows"), view_body(v).map(row_html));
     P.rows = false;
   }
   markup($("#log .tail"), view_tail(v).map(row_html));
+  pinned(redrawn);
+  if (sought()) {
+    P.shown = shown;
+    return;
+  }
   if (shown !== P.shown) {
     P.shown = shown;
     scrollTo(0, v.fold === null ? doc.scrollHeight : 0);
@@ -4207,6 +4439,29 @@ function paint() {
   if (el !== undefined) {
     scrollBy(0, el.getBoundingClientRect().top - at.top);
   }
+}
+var PINNED2 = "";
+function pinned(redrawn) {
+  const pins = new Set(v.page === null ? (v.pins ?? []).map((p) => String(p.i)) : []);
+  const key = [...pins].join();
+  if (!redrawn && key === PINNED2) {
+    return;
+  }
+  PINNED2 = key;
+  for (const el of document.querySelectorAll("#log .rows .msg[data-a]")) {
+    el.classList.toggle("pinned", pins.has(el.dataset.a));
+  }
+}
+function sought() {
+  const el = v.seek === null || v.page !== null ? null : document.querySelector(`#log .rows .msg[data-a="${v.seek}"]`);
+  if (el === null) {
+    return false;
+  }
+  v.seek = null;
+  el.scrollIntoView({ block: "center" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1200);
+  return true;
 }
 function bars() {
   for (const note of v.notes.splice(0)) {
@@ -4350,6 +4605,9 @@ function page_bars(mode) {
   $("#page").hidden = !page;
   $("#log").hidden = page;
   $("#pfilter").hidden = mode !== "inbox";
+  if (C.awayed && mode !== "home") {
+    away_done();
+  }
   if (!page) {
     C.page = "";
     $("#picks").hidden = true;
@@ -4385,7 +4643,14 @@ function page_bars(mode) {
   } else if (mode === "home") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
-    markup($("#page .pbody"), home_html(v, new Date));
+    markup($("#page .pbody"), home_html(v, new Date, away_now()));
+  } else if (mode === "memory") {
+    if (C.page !== "memory") {
+      act({ $: "Roots" });
+    }
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    markup($("#page .pbody"), memory_html(v));
   } else {
     $("#picks").hidden = true;
     markup($("#page .ptop"), [`<div class="phead"><h2>${mode[0].toUpperCase() + mode.slice(1)}</h2></div>`]);
@@ -4538,6 +4803,14 @@ function files_run(ev) {
   box.value = "";
   toast("Running " + command.slice(0, 60) + ": its output comes in the chat.");
 }
+function memory_find(ev) {
+  const form = ev.target.closest("form.msearch");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Search", q: form.querySelector("input").value });
+}
 function routine_add(ev) {
   const form = ev.target.closest("form.radd");
   if (form === null) {
@@ -4589,6 +4862,9 @@ function page_click(ev) {
   }
   if (el.closest("[data-new-agent]") !== null) {
     new_agent();
+  }
+  if (el.closest("[data-away-seen]") !== null) {
+    away_done();
   }
   if (el.closest("[data-focus]") !== null) {
     document.body.classList.toggle("focus");

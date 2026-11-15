@@ -363,3 +363,20 @@ test("plan mode runs the allowlisted MCP reads, the user's too, and nothing else
   expect(Modes.allows("plan", "mcp__playwright__browser_snapshot", { filename: "/tmp/x" })).not.toBeNull();
   expect(Modes.allows("plan", "mcp__okf__run_sparql", { path: "x" }, okf)).not.toBeNull();
 });
+
+// the fetch tool (Fetch.ts) sends its URL to a site: data can leave in
+// it, so auto mode's reviewer checks every fetch; plan mode, which has no
+// reviewer, refuses it (as it does curl); full mode runs it
+test("fetch: reviewed in auto mode, refused in plan mode, run in full mode", () => {
+  const input = { url: "https://example.com/?q=x" };
+  expect(Modes.reviews("auto", "fetch", input)).toBe(true);
+  expect(Modes.reviews("auto", "fetch", {})).toBe(true);
+  expect(Modes.reviews("full", "fetch", input)).toBe(false);
+  expect(Modes.reviews("plan", "fetch", input)).toBe(false);
+  expect(Modes.allows("plan", "fetch", input)).toContain("plan mode");
+  expect(Modes.allows("plan", "fetch", input)).toContain("fetch sends its URL");
+  expect(Modes.allows("auto", "fetch", input)).toBeNull();
+  expect(Modes.allows("full", "fetch", input)).toBeNull();
+  // the search tool stays as it was: not reviewed
+  expect(Modes.reviews("auto", "search", { query: "x" })).toBe(false);
+});

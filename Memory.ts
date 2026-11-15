@@ -12,7 +12,11 @@
 // own view (`seen`) up to the node's `ctx`; a line too long is asked
 // anew (build). The call asks till it is answered (AskAI patient: an
 // outage only delays a node, never harms it); answered with no line (a
-// refusal: its input's doing), its node is its source clipped. Every
+// refusal: its input's doing), its node is its source clipped. The
+// gateway's budget spent (Agent.spent: per team member, every model, so
+// no model helps), a node is built rough, with no call: its source's
+// first parts, marked "(rough)", kept as rough (view.json) and summarized
+// anew, oldest first, once a probe gets through (`rest`; Memory.redo). Every
 // node builds so, an imported one too; the import's are a side of their
 // own (`side`: the chat's turns don't wait on them). A side is held as
 // the user's credit says (its payer refusing a call holds it:
@@ -53,12 +57,21 @@
 // agent's log, docs/agent/<Name>.jsonl, is read as it is, and moves onto
 // a tree (kept beside it) only as the agent logs again: reading one asks
 // no summary.
+//
+// Pins are the user's (Server.ts "pin", a view's act: no agent's tool):
+// messages each turn's view has whole, however old, before its lines
+// (<pinned>), PINS at most, PINNED bytes in all, which come off the chat's
+// view's `high`, so a call still sees the chat in HIGH; kept in view.json.
+// Search is the user's too (find): the messages holding a text, newest
+// first, read STEP at a time between turns of the event loop.
 
 import * as fs from "node:fs";
+import { Agent } from "./Agent.ts";
 import { AskAI, type Ask, type Bill, type Block, type Call, type End as Ended, type Img, type Kind, type Pay, type Say, type Served } from "./AskAI.ts";
 import { clip_page, clip_pages } from "./Clip.ts";
 import { type Mode, Modes } from "./Modes.ts";
-import type { Draft, Question, Summary } from "./View.ts";
+import type { Draft, Hit, Pin, Question, Summary } from "./View.ts";
+import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import type { Routine } from "./Routines.ts";
 import * as config from "./Config.ts";
 import { Disk } from "./Disk.ts";
@@ -111,7 +124,7 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; summaries?: Record<string, Summary> };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
@@ -134,7 +147,10 @@ type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; go
 // words; null: none since one was answered), troubled told as it changes;
 // wait: checks run as the views change; share: what
 // compactions share with the chat's turns; pay: what pays them (none:
-// free); made, acted: told of each node built, of each act indexed
+// free); made, acted: told of each node built, of each act indexed;
+// rough: the nodes built rough (the budget spent), by slot, redoing: one
+// is summarized anew (Memory.redo); rest: till when no summary asks
+// (null: they ask), shared with the agents' trees
 export type Memory = {
   dir    : string;
   fds    : Map<string, number>;
@@ -151,6 +167,8 @@ export type Memory = {
   drafts : Draft[];  // the timesheet's (Tools.timesheet), drafted: the last one's number
   drafted: number;
   summaries: Record<string, Summary>;
+  pins   : number[]; // the messages the user pinned (Memory.pin), in order; pinned: as views list them
+  pinned : Pin[];
   work   : string[];
   nodes  : Map<number, string>;
   agents : Map<string, Memory>;
@@ -170,6 +188,9 @@ export type Memory = {
   pay?   : Pay;
   made?  : (l: number, i: number) => void;
   acted  : (id: string, ans: object) => void;
+  rough  : Map<number, Part>;
+  redoing: boolean;
+  rest   : { until: number | null };
 };
 
 // Constants
@@ -208,6 +229,12 @@ const SCALE = "-".repeat(NODE);
 
 const WAIT = "(not summarized yet: zoom it)";
 
+// a rough line's mark; the most of a message's first sentence it keeps;
+// how long, the budget spent, till one summary probes it (ms)
+const ROUGH = "(rough) ";
+const FIRST = 240;
+export const PROBE = 30 * 60e3;
+
 // how long a turn (or agent) waits on the summaries before it: then it goes,
 // the lines not built shown as WAIT, as a compactor down (its calls asking
 // again forever) must not hold the chat
@@ -219,6 +246,9 @@ const TROUBLE = 200;
 const IMAGES = "/docs/images/";
 
 const AGENTS = "/docs/agent/";
+
+// the messages a search reads between turns of the event loop
+const STEP = 256;
 
 // a compaction's task, before its <input>: one message to compress
 // (level 0), or two lines to merge
@@ -243,9 +273,10 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, summaries: {}, work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
+      rough: new Map(), redoing: false, rest: { until: null },
     };
     const saved = Memory.saved(dir);
     mem.pick = saved?.pick ?? null;
@@ -260,12 +291,17 @@ export namespace Memory {
     mem.drafted = Number(saved?.drafted ?? 0) || 0;
     mem.summaries = typeof saved?.summaries === "object" && saved.summaries !== null ? saved.summaries : {};
     mem.work = saved?.work ?? [];
+    for (const [l, i] of Array.isArray(saved?.rough) ? saved.rough : []) {
+      mem.rough.set(Memory.slot(l, i), { l, i });
+    }
     mem.ends.main = Memory.index(mem, "main", saved?.main ?? [0, 0]);
     mem.ends.tree = Memory.index(mem, "tree", saved?.tree ?? [0, 0]);
     mem.count = fs.statSync(dir + "/main.index").size / SLOT;
     while (Memory.message(mem, mem.count - 1)?.more) {
       mem.count -= 1;
     }
+    const pins = Array.isArray(saved?.pins) ? saved.pins.filter((i) => Number.isInteger(i) && i >= 0 && i < mem.count) : [];
+    Memory.pins_set(mem, [...new Set(pins)].sort((a, b) => a - b).slice(0, PINS));
     Memory.open(mem, mem.view, saved);
     Memory.open(mem, mem.seen, saved?.seen ?? saved);
     Memory.roots(mem.count).flatMap((part) => Memory.todo(mem, part)).forEach((part) => Memory.ready(mem, part, true));
@@ -296,7 +332,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, summaries: mem.summaries, work: mem.work, ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }
@@ -682,6 +718,7 @@ export namespace Memory {
     if (built) {
       Memory.fit(mem);
     }
+    Memory.redo(mem);
     mem.agents.forEach(Memory.pump);
   }
 
@@ -797,8 +834,13 @@ export namespace Memory {
   // thoughts; one after a line too long adds only its size and where the
   // limit cuts it (`over`): never more than the first and that note. No
   // line (a refusal: its input's doing): its source clipped; a try cut
-  // (a pause, a stop) or refused by its payer throws, unless a line came
-  export async function build(mem: Memory, l: number, i: number, text: string, call: Call | null): Promise<void> {
+  // (a pause, a stop) or refused by its payer throws, unless a line came.
+  // The budget spent (or resting: no probe due), it is built rough; a redo
+  // (Memory.redo) then leaves it rough
+  export async function build(mem: Memory, l: number, i: number, text: string, call: Call | null, redo = false): Promise<void> {
+    if (call === null && !redo && Memory.resting(mem)) {
+      return Memory.rough(mem, l, i, text);
+    }
     const task = { text: Memory.task(l, i) + text + "\n</input>", mark: false };
     const upto = Math.min(Memory.ctx(l, i), Memory.first(mem, 0, Memory.side(mem, l, i)));
     const blocks = [...Memory.view(mem, upto, mem.seen.parts), task];
@@ -813,6 +855,10 @@ export namespace Memory {
       const note = { text: Memory.over(line), mark: false };
       end = await Memory.compact(mem, l, i, Memory.ask(mem, l, i, text, [...blocks, note]));
     }
+    if (lines.length === 0 && !end.ok && end.stop === "fail" && Agent.spent(end.text)) {
+      Memory.spend(mem, end.text);
+      return redo ? undefined : Memory.rough(mem, l, i, text);
+    }
     if (lines.length === 0 && !end.ok && end.stop !== "fail") {
       throw new Error(end.text);
     }
@@ -820,7 +866,112 @@ export namespace Memory {
       console.error("compactor: node " + l + "/" + i + ": " + (end.ok ? "an empty line" : end.text) + "; clipped");
     }
     const line = lines.length === 0 ? Memory.cut(Memory.flat(text)) : lines.reduce((a, b) => (Memory.bytes(b) < Memory.bytes(a) ? b : a));
-    Memory.store(mem, [{ l, i, text: line }]);
+    if (redo) {
+      Memory.redone(mem, l, i, line);
+    } else {
+      Memory.store(mem, [{ l, i, text: line }]);
+    }
+  }
+
+  // Rough
+  // -----
+
+  // whether no summary asks now, the budget spent; past `until`, this one
+  // probes it (the next waits PROBE more)
+  export function resting(mem: Memory, now = Date.now()): boolean {
+    const rest = mem.rest;
+    if (rest.until === null) {
+      return false;
+    }
+    if (now < rest.until) {
+      return true;
+    }
+    rest.until = Memory.rested(now);
+    return false;
+  }
+
+  // the budget spent: no summary asks till PROBE passes or the UTC day
+  // turns (the gateway's daily budget resets then); told why
+  export function spend(mem: Memory, why: string): void {
+    mem.rest.until = Memory.rested(Date.now());
+    Memory.trouble(mem, Memory.flat(why).slice(0, TROUBLE));
+  }
+
+  export function rested(now: number): number {
+    const d = new Date(now);
+    return Math.min(now + PROBE, Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+  }
+
+  // node (l,i) built rough, with no call: kept as rough to redo
+  export function rough(mem: Memory, l: number, i: number, text: string): void {
+    Memory.store(mem, [{ l, i, text: Memory.roughly(l, text), rough: true }]);
+  }
+
+  // a rough line: a message's first sentence (FIRST bytes at most), or
+  // a merge's halves' first parts, whitespace runs made one, marked; in
+  // NODE bytes
+  export function roughly(l: number, text: string): string {
+    const halves = l === 0 ? [text] : text.split("\n");
+    const each = Math.floor((NODE - Memory.bytes(ROUGH)) / halves.length) - 3;
+    const first = (part: string) => {
+      const flat = part.replace(/\s+/g, " ").trim().replace(/^\(rough\) /, "");
+      const sentence = /^.*?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat;
+      return Memory.clip(sentence, Math.min(l === 0 ? FIRST : each, each));
+    };
+    return Memory.clip(ROUGH + halves.map(first).join(" / "), NODE);
+  }
+
+  // a text's first n bytes
+  export function clip(text: string, n: number): string {
+    return Buffer.from(text, "utf8").subarray(0, n).toString("utf8").replace(/\uFFFD+$/, "");
+  }
+
+  // the rough nodes summarized anew as the gateway works (a probe gets
+  // through), oldest first (a node's halves before it), one at a time, in
+  // the background: built already, no turn waits on them. One that fails
+  // stops it till the next pump
+  export function redo(mem: Memory): void {
+    if (mem.redoing || mem.done || mem.rough.size === 0) {
+      return;
+    }
+    const [part] = [...mem.rough.values()].sort((a, b) => Memory.ctx(a.l, a.i) - Memory.ctx(b.l, b.i) || a.l - b.l);
+    const text = Memory.source(mem, part.l, part.i);
+    if (text === null) {
+      mem.rough.delete(Memory.slot(part.l, part.i));
+      return Memory.redo(mem);
+    }
+    if (Memory.bytes(text) <= NODE) {
+      Memory.redone(mem, part.l, part.i, text);
+      return Memory.redo(mem);
+    }
+    if (mem.hold[Memory.side(mem, part.l, part.i)] !== null || Memory.resting(mem)) {
+      return;
+    }
+    mem.redoing = true;
+    Memory.build(mem, part.l, part.i, text, null, true).then(() => {
+      mem.redoing = false;
+      Memory.redo(mem);
+    }, (err) => {
+      mem.redoing = false;
+      console.error("compactor: redo " + part.l + "/" + part.i + ": " + (err?.message ?? err));
+    });
+  }
+
+  // a rough node summarized anew: logged again (its index takes the
+  // last), kept if held, the views holding it sized anew
+  export function redone(mem: Memory, l: number, i: number, text: string): void {
+    const slot = Memory.slot(l, i);
+    Memory.log(mem, "tree", [{ l, i, text, size: Memory.bytes(text) }]);
+    const old = mem.nodes.get(slot);
+    if (old !== undefined) {
+      mem.nodes.set(slot, text);
+      for (const view of [mem.view, mem.seen]) {
+        const part = view.parts[Memory.cover(view, Memory.span({ l, i })[0])];
+        view.size += part?.l === l && part.i === i ? Memory.bytes(text) - Memory.bytes(old) : 0;
+      }
+    }
+    mem.rough.delete(slot);
+    Memory.save(mem);
   }
 
   // what node (l,i)'s summary serves: an import, or the chat
@@ -833,9 +984,15 @@ export namespace Memory {
     return mem.pay?.(Memory.served(mem, l, i), Memory.ref({ l, i }), Memory.bytes(text));
   }
 
-  // nodes built: logged in one write, kept
-  export function store(mem: Memory, parts: Array<Part & { text: string }>): void {
-    Memory.log(mem, "tree", parts.map(({ l, i, text }) => ({ l, i, text, size: Memory.bytes(text) })));
+  // nodes built: logged in one write, kept; rough (Memory.rough), or over
+  // a half that is, kept as rough to redo
+  export function store(mem: Memory, parts: Array<Part & { text: string; rough?: boolean }>): void {
+    const rough = parts.map((part) => part.rough === true || Memory.halves(part).some((half) => mem.rough.has(Memory.slot(half.l, half.i))));
+    Memory.log(mem, "tree", parts.map(({ l, i, text }, k) => ({ l, i, text, size: Memory.bytes(text), rough: rough[k] || undefined })));
+    parts.forEach((part, k) => rough[k] && mem.rough.set(Memory.slot(part.l, part.i), { l: part.l, i: part.i }));
+    if (rough.includes(true)) {
+      Memory.save(mem);
+    }
     for (const { l, i, text } of parts) {
       Memory.ready(mem, { l, i }, false);
       mem.nodes.set(Memory.slot(l, i), text);
@@ -869,7 +1026,13 @@ export namespace Memory {
   // a summary's try: its call's end, the call held in `calls` till then
   export function compact(mem: Memory, l: number, i: number, call: Call): Call["done"] {
     mem.calls.set(call, { l, i, kind: Memory.served(mem, l, i) });
-    return call.done.then((end) => (end.ok && Memory.trouble(mem, null), end)).finally(() => mem.calls.delete(call));
+    return call.done.then((end) => (end.ok && Memory.answered(mem), end)).finally(() => mem.calls.delete(call));
+  }
+
+  // a summary answered: no trouble, and no rest (the budget is back)
+  export function answered(mem: Memory): void {
+    mem.rest.until = null;
+    Memory.trouble(mem, null);
   }
 
   // node (l,i)'s task, but its input
@@ -882,7 +1045,7 @@ export namespace Memory {
 
   // a text's first NODE bytes
   export function cut(text: string): string {
-    return Buffer.from(text, "utf8").subarray(0, NODE).toString("utf8").replace(/\uFFFD+$/, "");
+    return Memory.clip(text, NODE);
   }
 
   export function over(line: string): string {
@@ -1096,7 +1259,12 @@ ${Memory.cut(line)}| ← LIMIT`;
       blocks.push({ text: lines.slice(k * BLOCK, (k + 1) * BLOCK).join(""), mark: k === whole - 1 });
     }
     blocks.push({ text: lines.slice(whole * BLOCK).join("") + "</chat>\n", mark: false });
-    return blocks;
+    // the chat's view (not the compactions') opens with the user's pins
+    // before `end` (those after come whole anyway), unmarked: a pin made
+    // is read anew once
+    const pins = parts === mem.view.parts ? mem.pins.filter((i) => i < end) : [];
+    const pinned = pins.map((i) => Memory.pin_line(Memory.message(mem, i)!)).join("");
+    return pins.length === 0 ? blocks : [{ text: "<pinned>\n" + pinned + "</pinned>\n", mark: false }, ...blocks];
   }
 
   export function part(mem: Memory, id: number, n: number): Part | null {
@@ -1233,6 +1401,82 @@ h4 { margin: .8em 0 .2em; color: #888; font-weight: normal; } pre { margin: 0; w
     yield "</section>\n";
   }
 
+  // Pins
+  // ----
+
+  // a pin as a view has it: its message as models read it, newlines kept
+  export function pin_line(root: Root): string {
+    return root.i + "+1|" + Memory.show(root) + "\n";
+  }
+
+  // the pins set: as views list them, and the chat's view's budget less
+  // their bytes
+  export function pins_set(mem: Memory, pins: number[]): void {
+    const roots = pins.map((i) => Memory.message(mem, i)!);
+    mem.pins = pins;
+    mem.pinned = roots.map((r) => ({ i: r.i, kind: r.kind, date: r.date, text: r.text.slice(0, SHOWN), size: Memory.bytes(Memory.pin_line(r)) }));
+    mem.view.high = HIGH - mem.pinned.reduce((n, p) => n + p.size, 0);
+  }
+
+  // message i pinned (on) or unpinned, as it is already: nothing; null:
+  // done, else why not (no such message, PINS or PINNED passed). The view
+  // merges to its new budget at once
+  export function pin(mem: Memory, i: number, on: boolean): string | null {
+    const root = Memory.message(mem, i);
+    if (root === null) {
+      return "No message " + i + ".";
+    }
+    if (mem.pins.includes(i) === on) {
+      return null;
+    }
+    const size = mem.pinned.reduce((n, p) => n + p.size, 0) + Memory.bytes(Memory.pin_line(root));
+    if (on && mem.pins.length >= PINS) {
+      return "At most " + PINS + " pins: unpin one first.";
+    }
+    if (on && size > PINNED) {
+      return "Pins hold " + PINNED / 1000 + " KB in all, and this one would make " + (size / 1000).toFixed(1) + " KB: unpin one, or pin a shorter message.";
+    }
+    Memory.pins_set(mem, on ? [...mem.pins, i].sort((a, b) => a - b) : mem.pins.filter((k) => k !== i));
+    Memory.fit(mem);
+    Memory.save(mem);
+    return null;
+  }
+
+  // Search
+  // ------
+
+  // the messages whose text holds q, any case, newest first: FOUND at most
+  // (more: there were others), STEP read between turns of the event loop,
+  // till `on` says to stop (a newer search, the view gone)
+  export async function find(mem: Memory, q: string, on: () => boolean = () => true): Promise<{ hits: Hit[]; more: boolean }> {
+    const low = q.toLowerCase();
+    const hits: Hit[] = [];
+    for (let i = mem.count - 1, k = 0; i >= 0; i--, k++) {
+      if (k % STEP === STEP - 1) {
+        await new Promise((ok) => setImmediate(ok));
+      }
+      if (!on()) {
+        break;
+      }
+      const root = Memory.message(mem, i)!;
+      const at = root.text.toLowerCase().indexOf(low);
+      if (at < 0) {
+        continue;
+      }
+      if (hits.length === FOUND) {
+        return { hits, more: true };
+      }
+      hits.push({ i, kind: root.kind, date: root.date, text: Memory.snippet(root.text, at, q.length) });
+    }
+    return { hits, more: false };
+  }
+
+  // a text around its match at `at` (n chars), on one line, a cut marked
+  export function snippet(text: string, at: number, n: number): string {
+    const [a, b] = [Math.max(0, at - 60), Math.min(text.length, at + n + 100)];
+    return (a > 0 ? "…" : "") + Memory.flat(text.slice(a, b)).toWellFormed() + (b < text.length ? "…" : "");
+  }
+
   // Agents
   // ------
 
@@ -1273,6 +1517,7 @@ h4 { margin: .8em 0 .2em; color: #888; font-weight: normal; } pre { margin: 0; w
     const sub = Memory.load(dir, mem.share);
     Object.defineProperty(sub, "pay", { get: () => mem.pay });
     sub.hold = mem.hold;
+    sub.rest = mem.rest;
     sub.done = mem.done;
     const name = dir.slice(dir.lastIndexOf("/") + 1);
     mem.agents.set(name, sub);

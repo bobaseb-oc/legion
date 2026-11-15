@@ -51,7 +51,7 @@ import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
-import { email_ask, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
+import { email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
 import * as config from "./Config.ts";
 import hello_md from "./hello.md" with { type: "text" };
 import app_js from "./web/app.js" with { type: "file" };
@@ -138,6 +138,7 @@ type Chat = {
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
+  dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
 };
 
 // a chat as it moves to another process (Chat.move): its user (an id:
@@ -374,7 +375,8 @@ export namespace Chat {
     return { ...Pick.ask(chat.pick), system, searches: 0, server: "" };
   }
 
-  // at rest (nothing runs): pays, and lets go of a chat nobody views;
+  // at rest (nothing runs): pays, and lets go of a chat nobody views but
+  // one whose routines tick (Routines.timed);
   // one ending or moving does that once at its rest (Chat.ending), and
   // one ended or moved never (it pays where it is, or as it closes)
   export function free(chat: Chat): void {
@@ -388,7 +390,7 @@ export namespace Chat {
       return;
     }
     Chat.cloud.billing.settle(acct.user);
-    if (chat.socks.size === 0) {
+    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines)) {
       clearInterval(chat.tick);
       Tools.close(chat.tools);
       Memory.stop(chat.mem);
@@ -999,14 +1001,16 @@ export namespace Chat {
     return {};
   }
 
-  // the chats a restart cut at work or importing, opened; one that fails
+  // the chats a restart cut at work or importing, or with a routine on by
+  // the clock (its tick runs with no view: Routines.timed), opened; one that fails
   // to load is logged and left (its user's page gets the error), never
   // keeping the worker, which serves every other user, from starting
   export function wake(): void {
     const dir = config.DIR + "/users/";
     for (const id of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
       const user = Main.shard(id) === Main.index ? Cloud.user(Chat.cloud, id) : null;
-      if (user !== null && ((Memory.saved(dir + id)?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH))) {
+      const saved = user === null ? null : Memory.saved(dir + id);
+      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? []))) {
         Main.event("waking the chat of user " + id, () => Chat.open(user));
       }
     }
@@ -1139,7 +1143,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, pins: chat.mem.pinned };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1254,6 +1258,16 @@ export namespace Chat {
         const parts = Memory.roots(chat.mem.count).map(({ l, i }): Part => [i * 2 ** l, 2 ** l]);
         Chat.teach(chat, sock, parts);
         Chat.send(sock, { $: "root", parts });
+        return {};
+      }
+      // the user's search of their chat (the Memory page): answered at
+      // once, its hits sent as recalled (Chat.search)
+      case "search": {
+        const q = typeof msg.q === "string" ? msg.q.trim() : "";
+        if (q === "" || q.length > FIND) {
+          return { error: q === "" ? "Search for what?" : "A search is " + FIND + " characters at most." };
+        }
+        void Chat.search(chat, sock, q);
         return {};
       }
       // what the view has in sight: those it hears the deltas and
@@ -1416,6 +1430,13 @@ export namespace Chat {
       case "looked": {
         return Chat.looked(chat, device, msg);
       }
+      case "undo":
+      case "handoff": {
+        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""));
+      }
+      case "did": {
+        return Chat.did(chat, device, msg);
+      }
       case "fetch": {
         if (Tools.opened(chat.tools).length === 0) {
           return { error: "No device is up to read the inbox: open a terminal (legion), or run legion device (legion device --install keeps one running)." };
@@ -1470,8 +1491,43 @@ export namespace Chat {
         Chat.change(chat);
         return {};
       }
+      case "pin": {
+        return Chat.pin(chat, device, msg);
+      }
     }
     return { error: "No act " + msg.$ + "." };
+  }
+
+  // the user's pin of a chat message, or unpin (Memory.pin): a view's act
+  // only, as no agent may pin (a device's socket is within an agent's
+  // reach: refused); i an index, on a boolean; past a cap, refused with why.
+  // State, as a pick is: not recorded
+  export function pin(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Pins are the user's: pin from the web." };
+    }
+    if (!Number.isInteger(msg.i) || typeof msg.on !== "boolean") {
+      return { error: "No pin " + JSON.stringify(msg.i)?.slice(0, 40) + "." };
+    }
+    const why = Memory.pin(chat.mem, msg.i, msg.on);
+    if (why !== null) {
+      return { error: why };
+    }
+    Chat.change(chat);
+    return {};
+  }
+
+  // a socket's search (Memory.find), its hits sent to it; a newer one
+  // of the socket's, or the socket gone, ends it
+  const searches = new WeakMap<Sock, string>();
+  export async function search(chat: Chat, sock: Sock, q: string): Promise<void> {
+    const key = crypto.randomUUID();
+    searches.set(sock, key);
+    const on = () => searches.get(sock) === key && chat.socks.has(sock);
+    const found = await Memory.find(chat.mem, q, on).catch(Chat.fail);
+    if (on() && "hits" in found) {
+      Chat.send(sock, { $: "recalled", q, ...found });
+    }
   }
 
   // why the user can't start work now (no credit, a balance read first:
@@ -1682,6 +1738,44 @@ export namespace Chat {
     return {};
   }
 
+  // the Crew view's Undo last turn (an agent not at work) and Open in
+  // Claude Code (its brief: Tools.handoff), the user's acts (no agent has
+  // a tool for them), to ONE live terminal of the agent's device (each
+  // would undo again, or open a window); none known: any device's, for a
+  // handoff. The device checks its own roots (Device.device_undo, _handoff)
+  export function crew_op(chat: Chat, id: string, op: "undo" | "handoff", name: string): Answer {
+    const agent = chat.tools.agents.get(name);
+    if (agent === undefined) {
+      return { error: "No agent " + name.slice(0, 64) + "." };
+    }
+    if (op === "undo" && Tools.working(chat.tools).includes(agent)) {
+      return { error: name + " is at work: stop it first, then undo its last turn." };
+    }
+    if (op === "undo" && agent.device === undefined) {
+      return { error: name + " changed nothing on a device: nothing to undo." };
+    }
+    const devices = Tools.opened(chat.tools).filter(([d]) => agent.device === undefined || d === agent.device);
+    const link = devices.flatMap(([, d]) => [...d.terms.values()]).find((l) => l.live?.() !== false);
+    if (link === undefined) {
+      return { error: agent.device === undefined ? "No device is up: open a terminal (legion), or run legion device." : agent.device + " is gone: open a terminal (legion) there, or run legion device." };
+    }
+    (chat.dids ??= new Set()).add(id);
+    link.send(op === "undo" ? { $: "undo", id, agent: name } : { $: "handoff", id, agent: name, brief: Tools.handoff(agent) });
+    return {};
+  }
+
+  // a device's answer to an undo or a handoff sent it: only a device's,
+  // once, a note in the chat (so Unii knows the user undid an agent)
+  export function did(chat: Chat, device: string, msg: any): Answer {
+    const id = String(msg?.id ?? "");
+    if (device === "" || !chat.dids?.delete(id)) {
+      return { error: "No undo or handoff " + id.slice(0, 40) + " waits for a device's answer." };
+    }
+    const text = typeof msg.text === "string" ? msg.text : "Not done: " + String(msg.error ?? "no answer").slice(0, 300);
+    Chat.note(chat, text.slice(0, 600));
+    return {};
+  }
+
   // the gateway's report (Gateway.ts) to every chat's views: its budget,
   // read anew past GATEWAY_READ and only through a gateway (never
   // Anthropic's own API), and when a model last answered busy
@@ -1855,7 +1949,9 @@ const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
   // --------
   // The user's (Routines.ts), kept with the chat: each starts a native
   // agent, the user's (its report takes no turn). The tick runs those due
-  // while the chat is open (a view or a device connected); a review
+  // while the chat is open: a view or a device connected, or with none, a
+  // routine on by the clock (Chat.free keeps it, Chat.wake opens it after
+  // a restart). One missed while the Mac slept runs once on waking; a review
   // routine, on each inbox, a review of each new review request of the
   // user's, AUTOS at most at once (the first inbox it sees only seeds it)
 

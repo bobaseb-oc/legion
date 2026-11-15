@@ -27,8 +27,10 @@ import { SECRET, SECRET_AT } from "./Modes.ts";
 // =====
 
 // a tool call to run here: its tool, its input, its agent's dir (a name,
-// under the device's work dir)
-export type Job = { name: string; input: any; cwd: string };
+// under the device's work dir); snap: its agent's turn (when it began,
+// ms), set on a call that may change files, so the device snapshots the
+// repos it changes first, once a turn (Undo.ts, Device.device_snap)
+export type Job = { name: string; input: any; cwd: string; snap?: number };
 
 // a tool as the vendors see it: its name, what it does, its input's
 // JSON Schema
@@ -167,9 +169,7 @@ export namespace Machine {
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
   // by default Claude Code's own for the dir's project)
   export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[]): Promise<Out> {
-    const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
-    const root = tilde(work);
-    const cwd = job.cwd === "main" && home ? tilde(home) : path.join(root, path.basename(job.cwd));
+    const cwd = Machine.dir(job, work, home);
     const input = job.input;
     const file = path.resolve(cwd, String(input.path));
     try {
@@ -196,6 +196,12 @@ export namespace Machine {
     } catch (err: any) {
       return { text: String(err?.message ?? err), fail: true };
     }
+  }
+
+  // a job's dir: <work>/<its caller>, Unii's (main) the home repo if any
+  export function dir(job: Job, work: string, home?: string): string {
+    const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
+    return job.cwd === "main" && home ? tilde(home) : path.join(tilde(work), path.basename(job.cwd));
   }
 
   // why a call is refused before any hook (security review M3, M4): a
@@ -226,7 +232,13 @@ export namespace Machine {
   // its real one
   export function secret(p: string): boolean {
     const at = path.resolve(p);
-    return [at, Machine.real(at)].map((q) => q.normalize("NFKC")).some((q) => SECRET.test(path.basename(q)) || SECRET_AT.test(q));
+    return [at, Machine.real(at)].some(Machine.secret_name);
+  }
+
+  // whether a path, as named (no link followed), may hold a secret
+  export function secret_name(p: string): boolean {
+    const q = p.normalize("NFKC");
+    return SECRET.test(path.basename(q)) || SECRET_AT.test(q);
   }
 
   // whether a file gates the hooks (GATING, ~/.claude, $CLAUDE_CONFIG_DIR:

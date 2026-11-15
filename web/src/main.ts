@@ -124,6 +124,9 @@ const C = {
   pal     : 0, // the palette's pick
   doc     : null as string | null, // the transcript picked
   reading : new Map<string, number>(), // transcripts asked to be summarized, not yet: since when
+  away    : null as Cockpit.Seen | null, // the look Home's away card counts from (away_active)
+  awayed  : false, // the away card drawn on Home, its look kept till Got it or Home is left
+  left    : 0, // when the user's look was last kept
 };
 
 function $<T extends HTMLElement>(sel: string): T {
@@ -301,6 +304,7 @@ function chat(): void {
   $("#side").addEventListener("click", page_click);
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
+  $("#page").addEventListener("submit", memory_find);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -339,6 +343,77 @@ function signed(): void {
   BOX.removeAttribute("autocomplete");
   BOX.value = sessionStorage.getItem(kept("draft")) ?? "";
   BOX.dispatchEvent(new Event("input"));
+  C.away = away_back();
+  document.addEventListener("pointerdown", () => away_active(false));
+  document.addEventListener("keydown", () => away_active(false));
+  document.addEventListener("visibilitychange", () => (document.hidden ? away_keep() : away_active(true)));
+}
+
+// While you were away
+// ===================
+// The user's last look is kept in this browser (kept("away-seen"): when,
+// each agent's status; Cockpit.away_seen), each time they act (at most a
+// minute apart) and when the tab is hidden. Home's card counts from the
+// look kept before they acted again (C.away), and holds it once drawn,
+// till Got it or Home is left: back on Home, it is gone.
+
+function away_read(): Cockpit.Seen | null {
+  const s = localStorage.getItem(kept("away-seen"));
+  const seen: unknown = s === null ? null : JSON.parse(s);
+  return typeof seen === "object" && seen !== null && typeof (seen as Cockpit.Seen).at === "number" && typeof (seen as Cockpit.Seen).crew === "object" ? seen as Cockpit.Seen : null;
+}
+
+// the look now kept (none before the view came: its agents unknown)
+function away_keep(): void {
+  if (P.guest || !v.up) {
+    return;
+  }
+  C.left = Date.now();
+  localStorage.setItem(kept("away-seen"), JSON.stringify(Cockpit.away_seen(v, C.left)));
+}
+
+// the look kept last, if the user has been away since (AWAY or more)
+function away_back(): Cockpit.Seen | null {
+  const was = away_read();
+  return was !== null && Date.now() - was.at >= Cockpit.AWAY ? was : null;
+}
+
+// the user acts (or comes back to the tab: now): back from away, the card
+// (if not drawn) counts from the look kept last; this look then kept
+function away_active(now: boolean): void {
+  if (!now && Date.now() - C.left < 60e3) {
+    return;
+  }
+  const back = C.awayed ? null : away_back();
+  away_keep();
+  if (back !== null) {
+    C.away = back;
+    if (C.page === "home") {
+      draw(true);
+    }
+  }
+}
+
+// Home's card: what happened since C.away (the inbox's rows changed since
+// it was last entered, its kept stamps), now drawn
+function away_now(): Cockpit.Away | null {
+  if (C.away === null) {
+    return null;
+  }
+  const now = Date.now();
+  const stamps = localStorage.getItem(kept("inbox-seen"));
+  const inbox = stamps === null ? 0 : Cockpit.inbox_changed(Cockpit.inbox_sections(v.inbox, v.crew, "", now), JSON.parse(stamps));
+  const away = Cockpit.away(v, C.away, now, inbox);
+  C.awayed ||= away !== null;
+  return away;
+}
+
+// the card done with (Got it, or Home left after it was drawn): the look
+// it counts from is now
+function away_done(): void {
+  C.awayed = false;
+  C.away = null;
+  away_keep();
 }
 
 function submit(): void {
@@ -457,8 +532,17 @@ function click(ev: MouseEvent): void {
     ev.preventDefault();
     go(path ?? "/");
   }
-  if (a !== undefined) {
-    act(JSON.parse(a));
+  // an undo changes the user's files: asked first
+  const parsed: View.Act | undefined = a === undefined ? undefined : JSON.parse(a);
+  if (parsed?.$ === "Undo" && !confirm("Undo " + parsed.name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.")) {
+    return;
+  }
+  if (parsed !== undefined) {
+    act(parsed);
+    // a jump (the Memory page): to the chat, where paint brings it in sight
+    if (parsed.$ === "Seek") {
+      location.hash = "#chat";
+    }
   }
   if (usd !== undefined) {
     warned(el, () => topup(Number(usd)));
@@ -1031,11 +1115,17 @@ function paint(): void {
   P.frame = 0;
   P.stick = true;
   bars();
+  const redrawn = P.rows;
   if (P.rows) {
     markup($("#log .rows"), View.view_body(v).map(Html.row_html));
     P.rows = false;
   }
   markup($("#log .tail"), View.view_tail(v).map(Html.row_html));
+  pinned(redrawn);
+  if (sought()) {
+    P.shown = shown;
+    return;
+  }
   if (shown !== P.shown) {
     P.shown = shown;
     scrollTo(0, v.fold === null ? doc.scrollHeight : 0);
@@ -1053,6 +1143,36 @@ function paint(): void {
   if (el !== undefined) {
     scrollBy(0, el.getBoundingClientRect().top - at.top);
   }
+}
+
+// the chat's messages the user pinned marked (style.css), the rows made
+// once (Html.row_html) whatever the state says: as rows are drawn anew,
+// or the pins change
+let PINNED = "";
+function pinned(redrawn: boolean): void {
+  const pins = new Set(v.page === null ? (v.pins ?? []).map((p) => String(p.i)) : []);
+  const key = [...pins].join();
+  if (!redrawn && key === PINNED) {
+    return;
+  }
+  PINNED = key;
+  for (const el of document.querySelectorAll<HTMLElement>("#log .rows .msg[data-a]")) {
+    el.classList.toggle("pinned", pins.has(el.dataset.a!));
+  }
+}
+
+// the message a jump asked for (View's Seek), once drawn in the chat:
+// brought in sight and flashed; whether it was
+function sought(): boolean {
+  const el = v.seek === null || v.page !== null ? null : document.querySelector<HTMLElement>(`#log .rows .msg[data-a="${v.seek}"]`);
+  if (el === null) {
+    return false;
+  }
+  v.seek = null;
+  el.scrollIntoView({ block: "center" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1200);
+  return true;
 }
 
 // the header's and the footer's parts that change, and the notes, a
@@ -1245,6 +1365,9 @@ function page_bars(mode: View.Mode): boolean {
   $("#page").hidden = !page;
   $("#log").hidden = page;
   $("#pfilter").hidden = mode !== "inbox";
+  if (C.awayed && mode !== "home") {
+    away_done(); // Home left after its away card was read: back there, it is gone
+  }
   if (!page) {
     C.page = "";
     $("#picks").hidden = true;
@@ -1281,7 +1404,15 @@ function page_bars(mode: View.Mode): boolean {
   } else if (mode === "home") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
-    markup($("#page .pbody"), Pages.home_html(v, new Date()));
+    markup($("#page .pbody"), Pages.home_html(v, new Date(), away_now()));
+  } else if (mode === "memory") {
+    // the tree's roots asked anew each time the page is entered
+    if (C.page !== "memory") {
+      act({ $: "Roots" });
+    }
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    markup($("#page .pbody"), Pages.memory_html(v));
   } else {
     $("#picks").hidden = true;
     markup($("#page .ptop"), [`<div class="phead"><h2>${mode[0].toUpperCase() + mode.slice(1)}</h2></div>`]);
@@ -1457,6 +1588,17 @@ function files_run(ev: SubmitEvent): void {
   toast("Running " + command.slice(0, 60) + ": its output comes in the chat.");
 }
 
+// the Memory page's search box sent: the chat searched on the server
+// (an empty one clears the hits)
+function memory_find(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.msearch");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Search", q: form.querySelector("input")!.value });
+}
+
 // the Routines page's form sent: a routine added (the server checks it)
 function routine_add(ev: SubmitEvent): void {
   const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.radd");
@@ -1520,6 +1662,10 @@ function page_click(ev: MouseEvent): void {
   // the side columns put away, or back
   if (el.closest("[data-new-agent]") !== null) {
     new_agent();
+  }
+  // Got it: the away card gone, the user's look now
+  if (el.closest("[data-away-seen]") !== null) {
+    away_done();
   }
   if (el.closest("[data-focus]") !== null) {
     document.body.classList.toggle("focus");

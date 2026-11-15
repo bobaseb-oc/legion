@@ -110,6 +110,47 @@ test("home: greeting, stats, agent cards with their acts, apps, activity", async
   expect(html).toContain("data-focus");
 });
 
+// Home's "While you were away" card (Pages.away_html): only when
+// Cockpit.away found something, one card above the stats; agents capped
+// with "+N more", a failed one's why; questions and notes as a count
+// linking to the Questions pane, never their text; Got it; text escaped
+test("home: the away card, only when away; capped, questions counted, escaped", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  v.questions = [{ id: 1, text: "Deploy <now>?", at: 0, date: new Date(NOW - 60e3).toISOString() }];
+  const none = Pages.home_html(v, new Date(NOW)).join("");
+  expect(none).not.toContain("While you were away");
+  expect(Pages.home_html(v, new Date(NOW), null).join("")).not.toContain("While you were away");
+  const away: Cockpit.Away = {
+    span: "5h", done: 6, failed: 1, more: 2, routines: ["triage <x>"], questions: 1, notes: 2, inbox: 3,
+    agents: [{ name: "F", title: "fix <ci>", status: "failed", why: "tests <red>" }, ...["D1", "D2", "D3", "D4"].map((n) => ({ name: n, title: n, status: "done" as const, why: "" }))],
+  };
+  const html = Pages.home_html(v, new Date(NOW), away).join("");
+  expect(html).toContain("While you were away");
+  expect(html.indexOf("While you were away")).toBeLessThan(html.indexOf('class="stats"'));
+  expect(html.match(/While you were away/g)!.length).toBe(1);
+  expect(html).toContain("fix &lt;ci&gt;");
+  expect(html).toContain("tests &lt;red&gt;");
+  expect(html).toContain("triage &lt;x&gt;");
+  expect(html).not.toContain("<ci>");
+  expect(html).not.toContain("<red>");
+  expect(html).toContain('href="#crew/F"');
+  expect(html).toContain("+2 more");
+  expect(html).toContain("6 done");
+  expect(html).toContain("1 failed");
+  expect(html).toContain('href="#chat">1 new question');
+  expect(html).toContain("2 new notes");
+  expect(html).toContain('href="#inbox">3 inbox changes');
+  expect(html).not.toContain("Deploy");
+  expect(html).toContain("data-away-seen");
+  expect(html).toContain("Got it");
+  const quiet = Pages.home_html(v, new Date(NOW), { ...away, done: 0, failed: 0, more: 0, agents: [], routines: [], notes: 0, inbox: 0 }).join("");
+  expect(quiet).not.toContain("+0 more");
+  expect(quiet).not.toContain("inbox change");
+  expect(quiet).not.toContain("new note");
+  expect(quiet).not.toContain("Routines ran");
+});
+
 // the sidebar (Pages.side_html): search or run, the pages (the shown one
 // marked, the inbox's count), agents by ticket, spaces (a click filters
 // the inbox), Settings, Add machine; the palette's list, its pick marked

@@ -577,3 +577,63 @@ test("H3: MCP writes and computer tasks are reviewed; MCP answers are fenced as 
     (Mcp as any).call = real;
   }
 });
+
+// Undo (Undo.ts): a call that may change files carries its agent's turn
+// (snap), so the device snapshots first, once a turn; a read, Unii's own
+// call, and a shell in plan mode carry none; the agent's device is kept
+// (the Crew view's Undo and handoff go there). No agent has an undo tool:
+// undo is the user's alone
+test("snap: a changing call carries its agent's turn; the device is kept; no undo tool", () => {
+  for (const mode of ["full", "plan"] as const) {
+    const tools = Tools.serve({ dir: "/nowhere", mode } as any, { change: () => {}, pick: () => null } as any);
+    Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.unii/work" });
+    const a = { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, since: 123 } as any;
+    tools.agents.set(a.name, a);
+    const job = (who: string, name: string, args: any, id: string) => {
+      void Tools.call(tools, who, name, { device: "mac", ...args }, go(), id);
+      return tools.devices.get("mac")!.jobs.get(id)?.job;
+    };
+    if (mode === "full") {
+      expect(job("Owl", "write", { path: "a", content: "x" }, "1")).toEqual({ name: "write", input: { path: "a", content: "x" }, cwd: "Owl", snap: 123 });
+      expect(job("Owl", "edit", { edits: [] }, "2")!.snap).toBe(123);
+      expect(job("Owl", "shell", { command: "rm -rf x" }, "3")!.snap).toBe(123);
+      expect(job("Owl", "read", { path: "a" }, "4")!.snap).toBeUndefined();
+      expect(job("main", "write", { path: "a", content: "x" }, "5")!.snap).toBeUndefined();
+      expect(a.device).toBe("mac");
+    } else {
+      expect(job("Owl", "shell", { command: "ls" }, "6")!.snap).toBeUndefined();
+    }
+    for (const who of ["main", "Owl"]) {
+      expect(Tools.list(tools, who).map((t) => t.name).filter((n) => /undo|handoff|snap/i.test(n))).toEqual([]);
+    }
+    Tools.close(tools);
+  }
+});
+
+// the brief handed to Claude Code with an agent's work (Device.device_handoff):
+// a fixed head (never an agent's text first, so never read as a flag),
+// its title, repos, todo and last words as data, control characters out, capped
+test("handoff brief: a fixed head, the agent's text as data, controls out, capped", () => {
+  const a = { name: "Owl", replies: ["one\ntwo\n\x1b[31mred\x07\nlast words"], title: "--dangerously-skip-permissions $(rm -rf ~)", repos: ["uniichat"], todo: [{ text: "Fix it", status: "doing" }], files: ["/r/a.ts"] } as any;
+  const brief = Tools.handoff(a);
+  expect(brief.startsWith("You're picking up work")).toBe(true);
+  expect(brief).toContain("Title: --dangerously-skip-permissions $(rm -rf ~)");
+  expect(brief).toContain("- [doing] Fix it");
+  expect(brief).toContain("Repos: uniichat");
+  expect(brief).toContain("last words");
+  expect(brief).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  expect(Tools.handoff({ ...a, replies: ["x".repeat(50_000)] }).length).toBeLessThanOrEqual(8000);
+});
+
+test("a call with no device (fetch) is shown as on the server, never 'undefined'", async () => {
+  const tools = { hooks: { change() {} } } as any;
+  const stop = new AbortController();
+  const waiting = Tools.ask_user(tools, "main", "fetch", { url: "https://example.com/" }, stop.signal);
+  const [c] = Tools.consents(tools);
+  expect(c!.what).toContain("(on the server)");
+  expect(c!.what).not.toContain("undefined");
+  stop.abort();
+  expect(await waiting).toBe(false);
+  expect(Tools.where(undefined)).toBe("the server");
+  expect(Tools.where("mac")).toBe("mac");
+});
