@@ -498,8 +498,11 @@ const hand = await Chat.act(chat, "c4", { $: "handoff", name: "Owl" }, "");
 const forged = await Chat.act(chat, "c5", { $: "did", id: "c3", text: "fake" }, "");
 const did = await Chat.act(chat, "c6", { $: "did", id: "c3", text: "Undid Owl's last turn." }, "box");
 const twice = await Chat.act(chat, "c7", { $: "did", id: "c3", text: "again" }, "box");
+const by_device = await Chat.act(chat, "c8", { $: "undo", name: "Owl" }, "box");
+const hand_by_device = await Chat.act(chat, "c9", { $: "handoff", name: "Owl" }, "box");
 await new Promise((r) => setTimeout(r, 100));
-console.log(JSON.stringify({ none: none.error ?? null, busy: busy.error ?? null, far: far.error ?? null, undo, hand, forged: "error" in forged, did, twice: "error" in twice, links }));
+const resent = await Chat.apply(chat, { $: "undo", id: "c3", name: "Owl" }, "");
+console.log(JSON.stringify({ none: none.error ?? null, busy: busy.error ?? null, far: far.error ?? null, undo, hand, forged: "error" in forged, did, twice: "error" in twice, by_device: by_device.error ?? null, hand_by_device: hand_by_device.error ?? null, resent, links }));
 process.exit(0);
 `;
 
@@ -511,7 +514,11 @@ test("Undo and Open in Claude Code go to one terminal of the agent's device; its
   expect(out.none).toMatch(/No agent/);
   expect(out.busy).toMatch(/at work/);
   expect(out.far).toMatch(/gone/);
-  expect(out).toMatchObject({ undo: {}, hand: {}, forged: true, did: {}, twice: true });
+  expect(out).toMatchObject({ undo: {}, hand: {}, forged: true, did: {}, twice: true, resent: {} });
+  // a device's socket is within an agent's reach: the user's acts only
+  expect(out.by_device).toMatch(/web/);
+  expect(out.hand_by_device).toMatch(/web/);
+  // an undo resent (its answer lost) is recorded: not sent to the device again
   expect(out.links.map(([t, m]: any) => [t, m.$, m.id, m.agent])).toEqual([["b1", "undo", "c3", "Owl"], ["b1", "handoff", "c4", "Owl"]]);
   expect(out.links[1][1].brief).toContain("Title: Fix $(it)");
   const log = fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => fs.statSync(dir + "/" + f).isFile()).map((f) => fs.readFileSync(dir + "/" + f, "utf8")).join("\n");
