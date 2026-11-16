@@ -1432,7 +1432,7 @@ export namespace Chat {
       }
       case "undo":
       case "handoff": {
-        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""));
+        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""), device);
       }
       case "did": {
         return Chat.did(chat, device, msg);
@@ -1742,8 +1742,15 @@ export namespace Chat {
   // Claude Code (its brief: Tools.handoff), the user's acts (no agent has
   // a tool for them), to ONE live terminal of the agent's device (each
   // would undo again, or open a window); none known: any device's, for a
-  // handoff. The device checks its own roots (Device.device_undo, _handoff)
-  export function crew_op(chat: Chat, id: string, op: "undo" | "handoff", name: string): Answer {
+  // handoff. The device checks its own roots (Device.device_undo, _handoff).
+  // A view's act only, as pin is (a device's socket is within an agent's
+  // reach: refused). An undo is recorded (Chat.mark) before it is sent: the
+  // device drops the snapshot it restores, so one done again, its answer
+  // lost, would undo the turn before
+  export function crew_op(chat: Chat, id: string, op: "undo" | "handoff", name: string, device = ""): Answer {
+    if (device !== "") {
+      return { error: op === "undo" ? "Undo is the user's: undo from the web." : "Open in Claude Code is the user's: open it from the web." };
+    }
     const agent = chat.tools.agents.get(name);
     if (agent === undefined) {
       return { error: "No agent " + name.slice(0, 64) + "." };
@@ -1760,6 +1767,9 @@ export namespace Chat {
       return { error: agent.device === undefined ? "No device is up: open a terminal (legion), or run legion device." : agent.device + " is gone: open a terminal (legion) there, or run legion device." };
     }
     (chat.dids ??= new Set()).add(id);
+    if (op === "undo") {
+      Chat.mark(chat, id, {});
+    }
     link.send(op === "undo" ? { $: "undo", id, agent: name } : { $: "handoff", id, agent: name, brief: Tools.handoff(agent) });
     return {};
   }

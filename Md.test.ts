@@ -19,3 +19,14 @@ test("a rule right under a paragraph is a rule", () => {
   expect(kinds("a\n|x|y|\n|-|-|\n|1|2|")).toEqual(["Para", "Tabl"]);
   expect(kinds("a\n| not a table |\nb")).toEqual(["Para"]);
 });
+
+// a link goes to a page of this site (/x) or an http(s) one, never one
+// that only looks like a path: /\host is another site to a browser
+test("a link to /\\host or //host is text, not a link", () => {
+  const links = (s: string) => Md.span_parse(s).filter((x: any) => x.$ === "Link").length;
+  expect(links("[ok](/inbox)")).toBe(1);
+  expect(links("[ok](https://a.b/c)")).toBe(1);
+  expect(links("[x](//evil.com/login)")).toBe(0);
+  expect(links("[x](/\\evil.com/login)")).toBe(0);
+  expect(links("[x](/a\\b)")).toBe(0);
+});

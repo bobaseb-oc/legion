@@ -49,7 +49,7 @@ export type Block =
 const NAME  = new RegExp("\\[(" + Names.NAME + ")\\]", "g");
 const SPAN  = new RegExp([
   /`([^`\n]+)`/.source,
-  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/(?!\/)[^\s)]*)\)/.source,
+  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)/.source, // a /path: no \ (/\host is a host)
   NAME.source,
   /\*\*([^*\n]+)\*\*/.source,
   /(?<![*\w])\*([^*\s][^*\n]*?)\*(?![\w*])/.source,

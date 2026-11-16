@@ -781,10 +781,14 @@ export namespace Tools {
         return typeof to === "string" || "name" in to ? { text: typeof to === "string" ? to : "date takes a message's id.", fail: true } : { text: Memory.date(to.mem, to.id), fail: false };
       }
       case "search": {
-        return Search.web(config.SEARXNG, String(args.query ?? ""), Number(args.n), signal);
+        // the web's words, fenced as an MCP answer is (Google.fence)
+        const out = await Search.web(config.SEARXNG, String(args.query ?? ""), Number(args.n), signal);
+        return out.fail ? out : { ...out, text: Google.fence("search", out.text, "Web search results") };
       }
       case "fetch": {
-        return Fetch.page(String(args.url ?? ""), Number(args.at ?? 0), { deny: [config.SEARXNG, config.ANTHROPIC_URL, config.SITE] }, signal);
+        const url = String(args.url ?? "");
+        const out = await Fetch.page(url, Number(args.at ?? 0), { deny: [config.SEARXNG, config.ANTHROPIC_URL, config.SITE] }, signal);
+        return out.fail ? out : { ...out, text: Google.fence("fetch:" + (URL.parse(url)?.host ?? "web"), out.text, "A web page") };
       }
       case "lsp": {
         return Lsp.run(LSP, args, signal);
