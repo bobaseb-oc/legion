@@ -172,7 +172,9 @@ export function undo_restore(git: Git, top: string, ref: string, agent: string, 
   for (let k = 0; k + 1 < parts.length; k += 2) {
     const [now_mode, then_mode, , , status] = parts[k]!.slice(1).split(" ");
     const file = parts[k + 1]!;
-    if (file === "" || Machine.secret(path.join(top, file))) {
+    // secrets and files that gate the hooks (Machine.gating) are left as
+    // they are: a planted snapshot can't put a hook back
+    if (file === "" || Machine.secret(path.join(top, file)) || Machine.gating(path.join(top, file))) {
       continue;
     }
     if (status === "D" && now_mode !== GITLINK) {

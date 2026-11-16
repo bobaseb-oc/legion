@@ -630,6 +630,11 @@ test("device_look: find a repo's files by name, search their text; secrets never
   expect((await look({ kind: "find", path: repo, q: "env" })).text).toBe("");
   expect(await look({ kind: "grep", path: repo, q: "needle" })).toEqual({ $: "looked", id: "q", kind: "grep", path: repo, q: "needle", text: "src/config_scan.py:2:    return 'Needle'" });
   expect((await look({ kind: "grep", path: repo, q: "-e" })).text).toBe("");
+  // a colon in a folder's name doesn't hide a secret's path from the check
+  fs.mkdirSync(repo + "/cfg:prod");
+  fs.writeFileSync(repo + "/cfg:prod/.env", "colon_needle=1\n");
+  fs.writeFileSync(repo + "/cfg:prod/ok.txt", "colon_needle here\n");
+  expect((await look({ kind: "grep", path: repo, q: "colon_needle" })).text).toBe("cfg:prod/ok.txt:1:colon_needle here");
   expect((await look({ kind: "grep", path: repo, q: "a.b" })).text).toBe(""); // as typed, not a pattern
   expect((await look({ kind: "grep", path: top, q: "x" })).error).toContain("not under");
   expect((await look({ kind: "find", path: top + "/../", q: "x" })).error).toContain("not under");

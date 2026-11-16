@@ -130,6 +130,25 @@ test("undo never writes a secret's path, even from a planted snapshot", async ()
   expect(fs.readFileSync(repo + "/.env", "utf8")).toBe("USER=1\n");
 });
 
+// nor a file that gates the hooks (Machine.gating): a planted snapshot
+// with a hook in .claude/settings.json leaves the user's settings as they are
+test("undo never writes Claude Code's settings, even from a planted snapshot", async () => {
+  const { repo, rules } = fixture();
+  const head = out(repo, "rev-parse", "HEAD").trim();
+  fs.mkdirSync(repo + "/.claude");
+  fs.writeFileSync(repo + "/.claude/settings.json", '{"hooks":{"x":"touch PWNED"}}');
+  git(repo, "add", "-f", ".claude/settings.json");
+  const tree = out(repo, "write-tree").trim();
+  git(repo, "rm", "-q", "--cached", ".claude/settings.json");
+  const planted = out(repo, "commit-tree", "-p", head, "-m", "x", tree).trim();
+  git(repo, "update-ref", "refs/legion/undo/Owl/700", planted);
+  Undo.undo_log(rules.state, "Owl", repo);
+  fs.writeFileSync(repo + "/.claude/settings.json", '{"user":1}');
+  const r = await Device.device_undo(rules, "u", "Owl") as any;
+  expect(r.error).toBeUndefined();
+  expect(fs.readFileSync(repo + "/.claude/settings.json", "utf8")).toBe('{"user":1}');
+});
+
 test("a snapshot that fails never breaks the write; snapshots are pruned to KEEP", async () => {
   const { repo, rules } = fixture();
   fs.writeFileSync(repo + "/.git/HEAD", "garbage\n");
@@ -174,11 +193,13 @@ test("handoff: a 0600 brief and a 0700 script that reads it; the agent's text st
   // run with a fake claude that writes its arguments down
   const bin = top + "/bin";
   fs.mkdirSync(bin);
-  fs.writeFileSync(bin + "/claude", "#!/bin/sh\npwd > \"$OUT.dir\"\nprintf '%s' \"$*\" > \"$OUT\"\nprintf '%s' \"$#\" > \"$OUT.n\"\n", { mode: 0o755 });
+  fs.writeFileSync(bin + "/claude", "#!/bin/sh\npwd > \"$OUT.dir\"\nprintf '%s' \"$*\" > \"$OUT\"\nprintf '%s' \"$#\" > \"$OUT.n\"\nprintf '%s' \"$1\" > \"$OUT.first\"\n", { mode: 0o755 });
   const res = Bun.spawnSync(["/bin/sh", script], { cwd: top, env: { PATH: bin + ":/usr/bin:/bin", OUT: top + "/argv" } });
   expect(res.exitCode).toBe(0);
-  expect(fs.readFileSync(top + "/argv", "utf8")).toBe(brief.trimEnd());
-  expect(fs.readFileSync(top + "/argv.n", "utf8")).toBe("1");
+  // the brief after "--": never read as a flag, whatever it starts with
+  expect(fs.readFileSync(top + "/argv.first", "utf8")).toBe("--");
+  expect(fs.readFileSync(top + "/argv", "utf8")).toBe("-- " + brief.trimEnd());
+  expect(fs.readFileSync(top + "/argv.n", "utf8")).toBe("2");
   expect(fs.readFileSync(top + "/argv.dir", "utf8").trim()).toBe(odd);
   expect(fs.readdirSync(top).filter((f) => f.startsWith("PWNED"))).toEqual([]);
   expect(fs.readdirSync(odd).filter((f) => f.startsWith("PWNED"))).toEqual([]);

@@ -627,11 +627,12 @@ async function look_find(rules: Rules, kind: "find" | "grep", given: string, q: 
   }
   const told = (f: string) => !Machine.secret(path.join(real, f));
   if (kind === "grep") {
-    const r = await exec(device_git(real, "grep", "-n", "-I", "-i", "-F", "--untracked", "--max-count=5", "--no-color", "-e", q, "--"));
+    // -z: "<path>\0<line>\0<text>", so a colon in a path can't cut it short
+    const r = await exec(device_git(real, "grep", "-z", "-n", "-I", "-i", "-F", "--untracked", "--max-count=5", "--no-color", "-e", q, "--"));
     if (r.code > 1) {
       return "git: " + r.out.trim().slice(0, 200);
     }
-    const lines = r.out.split("\n").filter((l) => l !== "" && told(l.slice(0, l.indexOf(":"))));
+    const lines = r.out.split("\n").map((l) => l.split("\0")).filter((p) => p.length === 3 && told(p[0]!)).map((p) => p.join(":"));
     return { path: given, q, text: lines.slice(0, FOUND).map((l) => l.slice(0, 300)).join("\n") };
   }
   const r = await exec(device_git(real, "ls-files", "-co", "--exclude-standard", "-z"));
@@ -936,7 +937,7 @@ export async function device_handoff(rules: Rules, id: string, agent: string, br
       "cd -- " + sh_word(dir) + " || exit 1",
       "brief=\"$(cat -- " + sh_word(file) + ")\" || exit 1",
       "rm -f -- " + sh_word(file) + " " + sh_word(script),
-      "exec claude \"$brief\"",
+      "exec claude -- \"$brief\"", // the brief never read as a flag
     ];
     fs.writeFileSync(script, lines.join("\n") + "\n", { mode: 0o700, flag: "wx" });
     return { $: "did", id, text: "Opened Claude Code on " + agent + "'s work in " + dir + " (" + await launch(script) + ")." };
