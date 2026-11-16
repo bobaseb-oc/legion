@@ -16,7 +16,8 @@
     "command": "local/okf-wiki.ts"
   },
   "okf": {
-    "command": "local/okf-mcp.sh"
+    "command": "local/okf-mcp.sh",
+    "env": { "OKF_CHECKOUT": "/Volumes/dev/git/oncorps-knowledge-framework-worktrees/okf-local-loop-v0", "OKF_AUDIT_IRI_DIR": "/Users/sebastianbobadillasuarez/.unii/okf-audit" }
   },
   "atlassian": {
     "url": "https://mcp.atlassian.com/v2/mcp",
