@@ -1,0 +1,20 @@
+tasks/todo.md
+  s_2867436cbc960d::t_5fe82cd114c544 792-804
+  s_2867436cbc960d::t_0f6a6239c4b06f 805-806
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "56ed20e3fb911e9285063a5dfd5121da0500b88b",
+  "prompts": {},
+  "sessions": {
+    "s_2867436cbc960d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b73309d4-9f09-4c7a-a442-67356b38badb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
