@@ -789,3 +789,18 @@ Five slices, each in its own worktree off feat/memory-crew, red tests first, mer
 - [ ] RED ZONE sign-off: Fetch.ts address guard; Undo.ts restore; UNII_KEY_HELPER launch path
 - [ ] User: `legion stop`, then `UNII_KEY_HELPER=/Users/Shared/bin/get-litellm-key.sh legion server --install`
 - [ ] By hand: Open in Claude Code (sandbox blocks `open`), Undo on a throwaway repo, away card after 2 h, 📌 and Memory page in a browser
+
+## Security review 2 (fix/security-review-2, one draft PR, RED ZONE)
+Review of 8facfc1..main (PRs #9–#20). Red test first for each, then the fix.
+- [x] S1 undo/handoff refused from a device socket, as pin is (Server.crew_op) → verify: Server.test.ts
+- [x] S2 undo recorded (Chat.mark), so a resent act doesn't undo a second turn → verify: Server.test.ts
+- [x] S3 write/edit refuse the repo's local/mcp.extra.json and the scripts it starts (Machine.gating) → verify: Machine.test.ts
+- [x] S4 fetch and web search answers fenced as untrusted (Google.fence) → verify: Tools.test.ts
+- [x] S5 undo restore skips gating paths (.claude/settings*.json) as it skips secrets → verify: Undo.test.ts
+- [x] S6 Files grep splits on NUL (-z), so a colon in a folder can't hide a secret's line → verify: Device.test.ts
+- [x] S7 handoff script: `claude -- "$brief"` → verify: Device/Undo test
+- [ ] S8 dropped: SuccessfulExit=false wouldn't help (a killed server and a failed key helper both exit unsuccessfully); a real fix is `legion stop` booting the launchd job out: follow-up
+- [x] S9 Md links: `/\host` refused → verify: Md test
+- Open (user's design call): a terminal and an agent's shell share one device identity, so consent/plan/approve/routine can't be refused to devices without breaking `legion`.
+- Review: 8 fixes, red test first for each; 9/9 mutants (each fix reverted alone) killed; suite 490 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
+- Left as Low follow-ups: fetch metadata before the re-resolve, dids cap, gateway text to users, view.json rough/pins checks, search cost, <pinned> escaping, key-helper owner check, key in env's argv, okf-wiki caps, undo deleting a re-unignored file, mcp.extra.json personal paths.
