@@ -1073,7 +1073,7 @@ function name_word(word) {
 var NAME3 = new RegExp("\\[(" + NAME2 + ")\\]", "g");
 var SPAN = new RegExp([
   /`([^`\n]+)`/.source,
-  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/(?!\/)[^\s)]*)\)/.source,
+  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)/.source,
   NAME3.source,
   /\*\*([^*\n]+)\*\*/.source,
   /(?<![*\w])\*([^*\s][^*\n]*?)\*(?![\w*])/.source,
