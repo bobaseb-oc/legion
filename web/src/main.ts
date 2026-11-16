@@ -271,7 +271,15 @@ function chat(): void {
       submit();
     }
   };
-  BOX.onpaste = (ev) => attach([...(ev.clipboardData?.files ?? [])]);
+  // a paste of files (a Finder copy carries their names as text too):
+  // the files only
+  BOX.onpaste = (ev) => {
+    const files = [...(ev.clipboardData?.files ?? [])];
+    if (files.length > 0) {
+      ev.preventDefault();
+      attach(files);
+    }
+  };
   $("form.composer").onsubmit = (ev) => {
     ev.preventDefault();
     submit();
@@ -450,10 +458,31 @@ function back(sent: View.Sent, out: View.Answer): void {
   $("#wallet").showPopover();
 }
 
-// files to send with the next message, posted (a guest sends none)
+// files dropped or pasted (a guest takes none): images to send with the
+// next message; a text file's contents put in the box at the caret; any
+// other file refused, said so, so no message carries what the server
+// can't take
 function attach(files: File[]): void {
-  if (!P.guest && files.length > 0) {
-    pics([...P.imgs, ...files]);
+  if (P.guest) {
+    return;
+  }
+  const imgs = files.filter((f) => View.drop_image(f.type));
+  if (imgs.length > 0) {
+    pics([...P.imgs, ...imgs]);
+  }
+  for (const f of files.filter((f) => !imgs.includes(f))) {
+    f.arrayBuffer().then((buf) => {
+      const text = View.drop_text(f.name, new Uint8Array(buf));
+      if (text === null) {
+        toast(`${f.name}: only images and text files can go in a message.`);
+        return;
+      }
+      const at = BOX.selectionStart;
+      const gap = at > 0 && BOX.value[at - 1] !== "\n" ? "\n" : "";
+      BOX.setRangeText(gap + text, at, BOX.selectionEnd, "end");
+      BOX.dispatchEvent(new Event("input"));
+      BOX.focus();
+    }, () => toast(`${f.name}: could not be read.`));
   }
 }
 

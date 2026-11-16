@@ -447,6 +447,36 @@ const MARKS: Array<[string, number, string]> = [
 export const HEAD   = 12;
 export const IMAGES = "Images are png, jpeg, gif or webp.";
 
+// a file dropped or pasted in the box: an image (a kind MARKS reads)
+// goes with the message; a text file's first DROPPED bytes go in the
+// box, fenced, under its name (a browser never says a file's path)
+export const DROPPED = 100 * 1024;
+
+export function drop_image(type: string): boolean {
+  return MARKS.some(([kind]) => kind === type);
+}
+
+// null: a binary (a NUL, or no UTF-8)
+export function drop_text(name: string, bytes: Uint8Array): string | null {
+  const head = bytes.subarray(0, DROPPED);
+  let text: string;
+  try {
+    // streamed: a character the cut splits is held back, not an error
+    text = new TextDecoder("utf-8", { fatal: true }).decode(head, { stream: head.length < bytes.length });
+  } catch {
+    return null;
+  }
+  if (text.includes("\0")) {
+    return null;
+  }
+  const kb = (n: number) => Math.round(n / 1024) + " KB";
+  const label = name.replace(/[`\r\n]+/g, " ");
+  const cut = head.length < bytes.length ? ` (first ${kb(head.length)} of ${kb(bytes.length)})` : "";
+  const ext = /\.([\w+-]{1,16})$/.exec(label)?.[1] ?? "";
+  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  return "`" + label + "`" + cut + ":\n" + fence + ext + "\n" + text.replace(/\n$/, "") + "\n" + fence + "\n";
+}
+
 // how a line of one tool call starts
 const TOOL = "tool: ";
 const FOLD = "The whole chat, folded into the fewest blocks.";

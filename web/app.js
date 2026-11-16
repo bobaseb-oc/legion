@@ -1451,6 +1451,38 @@ var NOTICE = 3 * 60 * 60 * 1000;
 var WAIT = "compressing…";
 var SUMS = "compressing earlier messages…";
 var UNSENT = "Sends once connected.";
+var MARKS = [
+  ["image/png", 0, "PNG"],
+  ["image/jpeg", 0, "ÿØÿ"],
+  ["image/gif", 0, "GIF8"],
+  ["image/webp", 8, "WEBP"]
+];
+var DROPPED = 100 * 1024;
+function drop_image(type) {
+  return MARKS.some(([kind]) => kind === type);
+}
+function drop_text(name, bytes) {
+  const head = bytes.subarray(0, DROPPED);
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(head, { stream: head.length < bytes.length });
+  } catch {
+    return null;
+  }
+  if (text.includes("\x00")) {
+    return null;
+  }
+  const kb = (n) => Math.round(n / 1024) + " KB";
+  const label = name.replace(/[`\r\n]+/g, " ");
+  const cut = head.length < bytes.length ? ` (first ${kb(head.length)} of ${kb(bytes.length)})` : "";
+  const ext = /\.([\w+-]{1,16})$/.exec(label)?.[1] ?? "";
+  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  return "`" + label + "`" + cut + `:
+` + fence + ext + `
+` + text.replace(/\n$/, "") + `
+` + fence + `
+`;
+}
 var TOOL2 = "tool: ";
 var FOLD = "The whole chat, folded into the fewest blocks.";
 var TOPUP = ["#", "Date", "Credit", "Paid", "Left", ""];
@@ -2522,7 +2554,7 @@ var ESC2 = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 var TALL = 4000;
 var SHEETS = `<svg viewBox="0 0 16 16" width="15" height="15"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.5v-.2A1.8 1.8 0 0 0 8.7 1.5H4.3A1.8 1.8 0 0 0 2.5 3.3v4.4a1.8 1.8 0 0 0 1.8 1.8h.2"/></svg>`;
 var CHECK = `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 8.5l3.2 3L13 4.5"/></svg>`;
-var MARKS = { " ": "", "-": "del", "+": "add" };
+var MARKS2 = { " ": "", "-": "del", "+": "add" };
 function esc2(s) {
   return s.replace(/[&<>"]/g, (c) => ESC2[c]);
 }
@@ -2799,7 +2831,7 @@ function diff_html(file, hunks) {
   const adds = all.filter((l) => l.s === "+").length;
   const dels = all.filter((l) => l.s === "-").length;
   const head = `<span class="lang">${esc2(file)} <b class="add">+${adds}</b> <b class="del">-${dels}</b></span>`;
-  const line = (l) => `<span class="${MARKS[l.s]}"><i>${l.n}</i>${l.s} ${esc2(l.x)}</span>`;
+  const line = (l) => `<span class="${MARKS2[l.s]}"><i>${l.n}</i>${l.s} ${esc2(l.x)}</span>`;
   const lines = hunks.map((h) => h.map(line).join("")).join(`<span class="gap">⋯</span>`);
   return `<pre class="diff" style="--nw:${nw}ch">${head}<code>${lines}</code></pre>`;
 }
@@ -3727,7 +3759,13 @@ function chat() {
       submit();
     }
   };
-  BOX.onpaste = (ev) => attach([...ev.clipboardData?.files ?? []]);
+  BOX.onpaste = (ev) => {
+    const files = [...ev.clipboardData?.files ?? []];
+    if (files.length > 0) {
+      ev.preventDefault();
+      attach(files);
+    }
+  };
   $("form.composer").onsubmit = (ev) => {
     ev.preventDefault();
     submit();
@@ -3877,8 +3915,28 @@ function back(sent, out) {
   $("#wallet").showPopover();
 }
 function attach(files) {
-  if (!P.guest && files.length > 0) {
-    pics([...P.imgs, ...files]);
+  if (P.guest) {
+    return;
+  }
+  const imgs = files.filter((f) => drop_image(f.type));
+  if (imgs.length > 0) {
+    pics([...P.imgs, ...imgs]);
+  }
+  for (const f of files.filter((f) => !imgs.includes(f))) {
+    f.arrayBuffer().then((buf) => {
+      const text = drop_text(f.name, new Uint8Array(buf));
+      if (text === null) {
+        toast(`${f.name}: only images and text files can go in a message.`);
+        return;
+      }
+      const at = BOX.selectionStart;
+      const gap = at > 0 && BOX.value[at - 1] !== `
+` ? `
+` : "";
+      BOX.setRangeText(gap + text, at, BOX.selectionEnd, "end");
+      BOX.dispatchEvent(new Event("input"));
+      BOX.focus();
+    }, () => toast(`${f.name}: could not be read.`));
   }
 }
 function pics(imgs) {

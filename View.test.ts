@@ -453,3 +453,32 @@ test("alerts: a new question, a plan ready, a waiting call, each once", () => {
   expect(got).toEqual([["Legion asks", "Ship it?"], ["Plan ready", "Legion's plan waits for your approval (/plan)."], ["Wkr wants to run a command", "make deploy (on mac): /allow 2 or /refuse 2."]]);
   expect(View.view_alerts(v, 2e6)).toEqual([]);
 });
+
+// a file dropped or pasted in the box: an image goes with the message,
+// a text file's contents go in the box (fenced, named, cut at DROPPED
+// bytes), anything else is refused (null), so no message carries a file
+// the server can't take
+test("dropped files: images attach, text files inline, binaries refused", () => {
+  for (const type of ["image/png", "image/jpeg", "image/gif", "image/webp"]) {
+    expect([type, View.drop_image(type)]).toEqual([type, true]);
+  }
+  for (const type of ["image/svg+xml", "image/heic", "text/plain", "application/pdf", ""]) {
+    expect([type, View.drop_image(type)]).toEqual([type, false]);
+  }
+  const enc = (s: string) => new TextEncoder().encode(s);
+  expect(View.drop_text("a.ts", enc("const x = 1;\n"))).toBe("`a.ts`:\n```ts\nconst x = 1;\n```\n");
+  expect(View.drop_text("notes", enc("hi"))).toBe("`notes`:\n```\nhi\n```\n");
+  // a fence longer than any run of backticks inside
+  expect(View.drop_text("r.md", enc("x\n```js\ny\n```"))).toBe("`r.md`:\n````md\nx\n```js\ny\n```\n````\n");
+  // a name's line breaks and backticks can't break out of its header
+  expect(View.drop_text("a`\nb.txt", enc("z"))).toBe("`a b.txt`:\n```txt\nz\n```\n");
+  // binaries: a NUL byte, or bytes that are no UTF-8
+  expect(View.drop_text("x.pdf", new Uint8Array([0x25, 0x50, 0x00, 0x46]))).toBe(null);
+  expect(View.drop_text("x.bin", new Uint8Array([0xff, 0xfe, 0x41]))).toBe(null);
+  // past DROPPED bytes: cut (never mid-character), and said so
+  const big = "é".repeat(View.DROPPED);
+  const out = View.drop_text("big.txt", enc(big))!;
+  expect(out.startsWith("`big.txt` (first 100 KB of 200 KB):\n```txt\né")).toBe(true);
+  expect(out.length).toBeLessThan(View.DROPPED);
+  expect(out.includes("�")).toBe(false);
+});
