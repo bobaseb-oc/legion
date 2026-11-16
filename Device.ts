@@ -541,11 +541,9 @@ function look_roots(rules: Rules): string[] {
 
 // a path's real path if under a root; else why not
 function look_under(rules: Rules, p: string): string | { why: string } {
-  let real: string;
-  try {
-    real = fs.realpathSync(p);
-  } catch {
-    return { why: "No file " + p + " here." };
+  const real = look_seen(p);
+  if (typeof real !== "string") {
+    return real;
   }
   const roots = look_roots(rules);
   return roots.some((r) => real === r || real.startsWith(r + path.sep)) ? real : { why: p + " is not under this device's work dir, home repo, spaces or their worktrees." };
