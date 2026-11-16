@@ -344,3 +344,11 @@ test("write and edit refuse Legion's config.json, mcp.json and mcp.local.json", 
   expect(Machine.gating(os.homedir() + "/.unii/okf-gaps.jsonl")).toBe(false);
   expect(Machine.gating(os.homedir() + "/.unii/work/config.json")).toBe(false);
 });
+
+// mcp.json is rebuilt at each start from this checkout's local/mcp.extra.json
+// (local/mcp.ts): as gating as mcp.json; another repo's file of that name isn't
+test("write and edit refuse this checkout's local/mcp.extra.json", () => {
+  expect(Machine.gating(import.meta.dir + "/local/mcp.extra.json")).toBe(true);
+  expect(Machine.gating(import.meta.dir + "/local/MCP.Extra.json")).toBe(true);
+  expect(Machine.gating(os.tmpdir() + "/other/local/mcp.extra.json")).toBe(false);
+});

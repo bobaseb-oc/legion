@@ -78,6 +78,9 @@ const GATING = /(^|\/)\.claude\/settings[^/]*\.json$/;
 // mode skips and plan mode runs), mcp.json and mcp.local.json the MCP
 // servers started; write and edit refuse them as GATING (Machine.gating)
 const LEGION_CONFIG = ["config.json", "mcp.json", "mcp.local.json"];
+// and this checkout's local/mcp.extra.json, as mcp.json is rebuilt from it
+// at each start (local/mcp.ts)
+const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 
 // the shells started here, kept until their process groups are empty, so
 // end() kills a backgrounded job whose shell already exited
@@ -249,7 +252,7 @@ export namespace Machine {
     const fold = (q: string) => q.normalize("NFKC").toLowerCase(); // the disk folds case and lookalikes
     const homes = [os.homedir() + "/.claude", Hooks.home()].flatMap((h) => [h, Machine.real(h)]).map(fold);
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
-    const legion = dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)).flatMap((f) => [f, Machine.real(f)]).map(fold);
+    const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
     return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q));
   }
 
