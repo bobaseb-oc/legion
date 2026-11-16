@@ -394,7 +394,7 @@ test("device_harvest posts each submitted entry once; signed out, none", async (
 // file or a repo's git only under its roots (its work dir, home repo,
 // spaces), symlinks followed first; never a secret's file, a binary or one
 // past LOOK_BYTES; git by fixed commands, a revision checked
-test("device_look: files and git under the device's roots only, read-only", async () => {
+test("device_look: files anywhere but secrets; git under the device's roots only; read-only", async () => {
   const top = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-look-"));
   const work = top + "/work", repo = top + "/repo", out = top + "/out";
   fs.mkdirSync(work + "/Owl", { recursive: true });
@@ -417,7 +417,16 @@ test("device_look: files and git under the device's roots only, read-only", asyn
   expect(await look({ kind: "file", path: repo + "/a.ts" })).toEqual({ $: "looked", id: "r1", kind: "file", path: repo + "/a.ts", hash: expect.stringMatching(/^[0-9a-f]{64}$/), text: "export const a = 1;\n" });
   // an agent's relative path, from its own dir under the work dir
   expect((await look({ kind: "file", path: "notes.md", agent: "Owl" })).text).toBe("# hi");
-  for (const [path, why] of [[out + "/other.txt", "not under"], [repo + "/link.txt", "not under"], [repo + "/../out/other.txt", "not under"], [repo + "/.env", "secret"], [repo + "/big.txt", "too big"], [repo + "/bin.dat", "binary"], [repo + "/none.ts", "No file"]]) {
+  // files are seen anywhere on the device, as agents read them (a link's
+  // target too): the roots only bound git, find, search and saving
+  for (const path of [out + "/other.txt", repo + "/link.txt", repo + "/../out/other.txt"]) {
+    expect([path, (await look({ kind: "file", path })).text]).toEqual([path, "outside"]);
+  }
+  fs.writeFileSync(out + "/.env", "K=v");
+  fs.symlinkSync(out + "/.env", out + "/plain.txt");
+  fs.mkdirSync(out + "/.ssh");
+  fs.writeFileSync(out + "/.ssh/config", "Host x");
+  for (const [path, why] of [[out + "/.env", "secret"], [out + "/plain.txt", "secret"], [out + "/.ssh/config", "secret"], [repo + "/.env", "secret"], [repo + "/big.txt", "too big"], [repo + "/bin.dat", "binary"], [repo + "/none.ts", "No file"]]) {
     const r = await look({ kind: "file", path });
     expect([path, r.text, String(r.error)]).toEqual([path, undefined, expect.stringContaining(why!)]);
   }
@@ -548,8 +557,8 @@ test("device_look: a space's worktrees at <repo>-worktrees/<slug> only", async (
   const look = (what: any) => Device.device_look(rules, "w", what) as Promise<any>;
   expect((await look({ kind: "file", path: beside + "/one/b.ts" })).text).toBe("2\n");
   expect((await look({ kind: "git", repo: beside + "/one", op: "status" })).text).toContain("b.ts");
-  expect((await look({ kind: "file", path: far + "/two/a.ts" })).error).toContain("not under");
-  expect((await look({ kind: "file", path: beside + "/stray/s.txt" })).error).toContain("not under");
+  expect((await look({ kind: "git", repo: far + "/two", op: "status" })).error).toContain("not under");
+  expect((await look({ kind: "find", path: beside + "/stray", q: "s" })).error).toContain("not under");
   expect((await look({ kind: "file", path: beside + "/one/.env" })).error).toContain("secret");
   // a repo whose folder is named x.git keeps its worktrees at x-worktrees
   const bare = top + "/pay.git";
@@ -561,10 +570,11 @@ test("device_look: a space's worktrees at <repo>-worktrees/<slug> only", async (
 });
 
 // the files explorer: a folder's entries under the roots (folders first,
-// .git never, a secret's marked "s": listed, never shown); @roots: the
-// roots themselves; a file opened in the user's editor, a secret's too
-// (its text never leaves the computer), only under the roots, only a file
-test("device_look: folders listed and files opened in the editor, under the roots only", async () => {
+// .git never, a secret's marked "s": listed, never shown), anywhere but a
+// secret's folder; @roots: the roots themselves, where it starts; a file
+// opened in the user's editor, a secret's too (its text never leaves the
+// computer), only a file
+test("device_look: folders listed and files opened in the editor, anywhere but a secret's folder", async () => {
   const top = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-dir-"));
   const repo = top + "/repo", work = top + "/work";
   fs.mkdirSync(work);
@@ -581,12 +591,18 @@ test("device_look: folders listed and files opened in the editor, under the root
   const roots = (await look({ kind: "dir", path: "@roots" })).text.split("\n");
   expect(roots).toContain("d " + repo);
   expect(roots).toContain("d " + work);
-  expect((await look({ kind: "dir", path: top })).error).toContain("not under");
+  expect((await look({ kind: "dir", path: top })).text).toBe("d repo\nd work");
+  fs.mkdirSync(top + "/.aws");
+  expect((await look({ kind: "dir", path: top + "/.aws" })).error).toContain("secret");
+  fs.symlinkSync(top + "/.aws", top + "/plain");
+  expect((await look({ kind: "dir", path: top + "/plain" })).error).toContain("secret");
+  fs.writeFileSync(top + "/x.sql", "select 1");
+  expect((await look({ kind: "open", path: top + "/x.sql" })).text).toBe("Opened x.sql in VS Code.");
   expect((await look({ kind: "dir", path: repo + "/b.ts" })).error).toContain("not a folder");
   expect(await look({ kind: "open", path: repo + "/.env" })).toEqual({ $: "looked", id: "d", kind: "open", path: repo + "/.env", text: "Opened .env in VS Code." });
   expect((await look({ kind: "open", path: top + "/x" })).error).toContain("No file");
   expect((await look({ kind: "open", path: repo + "/src" })).error).toContain("not a file");
-  expect(opened).toEqual([repo + "/.env"]);
+  expect(opened).toEqual([top + "/x.sql", repo + "/.env"]);
 });
 
 // an agent's changes: its branch's work since it left the default branch

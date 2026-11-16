@@ -551,6 +551,16 @@ function look_under(rules: Rules, p: string): string | { why: string } {
   return roots.some((r) => real === r || real.startsWith(r + path.sep)) ? real : { why: p + " is not under this device's work dir, home repo, spaces or their worktrees." };
 }
 
+// a path's real path if a view may see it: anywhere on this device, as
+// agents read (Machine.guard), the caller refusing a secret's; else why not
+function look_seen(p: string): string | { why: string } {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return { why: "No file " + p + " here." };
+  }
+}
+
 // what a view asked to see, or why not (look_file, look_git, look_dir,
 // look_open); launch: opens a file in the user's editor (editor_open)
 export async function device_look(rules: Rules, id: string, what: View.Look, launch: (file: string) => Promise<string> = editor_open): Promise<View.Client> {
@@ -559,7 +569,7 @@ export async function device_look(rules: Rules, id: string, what: View.Look, lau
     const shown = what?.kind === "file" ? look_file(rules, what)
       : what?.kind === "git" ? await look_git(rules, what)
       : what?.kind === "dir" ? look_dir(rules, String(what.path ?? ""))
-      : what?.kind === "open" ? await look_open(rules, String(what.path ?? ""), launch)
+      : what?.kind === "open" ? await look_open(String(what.path ?? ""), launch)
       : what?.kind === "find" || what?.kind === "grep" ? await look_find(rules, what.kind, String(what.path ?? ""), String(what.q ?? ""))
       : what?.kind === "save" ? look_save(rules, String(what.path ?? ""), String(what.text ?? ""), String(what.base ?? ""))
       : "Ask for a file, a folder or a repo's git.";
@@ -579,9 +589,12 @@ function look_dir(rules: Rules, given: string): Shown | string {
   if (given === "@roots") {
     return { path: given, text: look_roots(rules).map((r) => "d " + r).join("\n") };
   }
-  const real = look_under(rules, home(given));
+  const real = look_seen(home(given));
   if (typeof real !== "string") {
     return real.why;
+  }
+  if (Machine.secret(real) || Machine.secret(home(given))) {
+    return given + " may hold secrets: not listed.";
   }
   if (!fs.statSync(real).isDirectory()) {
     return given + " is not a folder.";
@@ -598,8 +611,8 @@ function look_dir(rules: Rules, given: string): Shown | string {
 
 // a file under the roots opened in the user's editor, a secret's too: its
 // text never leaves this computer (the user edits what agents can't)
-async function look_open(rules: Rules, given: string, launch: (file: string) => Promise<string>): Promise<Shown | string> {
-  const real = look_under(rules, home(given));
+async function look_open(given: string, launch: (file: string) => Promise<string>): Promise<Shown | string> {
+  const real = look_seen(home(given));
   if (typeof real !== "string") {
     return real.why;
   }
@@ -720,20 +733,20 @@ function look_file(rules: Rules, what: View.Look & { kind: "file" }): Shown | st
   if (Machine.secret(at)) {
     return path.basename(at) + " may hold a secret: not shown.";
   }
-  const real = look_under(rules, at);
+  const real = look_seen(at);
   if (typeof real !== "string") {
     return real.why;
   }
   // security review L: opened not following a symlink (one swapped in
-  // since look_under is refused), then the open file checked again: the
-  // one at its real path, still under a root, still no secret's
+  // since look_seen is refused), then the open file checked again: the
+  // one at its real path, still no secret's
   const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile()) {
       return "No file " + given + " here (a directory?).";
     }
-    const again = look_under(rules, real);
+    const again = look_seen(real);
     const same = typeof again === "string" && !Machine.secret(again) && fs.statSync(again).ino === st.ino && fs.statSync(again).dev === st.dev;
     if (!same) {
       return given + " changed as it was read: not shown.";
