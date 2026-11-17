@@ -2142,8 +2142,10 @@ function view_status(v) {
   if (s === undefined || s === null) {
     return "";
   }
-  const spend = { spend: s.spend, stale: s.stale };
-  return s.device + ": " + status_text({ up: v.up, dir: s.dir, branch: s.branch, model: v.pick?.model ?? "?", working: v.agents.length, spend, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, Date.now()) });
+  return s.device + ": " + status_text(view_status_line(v, { dir: s.dir, branch: s.branch, spend: { spend: s.spend, stale: s.stale } }, Date.now()));
+}
+function view_status_line(v, here, now) {
+  return { up: v.up, ...here, model: v.pick?.model ?? "?", working: v.agents.length, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, now) };
 }
 var BUSY_FOR = 5 * 60000;
 function view_busy(v, now) {
@@ -2157,6 +2159,12 @@ function view_questions(v) {
 }
 function view_notes(v) {
   return [...v.questions ?? []].filter((q) => q.fyi === true).sort((a, b) => a.id - b.id);
+}
+function undo_ask(name) {
+  return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
+}
+function minute(date) {
+  return date.slice(0, 16).replace("T", " ");
 }
 var PATH_EXT = /\.(ts|tsx|js|jsx|mjs|py|md|json|jsonl|sh|css|html|yml|yaml|toml|sql|go|rs|txt|ipynb|cfg|ini|lock|csv)$/i;
 function view_path(text) {
@@ -2501,13 +2509,18 @@ function quote_end(text, i, quote, lang) {
   return Math.min(text.length, text.startsWith(quote, j) ? j + quote.length : j);
 }
 function hl_lines(text, lang) {
-  const out = [""];
+  return hl_spans(text, lang).map((line) => line.map(([cls, s]) => cls === "" ? esc(s) : `<span class="${cls}">${esc(s)}</span>`).join(""));
+}
+function hl_spans(text, lang) {
+  const out = [[]];
   const put = (cls, s) => s.split(`
 `).forEach((part, k) => {
     if (k > 0) {
-      out.push("");
+      out.push([]);
     }
-    out[out.length - 1] += part === "" || cls === "" ? esc(part) : `<span class="${cls}">${esc(part)}</span>`;
+    if (part !== "") {
+      out[out.length - 1].push([cls, part]);
+    }
   });
   const starts = (at, s) => text.startsWith(s, at);
   const inword = (at) => at > 0 && /[\w$]/.test(text[at - 1]);
@@ -3092,6 +3105,13 @@ function away(v, seen, now, inbox = 0) {
     inbox
   };
 }
+var MARK = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+var TIMESHEET_ROUTINE = {
+  name: "Timesheet drafts",
+  task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
+  when: { $: "weekly", day: 5, at: "09:00" },
+  tier: "worker"
+};
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3250,7 +3270,7 @@ function away_html(a) {
   const n = (k, one, many = one + "s") => k + " " + (k === 1 ? one : many);
   const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
   const head = `<div class="awh"><b>While you were away</b><span class="meta">${esc2([a.span, ...counts].join(" · "))}</span><button class="pbtn" data-away-seen title="hide this till you are away again">Got it</button></div>`;
-  const agent = (x) => `<a class="awa ${x.status}" href="#crew/${esc2(encodeURIComponent(x.name))}"><span class="mk">${MARK[x.status]}</span><span class="t">${esc2(x.title)}</span>` + `${x.why === "" ? "" : `<span class="meta">${esc2(x.why)}</span>`}</a>`;
+  const agent = (x) => `<a class="awa ${x.status}" href="#crew/${esc2(encodeURIComponent(x.name))}"><span class="mk">${MARK2[x.status]}</span><span class="t">${esc2(x.title)}</span>` + `${x.why === "" ? "" : `<span class="meta">${esc2(x.why)}</span>`}</a>`;
   const more = a.more === 0 ? "" : `<a class="meta" href="#crew">+${a.more} more</a>`;
   const ran = a.routines.length === 0 ? "" : `<p class="meta">Routines ran: ${esc2(a.routines.join(", "))}</p>`;
   const links = [
@@ -3291,7 +3311,7 @@ function sheet_line(v) {
   return n === 0 ? "Harvest drafts" : n + (n === 1 ? " draft" : " drafts") + " to review";
 }
 var SPACES = 12;
-var MARK = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+var MARK2 = MARK;
 function side_html(v, mode, now) {
   const here = (m) => m === mode ? ` class="here"` : "";
   const n = (k) => k === 0 ? "" : `<span class="n">${k}</span>`;
@@ -3310,7 +3330,7 @@ function side_html(v, mode, now) {
   ];
   const nav = `<nav class="spages">${pages.map(([m, label, k]) => `<a href="#${m}"${here(m)}>${label}${n(k)}</a>`).join("")}</nav>`;
   const search = `<button class="ssearch" data-palette title="⌘K or Ctrl+P">Search or run… <kbd>⌘K</kbd></button>`;
-  const groups = side_groups(v, now).map((g) => `<div class="sgroup"><div class="sgh">${esc2(g.ticket ?? "–")}</div>${g.agents.map((a) => `<a class="sagent ${a.status}" href="#crew/${esc2(encodeURIComponent(a.name))}"><span class="st">${MARK[a.status]}</span><span class="t">${esc2(a.title)}</span><span class="age">${esc2(a.age)}</span></a>`).join("")}</div>`).join("");
+  const groups = side_groups(v, now).map((g) => `<div class="sgroup"><div class="sgh">${esc2(g.ticket ?? "–")}</div>${g.agents.map((a) => `<a class="sagent ${a.status}" href="#crew/${esc2(encodeURIComponent(a.name))}"><span class="st">${MARK2[a.status]}</span><span class="t">${esc2(a.title)}</span><span class="age">${esc2(a.age)}</span></a>`).join("")}</div>`).join("");
   const count = v.crew.filter((c) => c.parent === "main").length;
   const agents = `<section class="sagents"><h3>Agents <span class="n">${count}</span></h3>${groups || `<p class="meta">None yet.</p>`}</section>`;
   const all = side_spaces(v);
@@ -3512,17 +3532,12 @@ function shown_html(looked, source, at) {
   return `<pre class="code git">${lines.map(line).join(`
 `)}</pre>`;
 }
-var TIMESHEET_ROUTINE = {
-  name: "Timesheet drafts",
-  task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
-  when: { $: "weekly", day: 5, at: "09:00" },
-  tier: "worker"
-};
+var TIMESHEET_ROUTINE2 = TIMESHEET_ROUTINE;
 function timesheet_html(v) {
   const drafts = v.drafts ?? [];
   const open2 = drafts.filter((d) => d.state === "draft" || d.state === "failed").map((d) => d.n);
   const submit = open2.length === 0 ? "" : `<button class="pbtn go"${act_html2({ $: "Timesheet", op: "submit", ns: open2 })} title="posts them to Harvest from your device">Submit ${open2.length} to Harvest</button>`;
-  const routine = (v.routines ?? []).some((r) => r.name === TIMESHEET_ROUTINE.name) ? "" : `<button class="pbtn"${act_html2({ $: "Routine", op: "add", routine: TIMESHEET_ROUTINE })} title="a worker drafts the week on Friday mornings; you submit">Draft weekly, Fridays at 09:00</button>`;
+  const routine = (v.routines ?? []).some((r) => r.name === TIMESHEET_ROUTINE2.name) ? "" : `<button class="pbtn"${act_html2({ $: "Routine", op: "add", routine: TIMESHEET_ROUTINE2 })} title="a worker drafts the week on Friday mornings; you submit">Draft weekly, Fridays at 09:00</button>`;
   const head = `<div class="phead"><h2>Timesheet</h2><p class="meta">Drafts for Harvest: nothing is sent until you submit</p>${submit}${routine}</div>`;
   if (drafts.length === 0) {
     return [head, `<p class="meta">No drafts yet. Agents draft with the timesheet tool (they need legion harvest-login on your device): ask in the chat, or add the routine.</p>`];
@@ -3543,9 +3558,6 @@ function memory_html(v) {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc2(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
   return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
-}
-function minute(date) {
-  return date.slice(0, 16).replace("T", " ");
 }
 function marked(text, q) {
   const at = q === "" ? -1 : text.toLowerCase().indexOf(q.toLowerCase());
@@ -4006,7 +4018,7 @@ function click(ev) {
     go(path ?? "/");
   }
   const parsed = a === undefined ? undefined : JSON.parse(a);
-  if (parsed?.$ === "Undo" && !confirm("Undo " + parsed.name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.")) {
+  if (parsed?.$ === "Undo" && !confirm(undo_ask(parsed.name))) {
     return;
   }
   if (parsed !== undefined) {

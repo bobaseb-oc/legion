@@ -823,8 +823,21 @@ shows no new failures (3 known baseline fails).
       existing Undo/Handoff acts; show the device's `did` answer
 - [x] T5 `/home`: cockpit cards + "While you were away" card + Archive (Cockpit.home_cards, away)
 - [x] T6 `/inbox`: inbox_sections, Review / Fetch acts, badge in the status line
-- [ ] T7 Files, read-only: `/look <path[:line]>`, `/ls [dir]`, `/find`, `/grep`, git view
-- [ ] T8 Files, writes: edit + save (separate slice; same server guards as the web)
-- [ ] T9 Code highlighting in the terminal: split Hl.ts into tokens + HTML renderer, add ANSI renderer
-- [ ] T10 `/digest`, `/transcripts`, `/timesheet` pages; agent timeline lane on agent pages
+- [x] T7 Files, read-only: `/look <path[:line]>`, `/ls [dir]`, `/find`, `/grep`, git view
+- [x] T8 Files, writes: edit + save (separate slice; same server guards as the web)
+- [x] T9 Code highlighting in the terminal: split Hl.ts into tokens + HTML renderer, add ANSI renderer
+- [x] T10 `/digest`, `/transcripts`, `/timesheet` pages; agent timeline lane on agent pages
 - Out of scope: voice/mic, HTML preview iframe (show source instead), Ctrl+K palette (`/help` stays)
+
+Review (2026-11-17): T1-T10 done, one red test first per slice, no server change.
+Choices: a pasted path attaches only images (a text file's path stays text, as
+Claude Code); /undo confirms by a trailing yes (as /delete <name>); the away card
+prints on FocusIn after AWAY; /edit runs $VISUAL/$EDITOR on a 0600 temp copy and
+saves by the web's Save (device checks the hash); /open was taken, so /editor;
+T6's status-line badge dropped (home stats and /inbox's changed count instead).
+Shared with the web now: View.view_status_line, minute, undo_ask; Cockpit.MARK,
+TIMESHEET_ROUTINE; Hl.hl_spans under hl_lines.
+Proof: full suite 512 pass, 2 fail (the known log-staging pair); tsc on changed
+files: only no-bun-types noise, plus main.ts:545 (`code` possibly null, on main
+before this branch); 4 mutants (undo yes, paste take, review fit, edit error)
+each killed; web/app.js rebuilt. Not run by hand in a live terminal.
