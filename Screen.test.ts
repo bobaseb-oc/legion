@@ -62,6 +62,13 @@ test("a key Term.ts takes first (the / menu's Up, Down, Tab) does not edit; any 
   expect(scr.ed.pos).toBe(2);
 });
 
+test("the mouse (SGR, the deck's): a left press a click at its column and row, the wheel up and down; a release nothing; none of it typed", () => {
+  splits("\x1b[<0;12;3M\x1b[<0;12;3m\x1b[<64;5;5M\x1b[<65;5;5M\x1b[<2;1;1M", (text, keys) => {
+    expect(text).toBe("");
+    expect(keys).toEqual(["Click:12:3", "WheelUp", "WheelDown"]);
+  });
+});
+
 test("kitty's keys never leak into the text, whatever their reads", () => {
   splits("hello!?\x1b[118;1:3u\x1b[27u\x1b[13;2u", (text, keys) => {
     expect(text).toBe("hello!?\n");

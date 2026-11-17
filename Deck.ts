@@ -93,6 +93,15 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
   if (key === "g") {
     return out({ ...d, g: true });
   }
+  if (key === "WheelUp" || key === "WheelDown") {
+    const by = key === "WheelUp" ? -WHEEL : WHEEL;
+    return d.page === "crew" ? deck_crew_key(v, d, by < 0 ? "Up" : "Down", now)
+      : out({ ...d, top: Math.min(Math.max(0, deck_body(v, d, w, now).lines.length - room), Math.max(0, d.top + by)) });
+  }
+  const click = /^Click:(\d+):(\d+)$/.exec(key);
+  if (click !== null) {
+    return deck_click(v, was, d, Number(click[1]) - 1, Number(click[2]) - 1, w, now);
+  }
   if (d.page === "crew") {
     return deck_crew_key(v, d, key, now);
   }
@@ -122,6 +131,33 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
 // the keys that move the pick on a page with items
 const MOVES: Record<string, number> = { j: 1, Down: 1, k: -1, Up: -1 };
 
+// the lines a turn of the wheel scrolls
+const WHEEL = 3;
+
+// a click at column x, row y (0: the first) of the deck as it was drawn
+// (was: its line said above the body): on the nav, that page (the chat:
+// back); on an item, it picked, or, picked already, as Enter on it
+function deck_click(v: View.View, was: Deck, d: Deck, x: number, y: number, w: number, now: number): Out {
+  const out = (deck: Deck, more: Partial<Out> = {}): Out => ({ deck, acts: [], sends: [], done: false, ...more });
+  if (y === 0) {
+    const to = nav_hit(v, d.page, w, x);
+    return to === null ? out(d) : to === "chat" ? out(d, { done: true }) : out(to === d.page ? d : deck_new(to));
+  }
+  if (d.page === "crew") {
+    return out(d);
+  }
+  const said = was.say === null ? 0 : Paint.runs_wrap([Paint.Run(was.say)], w, false).length;
+  const line = d.top + y - 1 - said;
+  const it = deck_body(v, d, w, now).items.find((i) => line >= i.at && line < i.at + i.n);
+  if (it === undefined) {
+    return out(d);
+  }
+  if (it.key !== d.sel) {
+    return out({ ...d, sel: it.key });
+  }
+  return PAGE_KEYS[d.page]?.(v, d, "Enter", now) ?? out(d);
+}
+
 // a page's own keys, before Esc, q and the moves (null: not its key)
 type Keys = (v: View.View, d: Deck, key: string, now: number) => Out | null;
 const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key };
@@ -136,7 +172,7 @@ function deck_type(d: Deck, key: string): Deck {
   if (key === "Backspace") {
     return { ...d, filter: [...d.filter].slice(0, -1).join("") };
   }
-  const named = [...key].length > 1 && /^(Ctrl\+|Alt\+|Shift\+|[A-Z][a-z]+$|\d+~$)/.test(key);
+  const named = [...key].length > 1 && /^(Ctrl\+|Alt\+|Shift\+|Click:|Wheel|[A-Z][a-z]+$|\d+~$)/.test(key);
   return named ? d : { ...d, filter: d.filter + (key === "Space" ? " " : key) };
 }
 
@@ -346,8 +382,8 @@ export function deck_lines(v: View.View, d: Deck, w: number, h: number, now: num
 }
 
 // a page's body: its lines, and the items to pick on it (a key, its first
-// line), in order
-type Body = { lines: Paint.Line[]; items: { key: string; at: number }[] };
+// line, how many it takes), in order
+type Body = { lines: Paint.Line[]; items: { key: string; at: number; n: number }[] };
 
 // a part of a body: a line of text in an ink, or an item to pick (key)
 // (runs: its text in several inks)
@@ -385,9 +421,9 @@ function parts_body(parts: Part[], w: number, sel: string | null): Body {
       continue;
     }
     const here = p.key === sel;
-    items.push({ key: p.key, at: lines.length });
-    Paint.runs_wrap(here ? runs.map((r) => Paint.Run(r.x, { ...r.s, b: true })) : runs, w - 2, false)
-      .forEach((l, k) => lines.push([Paint.Run(k === 0 && here ? "▸ " : "  ", BOLD), ...l]));
+    const wrapped = Paint.runs_wrap(here ? runs.map((r) => Paint.Run(r.x, { ...r.s, b: true })) : runs, w - 2, false);
+    items.push({ key: p.key, at: lines.length, n: wrapped.length });
+    wrapped.forEach((l, k) => lines.push([Paint.Run(k === 0 && here ? "▸ " : "  ", BOLD), ...l]));
   }
   return { lines, items };
 }
@@ -527,6 +563,16 @@ function deck_text(v: View.View, d: Deck, now: number): string {
 // it); then the tail (the deck's: the mode). Pages that do not fit in w
 // are left out, the one shown kept; then the tail, if it fits
 export function deck_nav(v: View.View, page: Page | "chat", w: number, tail?: Paint.Line): Paint.Line {
+  return nav_layout(v, page, w, tail).line;
+}
+
+// the nav page at column x (0: the first) of the nav in w, else null
+function nav_hit(v: View.View, page: Page | "chat", w: number, x: number): Page | "chat" | null {
+  return nav_layout(v, page, w).spans.find((s) => x >= s.from && x < s.to)?.to_page ?? null;
+}
+
+// the nav's line, and the columns each page shown takes in it
+function nav_layout(v: View.View, page: Page | "chat", w: number, tail?: Paint.Line): { line: Paint.Line; spans: { from: number; to: number; to_page: Page | "chat" }[] } {
   const asked = View.view_questions(v).length;
   const notes = View.view_notes(v).length;
   const count: Partial<Record<Page | "chat", string>> = {
@@ -541,19 +587,25 @@ export function deck_nav(v: View.View, page: Page | "chat", w: number, tail?: Pa
   };
   const mode = tail ?? (v.mode === undefined ? [] : [Paint.Run("· " + v.mode + " mode", Paint.DIM)]);
   const width = (l: Paint.Line) => Paint.text_width(l.map((r) => r.x).join(""));
-  const shown: Paint.Line[] = [];
+  const shown: { l: Paint.Line; to: Page | "chat" }[] = [];
   let used = width(mode);
   for (const nav of NAV) {
     const l = item(nav);
     const need = width(l) + 2;
     const keep = nav[2] === page;
     if (used + need <= w || keep) {
-      shown.push(l);
+      shown.push({ l, to: nav[2] });
       used += need;
     }
   }
-  const line = [...shown.flatMap((l, k) => (k === 0 ? l : [Paint.Run("  "), ...l])), ...(used <= w && mode.length > 0 ? [Paint.Run("  "), ...mode] : [])];
-  return line_cut(line, w);
+  const spans: { from: number; to: number; to_page: Page | "chat" }[] = [];
+  let col = 0;
+  for (const { l, to } of shown) {
+    spans.push({ from: col, to: col + width(l), to_page: to });
+    col += width(l) + 2;
+  }
+  const line = [...shown.flatMap(({ l }, k) => (k === 0 ? l : [Paint.Run("  "), ...l])), ...(used <= w && mode.length > 0 ? [Paint.Run("  "), ...mode] : [])];
+  return { line: line_cut(line, w), spans };
 }
 
 // the chat's footer line: the nav (the chat shown), the web's bottom bar

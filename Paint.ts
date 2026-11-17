@@ -433,12 +433,17 @@ export function rule_text(text: string, w: number): Line {
 // shown bold; with agents, the key that moves along them, if it fits
 // the crew panel: Legion (the orchestrator) on top, each agent under
 // who started it (View.view_crew), the page shown marked ▸ and bold, a
-// failed one red, done and stopped ones dim; `most` lines at most, the
-// rest counted; each line cut to w
+// failed one red, done and stopped ones dim, one at work its mark
+// spinning (a frame per SPIN_MS: the web's pulse); `most` lines at most,
+// the rest counted; each line cut to w
+export const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+export const SPIN_MS = 200;
 export function crew_lines(v: View.View, w: number, now: number, most: number): Line[] {
   const at = v.page === null ? null : v.page.name;
-  const top = { name: null as string | null, text: "◆ " + View.MAIN + " · orchestrator · " + (v.pick?.model ?? "?") + " · " + (v.busy ? "working" : "idle"), status: "working" as View.Status };
-  const rows = [top, ...View.view_crew(v, now).map((r) => ({ name: r.name as string | null, text: "  " + r.text, status: r.status }))];
+  const frame = SPIN[Math.floor(now / SPIN_MS) % SPIN.length];
+  const spun = (r: View.CrewRow) => r.status !== "working" ? r.text : r.text.slice(0, 2 * r.depth) + frame + r.text.slice(2 * r.depth + View.CREW.working.length);
+  const top = { name: null as string | null, text: "◆ " + View.MAIN + " · orchestrator · " + (v.pick?.model ?? "?") + " · " + (v.busy ? "working " + frame : "idle"), status: "working" as View.Status };
+  const rows = [top, ...View.view_crew(v, now).map((r) => ({ name: r.name as string | null, text: "  " + spun(r), status: r.status }))];
   const shown = rows.length > most ? rows.slice(0, Math.max(1, most - 1)) : rows;
   const lines = shown.map((r) => {
     const here = r.name === at;

@@ -206,6 +206,13 @@ function screen_key(scr: Screen, data: string): number {
     scr.kitty = true;
     return seq[0].length;
   }
+  if (seq !== null && (seq[2] === "M" || seq[2] === "m") && seq[1]?.startsWith("<")) {
+    const key = mouse_key(seq[1].slice(1), seq[2]);
+    if (key !== null) {
+      screen_press(scr, key);
+    }
+    return seq[0].length;
+  }
   if (seq !== null) {
     const ch = seq_text(seq[1] ?? "", seq[2]);
     if (ch !== null) {
@@ -306,6 +313,20 @@ function screen_line(scr: Screen, data: string): number {
   }
   scr.on("Enter");
   return k + 1;
+}
+
+// a mouse event (SGR: CSI < button ; column ; row, M pressed, m let go)
+// as a key: a left press "Click:column:row", the wheel "WheelUp" or
+// "WheelDown"; any other (a release, a drag, another button): none
+function mouse_key(params: string, end: string): string | null {
+  const [b = 0, x = 0, y = 0] = params.split(";").map(Number);
+  if (end === "m") {
+    return null;
+  }
+  if (b & 64) {
+    return b & 1 ? "WheelDown" : "WheelUp";
+  }
+  return (b & 3) === 0 && (b & 32) === 0 ? "Click:" + x + ":" + y : null;
 }
 
 // a sequence's key: its code's (kitty, modifyOtherKeys) or its final's

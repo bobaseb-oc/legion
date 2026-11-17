@@ -361,6 +361,27 @@ test("the menu's lines: at most MENU items around the one picked, it marked; the
   }
 });
 
+test("the mouse in the deck: a click on the nav goes to that page (Chat: back), on an item picks it and again opens it; the wheel scrolls", () => {
+  const v = team();
+  const home = Deck.deck_new("home");
+  const nav = text(Deck.deck_lines(v, home, W, H, 0)[0]);
+  const col = (label: string) => nav.indexOf(label) + 1;
+  expect(key(v, home, "Click:" + col("Inbox") + ":1").deck.page).toBe("inbox");
+  expect(key(v, home, "Click:" + col("Questions") + ":1").deck.page).toBe("questions");
+  expect(key(v, home, "Click:" + col("Chat") + ":1").done).toBe(true);
+  const lines = Deck.deck_lines(v, home, W, H, 0).map(text);
+  const row = lines.findIndex((l) => l.includes("Ask")) + 1;
+  const picked = key(v, home, "Click:5:" + row);
+  expect(picked.deck.sel).toBe("Ask");
+  expect(key(v, picked.deck, "Click:5:" + row)).toMatchObject({ done: true, focus: "Ask" });
+  View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });
+  const r = Deck.deck_new("routines");
+  expect(key(v, r, "WheelDown").deck.top).toBe(3);
+  expect(key(v, r, "WheelDown", "WheelUp", "WheelUp").deck.top).toBe(0);
+  // the crew: the wheel moves its pick
+  expect(key(v, Deck.deck_new("crew"), "WheelDown").deck.sel).toBe("Mgr");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

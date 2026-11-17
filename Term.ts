@@ -325,6 +325,13 @@ function term_new(url: string): Term {
   t.scr.keys = (key) => term_menu_key(t, key);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
+  // the crew panel's spinner (Paint.SPIN): a paint per frame while one works
+  setInterval(() => {
+    const spins = t.scr.tty && t.deck === undefined && (t.crew ?? true) && (t.v.busy || t.v.crew.some((c) => c.status === "working"));
+    if (spins) {
+      term_draw(t);
+    }
+  }, Paint.SPIN_MS).unref();
   t.reads = Device.device_reads(RULES, (out) => term_send(t, out));
   process.stdin.on("end", () => {
     if (t.scr.ed.text.trim() !== "") {
@@ -597,11 +604,13 @@ function term_cycle(t: Term): void {
 // --------
 // the web's pages full screen (Deck.ts): the alternate screen, every key
 // the deck's (Screen grab); Esc, q, g m or Ctrl+C leave, the scrollback
-// as it was; Enter on the crew leaves on that agent's page. On a pipe, a
+// as it was; Enter on the crew leaves on that agent's page; the mouse
+// reported there only (SGR: clicks, the wheel), so the chat keeps the
+// terminal's own selection. On a pipe, a
 // page's command prints its text instead (term_page_cmd)
 
-const ALT_ON  = "\x1b[?1049h\x1b[?25l";
-const ALT_OFF = "\x1b[?25h\x1b[?1049l";
+const ALT_ON  = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h";
+const ALT_OFF = "\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l";
 
 // shows the deck at that page (null: leaves it)
 function term_deck(t: Term, page: Deck.Page | null, filter = ""): void {

@@ -120,3 +120,18 @@ test("a toast is one line, the user's color, cut to the width", () => {
   expect(l[0].s.c).toBe(Theme.ANSI.you);
   expect(text(Paint.toast_line("Saved", 40))).toBe("Saved");
 });
+
+// an agent at work spins in the crew panel (the web's pulse), a frame
+// per SPIN ms; the others keep their marks
+test("a working agent's mark spins; the others keep theirs", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "working"), crew("Old", "main", "done")] });
+  const at = (now: number) => Paint.crew_lines(v, 60, now, 8).map(text);
+  const a = at(0);
+  const b = at(Paint.SPIN_MS);
+  expect(Paint.SPIN).toContain(a[1].trim()[0]);
+  expect(Paint.SPIN).toContain(b[1].trim()[0]);
+  expect(a[1]).not.toBe(b[1]);
+  expect(a[2]).toBe(b[2]);
+  expect(a[2]).toContain("✓ Old");
+});
