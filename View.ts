@@ -1594,7 +1594,7 @@ export function minute(date: string): string {
   return date.slice(0, 16).replace("T", " ");
 }
 
-function hit_text(h: Hit): string {
+export function hit_text(h: Hit): string {
   return "#" + h.i + " · " + minute(h.date) + " · " + h.kind + ": " + h.text;
 }
 

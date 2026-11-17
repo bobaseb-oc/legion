@@ -226,6 +226,20 @@ test("questions, as the web's pane: pick one, a number sends that offered answer
   expect(key(v, d, "x").deck.say).toContain("Pick");
 });
 
+test("memory, as the web's page: pins and the last recall's hits to pick; Enter seeks it in the chat, p pins or unpins, / types /recall", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, pins: [{ i: 12, kind: "user", date: "2026-11-12T10:00:00Z", text: "keep this", size: 100 }] });
+  View.view_act(v, { $: "Search", q: "cache" });
+  View.view_hear(v, { $: "recalled", q: "cache", hits: [{ i: 40, kind: "unii", date: "2026-11-12T11:00:00Z", text: "the cache is warm" }], more: false });
+  const d = Deck.deck_new("memory");
+  expect(Deck.deck_lines(v, d, W, H, 0).map(text).join("\n")).toMatch(/Pinned, 1 of[\s\S]*#12 ·[\s\S]*keep this[\s\S]*“cache”[\s\S]*#40 ·[\s\S]*the cache is warm/);
+  expect(key(v, d, "j", "j").deck.sel).toBe("h40");
+  expect(key(v, d, "j", "j", "Enter")).toMatchObject({ done: true, acts: [{ $: "Seek", id: 40 }] });
+  expect(key(v, d, "j", "p").acts).toEqual([{ $: "Pin", i: 12 }]);
+  expect(key(v, d, "j", "j", "p").acts).toEqual([{ $: "Pin", i: 40 }]);
+  expect(key(v, d, "/")).toMatchObject({ done: true, type: "/recall " });
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

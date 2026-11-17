@@ -115,7 +115,7 @@ const MOVES: Record<string, number> = { j: 1, Down: 1, k: -1, Up: -1 };
 
 // a page's own keys, before Esc, q and the moves (null: not its key)
 type Keys = (v: View.View, d: Deck, key: string, now: number) => Out | null;
-const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key };
+const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key };
 
 // a key while a filter is typed: text goes in it, Backspace takes the last
 // character, Enter or Esc end it (a key's name, as Screen names keys, is
@@ -226,6 +226,22 @@ function deck_questions_key(v: View.View, d: Deck, key: string, _now: number): O
     : act_or_say(d, View.view_answer(v, q.id + " " + key));
 }
 
+// memory's keys (the web's page): Enter shows the message picked in the
+// chat (Seek), p pins it or unpins it, / leaves with /recall typed
+function deck_memory_key(_v: View.View, d: Deck, key: string, _now: number): Out | null {
+  const i = d.sel === null ? null : Number(d.sel.slice(1));
+  if (key === "/") {
+    return { deck: d, acts: [], sends: [], done: true, type: "/recall " };
+  }
+  if (key !== "Enter" && key !== "p") {
+    return null;
+  }
+  if (i === null) {
+    return act_or_say(d, "Pick a message first: ↑↓.");
+  }
+  return key === "Enter" ? { deck: d, acts: [{ $: "Seek", id: i }], sends: [], done: true } : act_or_say(d, { $: "Pin", i });
+}
+
 // the first line in sight that keeps line at in sight, room lines shown
 function deck_sight(at: number, top: number, room: number): number {
   return at < top ? at : at >= top + room ? at - room + 1 : top;
@@ -296,6 +312,9 @@ function deck_body(v: View.View, d: Deck, w: number, now: number): Body {
   if (d.page === "questions") {
     return parts_body(questions_parts(v), w, d.sel);
   }
+  if (d.page === "memory") {
+    return parts_body(memory_parts(v), w, d.sel);
+  }
   const text = deck_text(v, d, now);
   if (d.page === "file" && v.looked !== null) {
     return { lines: Paint.rows_lines(View.entry_rows(null, "note", text), w), items: [] };
@@ -337,6 +356,21 @@ function questions_parts(v: View.View): Part[] {
     ...(notes.length === 0 ? [] : [{ text: "" }, { text: "Notes (" + notes.length + ")", ink: HEAD }, ...notes.flatMap(item)]),
     { text: "" },
     { text: "↑↓ pick · 1-9 that answer · Enter types /answer in the box · x dismiss · Esc chat", ink: Paint.DIM },
+  ];
+}
+
+// memory, as the web's page: the pins, then the last recall's hits, each
+// a message to pick (as /pins and /recall list them: View.hit_text)
+function memory_parts(v: View.View): Part[] {
+  const pins = v.pins ?? [];
+  const hits = v.recall?.hits ?? [];
+  const first = (note: string) => note.split("\n")[0];
+  return [
+    { text: first(View.view_pins_note(v)), ink: BOLD },
+    ...pins.map((p): Part => ({ key: "p" + p.i, text: View.hit_text(p) })),
+    ...(v.recall === null ? [] : [{ text: "" }, { text: first(View.view_recall_note(v)), ink: BOLD }, ...hits.map((h): Part => ({ key: "h" + h.i, text: View.hit_text(h) }))]),
+    { text: "" },
+    { text: "↑↓ pick · Enter shows it in the chat · p pin or unpin · / recall words · Esc chat", ink: Paint.DIM },
   ];
 }
 
