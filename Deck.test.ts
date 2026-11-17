@@ -81,6 +81,30 @@ test("the crew page is /crew full's: its keys move the selection, Enter leaves o
   expect(Deck.deck_lines(v, d, W, H, 0).map(text).join("\n")).toContain("Mgr");
 });
 
+test("crew keys as the web's buttons: u asks, y undoes (any other key keeps); o hands off; A archives a done one; at work, each says why not", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, crew: [...v.crew, crew("Old", "main", "done")] });
+  const on = (name: string) => ({ ...Deck.deck_new("crew"), sel: name });
+  const asked = key(v, on("Old"), "u");
+  expect(asked.acts).toEqual([]);
+  expect(asked.deck.ask).toBe("Old");
+  expect(asked.deck.say).toContain(View.undo_ask("Old"));
+  expect(Deck.deck_lines(v, asked.deck, W, H, 0).map(text).join("\n")).toContain("Undo Old's last turn");
+  expect(key(v, on("Old"), "u", "y").acts).toEqual([{ $: "Undo", name: "Old" }]);
+  const kept = key(v, on("Old"), "u", "n");
+  expect(kept.acts).toEqual([]);
+  expect(kept.deck).toMatchObject({ ask: null, say: null, sel: "Old" });
+  const busy = key(v, on("Mgr"), "u");
+  expect(busy.deck.ask).toBeNull();
+  expect(busy.deck.say).toContain("is at work");
+  expect(key(v, on("Mgr"), "o").acts).toEqual([{ $: "Handoff", name: "Mgr" }]);
+  expect(key(v, on("Old"), "A").acts).toEqual([{ $: "Archive", names: ["Old"] }]);
+  expect(key(v, on("Mgr"), "A").deck.say).toContain("is at work");
+  // the next key drops what was said
+  expect(key(v, on("Mgr"), "A", "Down").deck.say).toBeNull();
+  expect(Deck.deck_lines(v, on("Mgr"), W, H, 0).map(text).join(" ")).toContain("u undo · o handoff · A archive");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

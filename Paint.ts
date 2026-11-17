@@ -442,18 +442,19 @@ export function crew_lines(v: View.View, w: number, now: number, most: number): 
   return rows.length > shown.length ? [...lines, [Run(text_cut("  … +" + (rows.length - shown.length) + " more: /tab <name>", w), DIM)]] : lines;
 }
 
-// /crew full (Term.ts): a head (the pill, the keys), who needs you (at
-// most NEEDS, and a third of the screen), then the tree (View.view_tree) with each row's activity,
-// the selection marked "▸ " and kept in sight; w columns, h rows at most
+// the deck's crew page (Deck.ts, under its nav: the pill there): the
+// keys, who needs you (at most NEEDS, and a third of the screen), then
+// the tree (View.view_tree) with each row's activity, the selection
+// marked "▸ " and kept in sight; w columns, h rows at most
 const NEEDS = 5;
+const CREW_KEYS = "↑↓ move · →← open · Enter focus · s stop · a/d approve · x dismiss · u undo · o handoff · A archive · Esc back";
 export function crew_full(v: View.View, w: number, h: number, sel: string | null, now: number): Line[] {
-  const keys = "↑↓ move · →← open · Enter focus · s stop · a/d approve · x dismiss · Esc back";
-  const head = [Run(text_cut("Crew · " + (View.view_pill(v) || "no agents") + " · " + keys, w), { ...INK, b: true })];
+  const head = runs_wrap([Run(CREW_KEYS, DIM)], w, false);
   const needs = View.view_needs(v);
   const most = Math.max(1, Math.min(NEEDS, Math.floor((h - 2) / 3)));
   const need = needs.slice(0, most).map((c) => [Run(text_cut("  " + c.name + (c.status === "asking" ? " asks to start" : " failed"), w), c.status === "asking" ? { ...INK, c: Theme.ANSI.you, b: true } : { ...INK, c: Theme.ANSI.del })]);
   const more = needs.length > most ? [[Run("  … +" + (needs.length - most) + " more", DIM)]] : [];
-  const top = [head, [Run("")], ...(need.length > 0 ? [[Run("Needs you", DIM)], ...need, ...more, [Run("")]] : [])];
+  const top = [...head, [Run("")], ...(need.length > 0 ? [[Run("Needs you", DIM)], ...need, ...more, [Run("")]] : [])].slice(0, Math.max(0, h - 1));
   const rows = View.view_tree(v, now);
   const room = Math.max(1, h - top.length);
   const at = Math.max(0, rows.findIndex((r) => r.name === sel));

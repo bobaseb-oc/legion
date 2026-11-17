@@ -50,7 +50,7 @@ test("the full-screen Crew: head, needs, tree with its selection, within the scr
   View.view_act(v, { $: "Expand", name: "Mgr1" });
   const lines = Paint.crew_full(v, 70, 24, "W1-0", 1e12).map(text);
   expect(lines.length).toBeLessThanOrEqual(24);
-  expect(lines[0]).toMatch(/^Crew · \d+ working, \d+ need you/);
+  expect(lines.slice(0, 2).join(" ")).toContain("u undo · o handoff · A archive");
   expect(lines.some((l) => l.includes("Claude1 asks to start"))).toBe(true);
   expect(lines.filter((l) => l.startsWith("▸ "))).toHaveLength(1);
   expect(lines.find((l) => l.startsWith("▸ "))).toContain("W1-0");

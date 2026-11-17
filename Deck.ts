@@ -11,6 +11,7 @@
 
 import * as Cockpit from "./Cockpit.ts";
 import * as Paint from "./Paint.ts";
+import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
 
 // Types
@@ -21,8 +22,9 @@ export type Page = (typeof PAGES)[number];
 
 // the deck: the page shown, what is selected on it (an agent's name, a
 // row's key), its first line in sight, whether g began a chord, the
-// inbox's filter
-export type Deck = { page: Page; sel: string | null; top: number; g: boolean; filter: string };
+// inbox's filter; the agent whose undo waits for y, a line said under
+// the nav till the next key (why a key did nothing, what y does)
+export type Deck = { page: Page; sel: string | null; top: number; g: boolean; filter: string; ask: string | null; say: string | null };
 
 // a key's outcome: the deck next, the acts it asks (Term.ts runs them),
 // what it sent (the crew's keys send as they act: View.view_full),
@@ -47,17 +49,24 @@ const NAV: [letter: string, label: string, page: Page | "chat"][] = [
 
 const BOLD = { ...Paint.INK, b: true };
 const KEY  = { ...Paint.DIM, u: true };
+const SAY  = { ...Paint.INK, b: true, c: Theme.ANSI.you };
 
 // Keys
 // ====
 
 export function deck_new(page: Page, filter = ""): Deck {
-  return { page, sel: null, top: 0, g: false, filter };
+  return { page, sel: null, top: 0, g: false, filter, ask: null, say: null };
 }
 
-// a key on the deck, w by h: a chord, leaving, or the page's key
-export function deck_key(v: View.View, d: Deck, key: string, w: number, h: number, now: number): Out {
+// a key on the deck, w by h: y to an undo asked, a chord, leaving, or the
+// page's key; what was said goes at the next key
+export function deck_key(v: View.View, was: Deck, key: string, w: number, h: number, now: number): Out {
   const out = (deck: Deck, more: Partial<Out> = {}): Out => ({ deck, acts: [], sends: [], done: false, ...more });
+  const d = { ...was, ask: null, say: null };
+  if (was.ask !== null) {
+    const undo = View.view_crew_op(v, "undo", was.ask + " yes");
+    return key === "y" && typeof undo !== "string" ? out(d, { acts: [undo] }) : out(d);
+  }
   if (d.g) {
     const to = Object.hasOwn(CHORDS, key) ? CHORDS[key] : undefined;
     if (to === "chat") {
@@ -69,13 +78,35 @@ export function deck_key(v: View.View, d: Deck, key: string, w: number, h: numbe
     return out({ ...d, g: true });
   }
   if (d.page === "crew") {
-    const full = View.view_full(v, d.sel, key);
-    return out({ ...d, sel: full.sel }, { sends: full.acts, done: full.done, focus: full.focus });
+    return deck_crew_key(v, d, key, now);
   }
   if (key === "Esc" || key === "q") {
     return out(d, { done: true });
   }
   return out({ ...d, top: deck_scroll(deck_body(v, d, w, now).length, h - 1, d.top, key) });
+}
+
+// the crew's keys: the web's Undo, Claude Code and Archive buttons, by
+// the rules of /undo, /handoff and /archive (u asks first, y undoes);
+// any other, /crew full's (View.view_full)
+function deck_crew_key(v: View.View, d: Deck, key: string, now: number): Out {
+  const out = (deck: Deck, r?: View.Act | string): Out => ({ deck: typeof r === "string" ? { ...deck, say: r } : deck, acts: r === undefined || typeof r === "string" ? [] : [r], sends: [], done: false });
+  const name = d.sel ?? "";
+  if ((key === "u" || key === "o" || key === "A") && name === "") {
+    return out(d, "Pick an agent first: ↑↓.");
+  }
+  if (key === "u") {
+    const undo = View.view_crew_op(v, "undo", name + " yes");
+    return typeof undo === "string" ? out(d, undo) : out({ ...d, ask: name, say: View.undo_ask(name) + " y: undo · any other key: keep" });
+  }
+  if (key === "o") {
+    return out(d, View.view_crew_op(v, "handoff", name));
+  }
+  if (key === "A") {
+    return out(d, Cockpit.archive_cmd(v, name, now));
+  }
+  const full = View.view_full(v, d.sel, key);
+  return { deck: { ...d, sel: full.sel }, acts: [], sends: full.acts, done: full.done, focus: full.focus };
 }
 
 // the first line in sight after a scrolling key, room lines shown of n
@@ -87,15 +118,18 @@ function deck_scroll(n: number, room: number, top: number, key: string): number 
 // Lines
 // =====
 
-// the deck in w columns, h rows at most: the nav, the page's body in sight
+// the deck in w columns, h rows at most: the nav, what was said, the
+// page's body in sight
 export function deck_lines(v: View.View, d: Deck, w: number, h: number, now: number): Paint.Line[] {
-  const room = Math.max(1, h - 1);
+  const said = d.say === null ? [] : Paint.runs_wrap([Paint.Run(d.say, SAY)], w, false);
+  const head = [deck_nav(v, d.page, w), ...said];
+  const room = Math.max(1, h - head.length);
   if (d.page === "crew") {
-    return [deck_nav(v, d.page, w), ...Paint.crew_full(v, w, room, d.sel, now)];
+    return [...head, ...Paint.crew_full(v, w, room, d.sel, now)].slice(0, h);
   }
   const body = deck_body(v, d, w, now);
   const top = Math.min(d.top, Math.max(0, body.length - room));
-  return [deck_nav(v, d.page, w), ...body.slice(top, top + room)];
+  return [...head, ...body.slice(top, top + room)].slice(0, h);
 }
 
 // a text page's lines: what its command prints (the file, as /look
