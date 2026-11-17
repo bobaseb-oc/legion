@@ -105,6 +105,38 @@ test("crew keys as the web's buttons: u asks, y undoes (any other key keeps); o 
   expect(Deck.deck_lines(v, on("Mgr"), W, H, 0).map(text).join(" ")).toContain("u undo · o handoff · A archive");
 });
 
+test("home, as the web's: greeting, stats, working then done cards to pick; Enter shows that agent, A archives it (none picked: all done)", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, crew: [...v.crew, { ...crew("Old", "main", "done"), title: "Fix AO-12 login" }] });
+  const home = Deck.deck_new("home");
+  const body = (d: Deck.Deck) => Deck.deck_lines(v, d, W, H, 0).map(text);
+  const shown = body(home).join("\n");
+  expect(shown).toMatch(/Good (morning|afternoon|evening)\. 2 need you · 1 working/);
+  expect(shown).toContain("Agents 3");
+  expect(shown).toMatch(/Working \(2\)[\s\S]*Mgr[\s\S]*Done \(1\)[\s\S]*Fix AO-12 login · AO-12/);
+  expect(key(v, home, "j").deck.sel).toBe("Mgr");
+  expect(key(v, home, "j", "j", "j").deck.sel).toBe("Old");
+  expect(key(v, home, "j", "j", "j", "j").deck.sel).toBe("Old");
+  expect(key(v, home, "j", "j", "j", "k").deck.sel).toBe("Ask");
+  const picked = key(v, home, "j", "j", "j").deck;
+  expect(body(picked).find((l) => l.startsWith("▸ "))).toContain("Old");
+  expect(key(v, picked, "Enter")).toMatchObject({ done: true, focus: "Old" });
+  expect(key(v, picked, "A").acts).toEqual([{ $: "Archive", names: ["Old"] }]);
+  expect(key(v, home, "A").acts).toEqual([{ $: "Archive", names: ["Old"] }]);
+  expect(key(v, { ...home, sel: "Mgr" }, "A").deck.say).toContain("is at work");
+  // back after a while away: its card on top
+  const away: Cockpit.Away = { span: "3h", agents: [{ name: "Old", title: "Fix AO-12 login", status: "done", why: "" }], more: 0, done: 1, failed: 0, routines: [], questions: 1, notes: 0, inbox: 0 };
+  expect(body({ ...home, away }).slice(0, 4).join("\n")).toContain("While you were away (3h · 1 done)");
+});
+
+test("a picked item stays in sight: the page scrolls to it", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, crew: Array.from({ length: 30 }, (_, k) => crew("A" + k, "main", "working")) });
+  const far = key(v, Deck.deck_new("home"), ...Array(29).fill("j")).deck;
+  expect(far.sel).toBe("A28");
+  expect(Deck.deck_lines(v, far, W, H, 0).map(text).some((l) => l.startsWith("▸ ") && l.includes("A28"))).toBe(true);
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

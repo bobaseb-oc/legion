@@ -24,7 +24,7 @@ export type Page = (typeof PAGES)[number];
 // row's key), its first line in sight, whether g began a chord, the
 // inbox's filter; the agent whose undo waits for y, a line said under
 // the nav till the next key (why a key did nothing, what y does)
-export type Deck = { page: Page; sel: string | null; top: number; g: boolean; filter: string; ask: string | null; say: string | null };
+export type Deck = { page: Page; sel: string | null; top: number; g: boolean; filter: string; ask: string | null; say: string | null; away?: Cockpit.Away };
 
 // a key's outcome: the deck next, the acts it asks (Term.ts runs them),
 // what it sent (the crew's keys send as they act: View.view_full),
@@ -50,6 +50,7 @@ const NAV: [letter: string, label: string, page: Page | "chat"][] = [
 const BOLD = { ...Paint.INK, b: true };
 const KEY  = { ...Paint.DIM, u: true };
 const SAY  = { ...Paint.INK, b: true, c: Theme.ANSI.you };
+const HEAD = { ...Paint.DIM, b: true };
 
 // Keys
 // ====
@@ -83,7 +84,39 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
   if (key === "Esc" || key === "q") {
     return out(d, { done: true });
   }
-  return out({ ...d, top: deck_scroll(deck_body(v, d, w, now).length, h - 1, d.top, key) });
+  const body = deck_body(v, d, w, now);
+  const room = Math.max(1, h - 1);
+  const step = MOVES[key];
+  if (body.items.length > 0 && step !== undefined) {
+    const at = body.items.findIndex((it) => it.key === d.sel);
+    const to = body.items[at < 0 ? 0 : Math.min(body.items.length - 1, Math.max(0, at + step))];
+    return out({ ...d, sel: to.key, top: deck_sight(to.at, d.top, room) });
+  }
+  if (d.page === "home") {
+    return deck_home_key(v, d, key, now) ?? out({ ...d, top: deck_scroll(body.lines.length, room, d.top, key) });
+  }
+  return out({ ...d, top: deck_scroll(body.lines.length, room, d.top, key) });
+}
+
+// the keys that move the pick on a page with items
+const MOVES: Record<string, number> = { j: 1, Down: 1, k: -1, Up: -1 };
+
+// home's keys: Enter shows the agent picked, A archives it (none: all
+// done ones, as /archive)
+function deck_home_key(v: View.View, d: Deck, key: string, now: number): Out | null {
+  if (key === "Enter" && d.sel !== null) {
+    return { deck: d, acts: [], sends: [], done: true, focus: d.sel };
+  }
+  if (key === "A") {
+    const r = Cockpit.archive_cmd(v, d.sel ?? "", now);
+    return typeof r === "string" ? { deck: { ...d, say: r }, acts: [], sends: [], done: false } : { deck: d, acts: [r], sends: [], done: false };
+  }
+  return null;
+}
+
+// the first line in sight that keeps line at in sight, room lines shown
+function deck_sight(at: number, top: number, room: number): number {
+  return at < top ? at : at >= top + room ? at - room + 1 : top;
 }
 
 // the crew's keys: the web's Undo, Claude Code and Archive buttons, by
@@ -127,21 +160,80 @@ export function deck_lines(v: View.View, d: Deck, w: number, h: number, now: num
   if (d.page === "crew") {
     return [...head, ...Paint.crew_full(v, w, room, d.sel, now)].slice(0, h);
   }
-  const body = deck_body(v, d, w, now);
+  const body = deck_body(v, d, w, now).lines;
   const top = Math.min(d.top, Math.max(0, body.length - room));
   return [...head, ...body.slice(top, top + room)].slice(0, h);
 }
 
-// a text page's lines: what its command prints (the file, as /look
-// prints it: its code colored)
-function deck_body(v: View.View, d: Deck, w: number, now: number): Paint.Line[] {
+// a page's body: its lines, and the items to pick on it (a key, its first
+// line), in order
+type Body = { lines: Paint.Line[]; items: { key: string; at: number }[] };
+
+// a part of a body: a line of text in an ink, or an item to pick (key)
+type Part = { text: string; ink?: Ink; key?: string };
+type Ink = Paint.Run["s"];
+
+function deck_body(v: View.View, d: Deck, w: number, now: number): Body {
+  if (d.page === "home") {
+    return parts_body(home_parts(v, d, now), w, d.sel);
+  }
   const text = deck_text(v, d, now);
-  return Paint.rows_lines(d.page === "file" && v.looked !== null ? View.entry_rows(null, "note", text) : View.note_rows(text), w);
+  if (d.page === "file" && v.looked !== null) {
+    return { lines: Paint.rows_lines(View.entry_rows(null, "note", text), w), items: [] };
+  }
+  return parts_body(text.split("\n").map((t) => ({ text: t })), w, d.sel);
+}
+
+// parts as lines in w columns: an item marked "▸ " and bold when picked
+function parts_body(parts: Part[], w: number, sel: string | null): Body {
+  const lines: Paint.Line[] = [];
+  const items: Body["items"] = [];
+  for (const p of parts) {
+    const ink = p.ink ?? Paint.INK;
+    if (p.key === undefined) {
+      lines.push(...(p.text === "" ? [[]] : Paint.runs_wrap([Paint.Run(p.text, ink)], w, false)));
+      continue;
+    }
+    const here = p.key === sel;
+    items.push({ key: p.key, at: lines.length });
+    Paint.runs_wrap([Paint.Run(p.text, here ? { ...ink, b: true } : ink)], w - 2, false)
+      .forEach((l, k) => lines.push([Paint.Run(k === 0 && here ? "▸ " : "  ", BOLD), ...l]));
+  }
+  return { lines, items };
+}
+
+// an agent's ink by its status, as the crew panel's
+function status_ink(s: View.Status): Ink {
+  return s === "asking" ? SAY : s === "failed" ? { ...Paint.INK, c: Theme.ANSI.del } : s === "done" || s === "stopped" ? Paint.DIM : Paint.INK;
+}
+
+// home, as the web's: the greeting and who needs you, the card of what
+// happened while away, the stats, Legion's agents working then done (to
+// pick), what is up next, the apps' lines, the keys
+function home_parts(v: View.View, d: Deck, now: number): Part[] {
+  const { working, done } = Cockpit.home_cards(v, now);
+  const apps = Cockpit.home_apps(v);
+  const next = Cockpit.up_next(v, now).slice(0, 5);
+  const head = (text: string): Part => ({ text, ink: HEAD });
+  const card = (c: Cockpit.Card): Part => ({ key: c.name, text: Cockpit.card_text(c), ink: status_ink(c.status) });
+  const away = d.away === undefined ? [] : Cockpit.away_text(d.away).split("\n").map((text, k): Part => ({ text, ink: k === 0 ? SAY : Paint.INK }));
+  return [
+    { text: Cockpit.home_greeting(new Date(now)) + ". " + Cockpit.home_line(v), ink: BOLD },
+    ...away,
+    { text: Cockpit.stats_text(v), ink: Paint.DIM },
+    ...(working.length === 0 ? [] : [{ text: "" }, head("Working (" + working.length + ")"), ...working.map(card)]),
+    ...(done.length === 0 ? [] : [{ text: "" }, head("Done (" + done.length + ") · A archives the one picked; none picked: all"), ...done.map(card)]),
+    ...(working.length + done.length === 0 ? [{ text: "" }, { text: "No agents yet: tell Legion what to do, or /agent <task>." }] : []),
+    ...(next.length === 0 ? [] : [{ text: "" }, head("Up next"), ...next.map((e): Part => ({ text: e.day + " " + e.time + " · " + e.title + (e.people === 0 ? "" : " · " + e.people + " people") }))]),
+    { text: "" },
+    { text: "Inbox: " + apps.inbox + " · Questions: " + apps.questions + " · Routines: " + apps.routines, ink: Paint.DIM },
+    { text: "↑↓ pick · Enter its page · A archive · g i inbox · g c crew · Esc chat", ink: Paint.DIM },
+  ];
 }
 
 function deck_text(v: View.View, d: Deck, now: number): string {
   switch (d.page) {
-    case "home": return Cockpit.home_text(v, new Date(now));
+    case "home": return "";
     case "inbox": return Cockpit.inbox_text(v, d.filter, now, 0);
     case "questions": return View.view_questions_note(v);
     case "memory": return [View.view_pins_note(v), ...(v.recall === null ? [] : [View.view_recall_note(v)])].join("\n\n");

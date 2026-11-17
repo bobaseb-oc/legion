@@ -436,7 +436,9 @@ function term_focus(t: Term, away: boolean): void {
   } else if (!away && t.seen !== undefined) {
     const a = Cockpit.away(t.v, t.seen, Date.now(), term_inbox_changed(t));
     t.seen = undefined;
-    if (a !== null) {
+    if (a !== null && t.deck !== undefined) {
+      t.deck = { ...Deck.deck_new("home"), away: a }; // the deck shown: its home, the card on top
+    } else if (a !== null) {
       term_note(t, Cockpit.away_text(a));
     }
   }

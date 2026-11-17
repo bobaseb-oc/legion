@@ -287,16 +287,24 @@ export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away |
 
 export const MARK: Record<Crew["status"], string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
 
-export function home_text(v: View, now: Date): string {
-  const stats = home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
-  const { working, done } = home_cards(v, now.getTime());
-  const card = (c: Card) => [MARK[c.status] + " " + c.name, c.title === c.name ? "" : c.title, c.repo, c.ticket, c.pr, c.cost, c.age, c.under === 0 ? "" : c.under + " under it"]
+// a card on one line, as the terminal shows it (/home, the deck's home)
+export function card_text(c: Card): string {
+  return [MARK[c.status] + " " + c.name, c.title === c.name ? "" : c.title, c.repo, c.ticket, c.pr, c.cost, c.age, c.under === 0 ? "" : c.under + " under it"]
     .filter((x) => x !== null && x !== "").join(" · ");
-  const group = (head: string, cards: Card[]) => cards.length === 0 ? [] : [head, ...cards.map(card)];
+}
+
+// the stat cards on one line
+export function stats_text(v: View): string {
+  return home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
+}
+
+export function home_text(v: View, now: Date): string {
+  const { working, done } = home_cards(v, now.getTime());
+  const group = (head: string, cards: Card[]) => cards.length === 0 ? [] : [head, ...cards.map(card_text)];
   const empty = working.length + done.length === 0 ? ["No agents yet: tell Legion what to do, or /agent <task>."] : [];
   return [
     home_greeting(now) + ". " + home_line(v),
-    stats,
+    stats_text(v),
     ...group("Working (" + working.length + "):", working),
     ...group("Done (" + done.length + "), /archive all takes them:", done),
     ...empty,
