@@ -1,0 +1,29 @@
+tasks/todo.md
+  s_6b372b1a245d2b::t_e3d2b80e5d78a0 808-839
+local/unii-local.sh
+  s_6b372b1a245d2b::t_51d93de602713d 101-103
+README.md
+  s_6b372b1a245d2b::t_49f36c8e684c2d 106-108
+Secure.test.ts
+  s_6b372b1a245d2b::t_cb39c2ef1437dd 22
+Server.test.ts
+  s_6b372b1a245d2b::t_d529dfe8ab08e5 18,55,119-170
+Server.ts
+  s_6b372b1a245d2b::t_e9f66068f326b8 34,182-188,2311-2314,2316-2318,2321,2328-2331,2333-2336,2338,2340-2344,2346,3169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "64bfca3d3121d79283bbfb55e1c09d79a845a23e",
+  "prompts": {},
+  "sessions": {
+    "s_6b372b1a245d2b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af1981aa-37ef-414e-b326-105042acd4e5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
