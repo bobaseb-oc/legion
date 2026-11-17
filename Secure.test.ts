@@ -19,7 +19,7 @@ let cookie = "";
 
 beforeAll(async () => {
   proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(PORT)], {
-    env    : { ...process.env, UNII_DIR: DIR, UNII_SITE: SITE, UNII_WORK: DIR + "/work" },
+    env    : { ...process.env, UNII_DIR: DIR, UNII_SITE: SITE, UNII_WORK: DIR + "/work", UNII_ANOTHER: "1" },
     stdout : "pipe",
     stderr : "inherit",
   });
