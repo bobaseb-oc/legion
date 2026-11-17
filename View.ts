@@ -473,8 +473,13 @@ export function drop_text(name: string, bytes: Uint8Array): string | null {
   const label = name.replace(/[`\r\n]+/g, " ");
   const cut = head.length < bytes.length ? ` (first ${kb(head.length)} of ${kb(bytes.length)})` : "";
   const ext = /\.([\w+-]{1,16})$/.exec(label)?.[1] ?? "";
-  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  const fence = fence_of(text);
   return "`" + label + "`" + cut + ":\n" + fence + ext + "\n" + text.replace(/\n$/, "") + "\n" + fence + "\n";
+}
+
+// a code fence no run of backticks in text closes
+function fence_of(text: string): string {
+  return "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
 }
 
 // a file the terminal attaches (/attach, a path dropped): it knows the
@@ -1544,10 +1549,7 @@ export function looked_md(v: View, msg: Looked): string | null {
   if (msg.error !== undefined) {
     return msg.error;
   }
-  const fence = (lang: string, text: string) => {
-    const ticks = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-    return ticks + lang + "\n" + text + "\n" + ticks;
-  };
+  const fence = (lang: string, text: string) => fence_of(text) + lang + "\n" + text + "\n" + fence_of(text);
   if (msg.kind === "git") {
     const diffy = ["diff", "changes", "show"].includes(msg.op ?? "");
     return "`git " + msg.op + "` in " + name + ":\n" + fence(diffy ? "diff" : "", msg.text ?? "");

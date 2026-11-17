@@ -1476,12 +1476,15 @@ function drop_text(name, bytes) {
   const label = name.replace(/[`\r\n]+/g, " ");
   const cut = head.length < bytes.length ? ` (first ${kb(head.length)} of ${kb(bytes.length)})` : "";
   const ext = /\.([\w+-]{1,16})$/.exec(label)?.[1] ?? "";
-  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  const fence = fence_of(text);
   return "`" + label + "`" + cut + `:
 ` + fence + ext + `
 ` + text.replace(/\n$/, "") + `
 ` + fence + `
 `;
+}
+function fence_of(text) {
+  return "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
 }
 var TOOL2 = "tool: ";
 var FOLD = "The whole chat, folded into the fewest blocks.";

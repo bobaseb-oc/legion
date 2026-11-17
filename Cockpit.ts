@@ -287,8 +287,6 @@ export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away |
 
 export const MARK: Record<Crew["status"], string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
 
-const n_of = (k: number, one: string, many = one + "s") => k + " " + (k === 1 ? one : many);
-
 export function home_text(v: View, now: Date): string {
   const stats = home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
   const { working, done } = home_cards(v, now.getTime());
@@ -308,14 +306,14 @@ export function home_text(v: View, now: Date): string {
 export function away_text(a: Away): string {
   const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
   const agent = (x: AwayAgent) => [MARK[x.status] + " " + x.name, x.title === x.name ? "" : x.title, x.why].filter((s) => s !== "").join(" · ");
-  const asked = [a.questions === 0 ? "" : n_of(a.questions, "new question"), a.notes === 0 ? "" : n_of(a.notes, "new note")].filter((x) => x !== "");
+  const asked = [a.questions === 0 ? "" : plural(a.questions, "new question"), a.notes === 0 ? "" : plural(a.notes, "new note")].filter((x) => x !== "");
   return [
     "While you were away (" + [a.span, ...counts].join(" · ") + "):",
     ...a.agents.map(agent),
     ...(a.more === 0 ? [] : ["+" + a.more + " more: /crew"]),
     ...(a.routines.length === 0 ? [] : ["Routines ran: " + a.routines.join(", ")]),
     ...(asked.length === 0 ? [] : [asked.join(" · ") + ": /questions"]),
-    ...(a.inbox === 0 ? [] : [n_of(a.inbox, "inbox change") + ": /inbox"]),
+    ...(a.inbox === 0 ? [] : [plural(a.inbox, "inbox change") + ": /inbox"]),
   ].join("\n");
 }
 
