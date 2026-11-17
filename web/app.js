@@ -3133,6 +3133,7 @@ var TIMESHEET_ROUTINE = {
 function todo_who(a) {
   return a.by === "main" ? MAIN : a.by;
 }
+var TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3570,7 +3571,7 @@ function todo_html(v) {
   const all = v.assigned ?? [];
   const head = `<div class="phead"><h2>Todo</h2><p class="meta">What only you can do, put here by your agents: tick it Done and its agent hears it</p></div>`;
   if (all.length === 0) {
-    return [head, `<p class="meta">Nothing to do. Agents put here what only you can do: approve a PR, run a login, send something.</p>`];
+    return [head, `<p class="meta">${esc2(TODO_NONE)}</p>`];
   }
   const row = (a) => `<div class="trow todo"><span class="n">${esc2(a.text)}</span><span class="meta why">by ${esc2(todo_who(a))} · ${esc2(minute(a.date))}</span>` + `<button class="pbtn go"${act_html2({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html2({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
   return [head, `<div class="tday">${all.map(row).join("")}</div>`];

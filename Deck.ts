@@ -466,7 +466,7 @@ function questions_parts(v: View.View): Part[] {
 function todo_parts(v: View.View): Part[] {
   const all = v.assigned ?? [];
   return [
-    { text: all.length === 0 ? "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something)." : "Your todos (" + all.length + ")", ink: BOLD },
+    { text: all.length === 0 ? Cockpit.TODO_NONE : "Your todos (" + all.length + ")", ink: BOLD },
     ...all.map((a): Part => ({ key: String(a.n), text: Cockpit.todo_line(a) })),
     { text: "" },
     { text: "↑↓ pick · d done (its agent hears it) · x drop · Esc chat", ink: Paint.DIM },

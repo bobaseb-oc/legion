@@ -472,11 +472,14 @@ export function todo_line(a: Assignment): string {
   return a.n + ". " + a.text + " · by " + todo_who(a) + " · " + minute(a.date);
 }
 
+// the Todo page with none open (web, deck, /todos)
+export const TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
+
 // /todos: the open todos, oldest first, and how to tick them
 export function todo_text(v: View): string {
   const all = v.assigned ?? [];
   if (all.length === 0) {
-    return "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
+    return TODO_NONE;
   }
   return ["Your todos (" + all.length + "):", ...all.map(todo_line), "/todos done <n> when it is done (its agent hears it), drop <n> if it isn't yours to do."].join("\n");
 }

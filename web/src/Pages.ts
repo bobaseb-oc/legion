@@ -482,7 +482,7 @@ export function todo_html(v: View.View): string[] {
   const all = v.assigned ?? [];
   const head = `<div class="phead"><h2>Todo</h2><p class="meta">What only you can do, put here by your agents: tick it Done and its agent hears it</p></div>`;
   if (all.length === 0) {
-    return [head, `<p class="meta">Nothing to do. Agents put here what only you can do: approve a PR, run a login, send something.</p>`];
+    return [head, `<p class="meta">${esc(Cockpit.TODO_NONE)}</p>`];
   }
   const row = (a: View.Assignment) => `<div class="trow todo"><span class="n">${esc(a.text)}</span><span class="meta why">by ${esc(Cockpit.todo_who(a))} · ${esc(minute(a.date))}</span>`
     + `<button class="pbtn go"${act_html({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
