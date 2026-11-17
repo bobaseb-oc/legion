@@ -482,3 +482,106 @@ test("dropped files: images attach, text files inline, binaries refused", () => 
   expect(out.length).toBeLessThan(View.DROPPED);
   expect(out.includes("�")).toBe(false);
 });
+
+test("paths as a terminal drops or a user types them: quoted, escaped, ~, several", () => {
+  expect(View.paths_typed("'/a b/c.png' /d\\ e.txt ~/f \"/g h\"", "/h")).toEqual(["/a b/c.png", "/d e.txt", "/h/f", "/g h"]);
+  expect(View.paths_typed("/one.txt\n/two.txt\n", "/h")).toEqual(["/one.txt", "/two.txt"]);
+  expect(View.paths_typed("   ", "/h")).toEqual([]);
+});
+
+test("a file attached in the terminal: an image by its bytes, a text file fenced, a binary refused", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  expect(View.attach_kind("x.dat", png)).toEqual({ $: "image" });
+  expect(View.attach_kind("q.sql", new TextEncoder().encode("select 1;"))).toEqual({ $: "text", text: View.drop_text("q.sql", new TextEncoder().encode("select 1;"))! });
+  expect(View.attach_kind("b.bin", new Uint8Array([1, 0, 2]))).toBeNull();
+});
+
+test("pins and recall in the terminal: /pin, /seek take #id; /pins and a search's hits as notes", () => {
+  const v = View.view_new();
+  expect(View.view_id_cmd("/pin", "#7", (i) => ({ $: "Pin", i }))).toEqual({ $: "Pin", i: 7 });
+  expect(View.view_id_cmd("/seek", "12", (id) => ({ $: "Seek", id }))).toEqual({ $: "Seek", id: 12 });
+  expect(View.view_id_cmd("/pin", "x", (i) => ({ $: "Pin", i }))).toBe("Which message? /pin #id, as each block shows it.");
+  expect(View.view_pins_note(v)).toMatch(/^Nothing pinned\./);
+  v.pins = [{ i: 3, kind: "user", date: "2026-11-17T09:05:00Z", text: "keep this", size: 1500 }];
+  expect(View.view_pins_note(v)).toBe(`Pinned, 1 of ${View.PINS} · 1.5 of ${View.PINNED / 1000} KB:\n#3 · 2026-11-17 09:05 · user: keep this\n/pin #id again unpins it.`);
+  expect(View.view_recall_note(v)).toBe("");
+  View.view_act(v, { $: "Search", q: "deploy" });
+  expect(View.view_recall_note(v)).toBe("Searching for “deploy”…");
+  View.view_hear(v, { $: "recalled", q: "deploy", hits: [], more: false });
+  expect(View.view_recall_note(v)).toBe("No message has “deploy”.");
+  View.view_hear(v, { $: "recalled", q: "deploy", hits: [{ i: 9, kind: "legion", date: "2026-11-16T10:20:00Z", text: "the deploy went out" }], more: true });
+  expect(View.view_recall_note(v)).toBe(`“deploy”:\n#9 · 2026-11-16 10:20 · legion: the deploy went out\nThe newest ${View.FOUND} shown: search for more words to reach older ones.\n/seek #id shows one in the chat.`);
+});
+
+test("/undo and /handoff in the terminal: a crew member, idle for an undo, confirmed by yes; the page's agent by default", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Wkr", "Mgr", "worker", "working")] });
+  expect(View.view_crew_op(v, "undo", "Mgr")).toBe(View.undo_ask("Mgr") + " Sure? /undo Mgr yes");
+  expect(View.view_crew_op(v, "undo", "Mgr yes")).toEqual({ $: "Undo", name: "Mgr" });
+  expect(View.view_crew_op(v, "undo", "Wkr yes")).toBe("Wkr is at work: its last turn can be undone once it stops.");
+  expect(View.view_crew_op(v, "undo", "Nobody yes")).toBe("No agent Nobody: /tab lists them.");
+  expect(View.view_crew_op(v, "handoff", "Wkr")).toEqual({ $: "Handoff", name: "Wkr" });
+  expect(View.view_crew_op(v, "handoff", "")).toBe("Which agent? /handoff <name>, or on its tab.");
+  View.view_act(v, { $: "Goto", name: "Mgr" });
+  expect(View.view_crew_op(v, "handoff", "")).toEqual({ $: "Handoff", name: "Mgr" });
+  expect(View.view_crew_op(v, "undo", "yes")).toEqual({ $: "Undo", name: "Mgr" });
+});
+
+test("files in the terminal: /look path[:line], /git op [repo] [rev], made absolute from the terminal's folder", () => {
+  expect(View.view_look_cmd("src/a.ts:120", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/w/src/a.ts", line: 120 } });
+  expect(View.view_look_cmd("~/x.sql", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/h/x.sql" } });
+  expect(View.view_look_cmd("'/a b/c.md'", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/a b/c.md" } });
+  expect(View.view_look_cmd("", "/w", "/h")).toBe("Which file? /look <path[:line]>");
+  expect(View.view_git_cmd("log", "/w", "/h")).toEqual({ $: "Look", what: { kind: "git", repo: "/w", op: "log" } });
+  expect(View.view_git_cmd("show ../r abc123", "/w/x", "/h")).toEqual({ $: "Look", what: { kind: "git", repo: "/w/r", op: "show", rev: "abc123" } });
+  expect(View.view_git_cmd("push", "/w", "/h")).toBe("/git status, log, diff, changes, branches or show <rev>, then a repo (here if none).");
+});
+
+test("files in the terminal: what a device answered, as markdown: a file's lines numbered around the one asked, a folder, finds", () => {
+  const v = View.view_new();
+  const text = Array.from({ length: 200 }, (_, k) => "line " + (k + 1)).join("\n");
+  View.view_act(v, { $: "Look", what: { kind: "file", path: "/w/a.ts", line: 100 } });
+  View.view_hear(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h", text });
+  const md = View.looked_md(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h", text })!;
+  expect(md.split("\n")[0]).toBe("`/w/a.ts` (lines 90–149 of 200; /look /w/a.ts:150 for more):");
+  expect(md).toContain("```ts\n 90  line 90\n");
+  expect(md).toContain("100→ line 100\n");
+  expect(md.endsWith("149  line 149\n```")).toBe(true);
+  View.view_hear(v, { $: "looked", id: "2", kind: "dir", path: "/w", text: "d src\nf a.ts\ns .env" });
+  expect(View.looked_md(v, { $: "looked", id: "2", kind: "dir", path: "/w" })).toBe("`/w`:\nsrc/\na.ts\n.env (secrets: not shown)");
+  View.view_hear(v, { $: "looked", id: "3", kind: "dir", path: "/nope", error: "No file /nope here." });
+  expect(View.looked_md(v, { $: "looked", id: "3", kind: "dir", path: "/nope", error: "No file /nope here." })).toBe("No file /nope here.");
+  v.workspaces = ["/w", "/r"];
+  View.view_act(v, { $: "Find", kind: "grep", q: "TODO" });
+  const one = { $: "looked" as const, id: "4", kind: "grep" as const, path: "/w", q: "TODO", text: "a.ts:3:// TODO x" };
+  View.view_hear(v, one);
+  expect(View.looked_md(v, one)).toBeNull(); // /r not answered yet
+  const two = { $: "looked" as const, id: "5", kind: "grep" as const, path: "/r", q: "TODO", error: "not a repo" };
+  View.view_hear(v, two);
+  expect(View.looked_md(v, two)).toBe("grep “TODO”:\n`/w`:\na.ts:3:// TODO x\n`/r`: not a repo");
+  expect(View.looked_md(v, { $: "looked", id: "6", kind: "git", path: "/w", op: "diff", text: "+a\n-b" })).toBe("`git diff` in `/w`:\n```diff\n+a\n-b\n```");
+});
+
+test("/edit in the terminal: only the file a device showed whole, as shown (its hash the save's base)", () => {
+  const v = View.view_new();
+  expect(View.view_editable(v, null)).toBe("No file shown to edit: /edit <path>, or /look one first.");
+  View.view_hear(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h1", text: "x" });
+  expect(View.view_editable(v, null)).toEqual({ path: "/w/a.ts", text: "x" });
+  expect(View.view_editable(v, "/w/a.ts")).toEqual({ path: "/w/a.ts", text: "x" });
+  expect(View.view_editable(v, "/w/b.ts")).toBeNull(); // not shown yet: asked first
+  View.view_hear(v, { $: "looked", id: "2", kind: "file", path: "/w/s.ts", error: "secrets: not shown" });
+  expect(View.view_editable(v, "/w/s.ts")).toBe("secrets: not shown");
+  View.view_hear(v, { $: "looked", id: "3", kind: "git", path: "/w", op: "log", text: "c1" });
+  expect(View.view_editable(v, null)).toBe("No file shown to edit: /edit <path>, or /look one first.");
+});
+
+test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
+  const v = View.view_new();
+  const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };
+  View.view_hear(v, { $: "gateway", budget: { spend: 312.4, max: 800 }, busy: Date.now() });
+  const line = View.status_text(View.view_status_line(v, here, Date.now()));
+  expect(line).toContain("gateway $312/$800");
+  expect(line).toContain("⚠ AI service busy");
+  View.view_hear(v, { $: "gateway", budget: null, busy: 0 });
+  expect(View.status_text(View.view_status_line(v, here, Date.now()))).not.toMatch(/gateway|busy/);
+});

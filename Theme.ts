@@ -32,6 +32,9 @@ type Look = { dim: boolean; it: boolean };
 // black), a diff's lines ("2": its green, "1": its red), as ANSI
 // palette colors, so they follow the terminal's theme
 export const ANSI = { block: "7", ink: "0", add: "2", del: "1", you: "4" };
+// code's colors in the terminal (Hl.ts's classes; a comment is dim): the
+// palette's magenta, green, yellow
+export const HL = { k: "5", s: "2", n: "3" };
 
 // what a message is, named on its top (a report's frame edge, a note's
 // first line; a result names itself on its frame's edge; a report: its agent's name, else this; a

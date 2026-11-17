@@ -66,20 +66,31 @@ function quote_end(text: string, i: number, quote: string, lang: Lang): number {
   return Math.min(text.length, text.startsWith(quote, j) ? j + quote.length : j);
 }
 
-// the text's lines, colored and escaped
+// the text's lines, colored and escaped (the web's)
 export function hl_lines(text: string, lang: Lang): string[] {
-  const out: string[] = [""];
-  const put = (cls: string, s: string) => s.split("\n").forEach((part, k) => {
+  return hl_spans(text, lang).map((line) => line.map(([cls, s]) => cls === "" ? esc(s) : `<span class="${cls}">${esc(s)}</span>`).join(""));
+}
+
+// a piece of a line and its class: k a keyword, s a string, n a number,
+// c a comment, "" plain
+export type Span = [cls: "" | "k" | "s" | "n" | "c", text: string];
+
+// the text's lines, each its pieces (none empty; the terminal's, Paint.ts)
+export function hl_spans(text: string, lang: Lang): Span[][] {
+  const out: Span[][] = [[]];
+  const put = (cls: Span[0], s: string) => s.split("\n").forEach((part, k) => {
     if (k > 0) {
-      out.push("");
+      out.push([]);
     }
-    out[out.length - 1] += part === "" || cls === "" ? esc(part) : `<span class="${cls}">${esc(part)}</span>`;
+    if (part !== "") {
+      out[out.length - 1]!.push([cls, part]);
+    }
   });
   const starts = (at: number, s: string) => text.startsWith(s, at);
   const inword = (at: number) => at > 0 && /[\w$]/.test(text[at - 1]!);
   let i = 0;
   let plain = 0; // where the plain text not yet put starts
-  const take = (cls: string, end: number) => {
+  const take = (cls: Span[0], end: number) => {
     put("", text.slice(plain, i));
     put(cls, text.slice(i, end));
     i = plain = end;

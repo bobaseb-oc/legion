@@ -11,7 +11,7 @@ import * as Cockpit from "../../Cockpit.ts";
 import type { Inbox } from "../../Inbox.ts";
 import * as Routines from "../../Routines.ts";
 import type * as View from "../../View.ts";
-import { FIND, FOUND, PINNED, PINS, SHOWN } from "../../View.ts";
+import { FIND, FOUND, minute, PINNED, PINS, SHOWN } from "../../View.ts";
 import { block_html, esc } from "./Html.ts";
 import { md_parse } from "../../Md.ts";
 import { hl_lang, hl_lines } from "../../Hl.ts";
@@ -195,7 +195,7 @@ function sheet_line(v: View.View): string {
 // the most spaces the sidebar lists (the rest: a count)
 export const SPACES = 12;
 
-const MARK: Record<string, string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+const MARK: Record<string, string> = Cockpit.MARK;
 
 // the sidebar: search or run (the palette), the pages (the one shown
 // marked; the inbox's count, the crew's pill), Unii's agents by ticket,
@@ -469,16 +469,8 @@ function shown_html(looked: View.Looked | null, source: boolean, at: number | nu
   return `<pre class="code git">${lines.map(line).join("\n")}</pre>`;
 }
 
-// the routine that drafts the timesheet on Friday mornings (the user's
-// rule, 2026-11-13; offered on the Timesheet page): a native worker reads
-// the week's harvest, calendar, PRs, commits and tickets, and files drafts
-// for Monday to Friday; only the user submits them
-export const TIMESHEET_ROUTINE: Routines.Given = {
-  name: "Timesheet drafts",
-  task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
-  when: { $: "weekly", day: 5, at: "09:00" },
-  tier: "worker",
-};
+// the Friday drafting routine (Cockpit.ts, the terminal offers it too)
+export const TIMESHEET_ROUTINE = Cockpit.TIMESHEET_ROUTINE;
 
 // the Timesheet page (K5, RED ZONE): the drafts by day, newest first, each
 // day's hours; each draft's project, task, hours, notes and why, a Drop
@@ -518,11 +510,6 @@ export function memory_html(v: View.View): string[] {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
   return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
-}
-
-// an ISO date as the page shows it (UTC, to the minute)
-function minute(date: string): string {
-  return date.slice(0, 16).replace("T", " ");
 }
 
 // a text escaped, the first match of q in it marked

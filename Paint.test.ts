@@ -6,6 +6,7 @@
 
 import { expect, test } from "bun:test";
 import * as Paint from "./Paint.ts";
+import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
 
 const text = (l: Paint.Line) => l.map((r) => r.x).join("");
@@ -89,4 +90,23 @@ test("the status line counts the open questions", () => {
 test("the status line shows the mode and what waits", () => {
   const s = { up: true, dir: "repo", branch: null, model: "m", working: 0, spend: { spend: null, stale: false }, mode: "plan" as const, waiting: 2 };
   expect(Paint.status_text(s)).toBe("repo · m · plan mode · 2 waiting for you");
+});
+
+test("a code block in a known language is colored as the web's: keywords, strings, numbers; comments dim; others plain", () => {
+  const runs = Paint.rows_lines(View.entry_rows(null, "note", '```ts\nconst a = "s"; // c\nreturn 42;\n```'), 60).flat();
+  const ink = (x: string) => runs.find((r) => r.x === x)!.s;
+  expect(ink("const").c).toBe(Theme.HL.k);
+  expect(ink('"s"').c).toBe(Theme.HL.s);
+  expect(ink("42").c).toBe(Theme.HL.n);
+  expect(ink("// c").d).toBe(true);
+  const plain = Paint.rows_lines(View.entry_rows(null, "note", "```\nconst a = 1;\n```"), 60).flat();
+  expect(plain.some((r) => r.s.c === Theme.HL.k)).toBe(false);
+});
+
+test("a file the terminal looked at prints as a note's code block, each line whole", () => {
+  const rows = View.entry_rows(null, "note", "`/w/a.ts`:\n```ts\n1  const x = 1;\n2  // done\n```");
+  const lines = Paint.rows_lines(rows, 60).map(text);
+  expect(lines.some((l) => l.includes("/w/a.ts"))).toBe(true);
+  expect(lines.some((l) => l.includes("1  const x = 1;"))).toBe(true);
+  expect(lines.some((l) => l.includes("2  // done"))).toBe(true);
 });

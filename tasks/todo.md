@@ -836,3 +836,40 @@ new server but never reloads (the 16 Nov drop fix looked broken for this reason)
 Promise: the server sends a hash of the app.js it serves when a socket opens; a tab whose hash
 differs reloads once (or shows "Legion was updated: reload"), with any unsent text in the box kept.
 - [ ] Plan the details once the first PR is merged
+
+## TUI parity with the web UI (2026-11-17, feat/tui-parity)
+
+Intent: the terminal (Term.ts + Paint.ts) can do what the web UI does, by reusing
+View.ts / Cockpit.ts helpers and the existing acts. No new server acts, no logic
+copied out of web/src. Constraints: one slice per commit, a red test first in
+Paint.test.ts / View.test.ts style (pure View -> lines), tsc clean, full suite
+shows no new failures (3 known baseline fails).
+
+- [x] T1 Status line shows gateway budget + busy: Term builds StatusLine without
+      budget/busy (Term.ts:1161); share one builder with view_status (View.ts:1293)
+- [x] T2 `/attach <path>`: image -> drop_image path, text -> drop_text fenced block
+      in the box; a bracketed paste that is one existing path does the same
+- [x] T3 Pins + recall: pin key on a message, `/pins`, `/recall <words>` showing
+      `recalled` hits, Seek jumps to the hit
+- [x] T4 `/undo <agent>` (typed y/N confirm) and `/handoff <agent>` via the
+      existing Undo/Handoff acts; show the device's `did` answer
+- [x] T5 `/home`: cockpit cards + "While you were away" card + Archive (Cockpit.home_cards, away)
+- [x] T6 `/inbox`: inbox_sections, Review / Fetch acts, badge in the status line
+- [x] T7 Files, read-only: `/look <path[:line]>`, `/ls [dir]`, `/find`, `/grep`, git view
+- [x] T8 Files, writes: edit + save (separate slice; same server guards as the web)
+- [x] T9 Code highlighting in the terminal: split Hl.ts into tokens + HTML renderer, add ANSI renderer
+- [x] T10 `/digest`, `/transcripts`, `/timesheet` pages; agent timeline lane on agent pages
+- Out of scope: voice/mic, HTML preview iframe (show source instead), Ctrl+K palette (`/help` stays)
+
+Review (2026-11-17): T1-T10 done, one red test first per slice, no server change.
+Choices: a pasted path attaches only images (a text file's path stays text, as
+Claude Code); /undo confirms by a trailing yes (as /delete <name>); the away card
+prints on FocusIn after AWAY; /edit runs $VISUAL/$EDITOR on a 0600 temp copy and
+saves by the web's Save (device checks the hash); /open was taken, so /editor;
+T6's status-line badge dropped (home stats and /inbox's changed count instead).
+Shared with the web now: View.view_status_line, minute, undo_ask; Cockpit.MARK,
+TIMESHEET_ROUTINE; Hl.hl_spans under hl_lines.
+Proof: full suite 512 pass, 2 fail (the known log-staging pair); tsc on changed
+files: only no-bun-types noise, plus main.ts:545 (`code` possibly null, on main
+before this branch); 4 mutants (undo yes, paste take, review fit, edit error)
+each killed; web/app.js rebuilt. Not run by hand in a live terminal.

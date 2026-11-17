@@ -50,6 +50,7 @@ export type Screen = {
   up     : number;
   rows   : number;
   on     : (key: string) => void;
+  pasted?: (text: string) => boolean; // a paste Term.ts takes (a dropped file's path): not typed
 };
 
 // Constants
@@ -257,13 +258,34 @@ export function screen_suspend(scr: Screen): void {
   process.kill(0, "SIGTSTP");
 }
 
+// the terminal lent to a program run now (an editor: /edit), then taken
+// back: the screen erased, keys cooked, input paused, as at a suspend
+export function screen_lend(scr: Screen, run: () => void): void {
+  process.stdout.write(screen_erase(scr) + MODES_OFF);
+  scr.up   = 0;
+  scr.rows = 0;
+  process.stdin.setRawMode(false);
+  process.stdin.pause();
+  try {
+    run();
+  } finally {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdout.write(MODES_ON);
+    scr.on("");
+  }
+}
+
 // a paste, typed whole
 function screen_paste(scr: Screen, data: string): number {
   const end = data.indexOf(PASTE_OFF);
   if (end < 0) {
     return 0;
   }
-  ed_type(scr.ed, data.slice(PASTE_ON.length, end).replace(/\r\n?/g, "\n"));
+  const text = data.slice(PASTE_ON.length, end).replace(/\r\n?/g, "\n");
+  if (!scr.pasted?.(text)) {
+    ed_type(scr.ed, text);
+  }
   return end + PASTE_OFF.length;
 }
 

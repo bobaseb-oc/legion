@@ -22,6 +22,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
+import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Device from "./Device.ts";
 import * as Import from "./Import.ts";
@@ -61,6 +62,9 @@ type Term = {
   full?   : { sel: string | null }; // /crew full shown: the agent selected
   away?   : boolean; // the terminal not in front (it told FocusOut): alerts notify
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
+  seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
+  editing?: string; // /edit's file, asked of a device: its editor runs once it comes
+  stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
   spend?  : Cost.Spend;    // today's LiteLLM spend (term_status)
@@ -198,17 +202,23 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["",                  "Ctrl+C, Ctrl+D",          "clear; on an empty input, interrupt, quit",      term_clear],
       ["/goal <message>",   "",                        "send a message as the goal: at each turn's end, Legion asks itself if it is met, and goes on till it is", (t, a) => term_act(t, { $: "Send", text: "/goal " + a })],
       ["/halt",             "",                        "drop the goal; the turn running ends as it would", (t) => term_act(t, { $: "Send", text: "/halt" })],
-      ["/image <path>",     "",                        "attach an image to the next message",            term_image],
+      ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
       ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
       ["/export",           "",                        "save memory and account as ./unii-memory.json",  term_export],
-      ["/tree",             "",                        "the whole memory, in the browser (its link prints too)", (t) => term_browse(t, "The memory tree", t.url + "/tree")],
       ["",                  "Ctrl+Z",                  "suspend; fg brings it back",                     (t) => Screen.screen_suspend(t.scr)],
       ["/quit",             "",                        "leave: the chat goes on without this terminal",  term_quit],
       ["/help",             "",                        "this list",                                      term_help],
+    ]],
+    ["Memory", [
+      ["/pin #id",          "",                        "pin a message (again: unpin): every call then sees it whole, however old", term_pin],
+      ["/pins",             "",                        "the messages pinned",                           (t) => term_note(t, View.view_pins_note(t.v))],
+      ["/recall <words>",   "",                        "search the whole chat for the words",           (t, a) => term_act(t, { $: "Search", q: a }).length === 0 && term_note(t, "Recall what? /recall <words>")],
+      ["/seek #id",         "",                        "show message #id in the chat, its blocks opened", (t, a) => term_answer(t, View.view_id_cmd("/seek", a, (id) => ({ $: "Seek", id })))],
+      ["/tree",             "",                        "the whole memory, in the browser (its link prints too)", (t) => term_browse(t, "The memory tree", t.url + "/tree")],
     ]],
     ["Pick", [
       ["",                  "Shift+Left, Shift+Right", "the model before, the next",                     (t, k) => term_move(t, ARROWS[k])],
@@ -225,6 +235,10 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/stop [name]",      "",                        "stop all work, agents too; or that agent and those under it", term_stop],
       ["/crew [full]",      "",                        "show or hide the crew: Legion and every agent under its starter; full: the whole screen (Esc goes back)", term_crew],
       ["/dismiss [name]",   "",                        "take a done agent out of the crew; all done ones with no name", term_dismiss],
+      ["/home",             "",                        "home: who needs you, the stats, Legion's agents working then done (back after 2h away, what happened shows by itself)", (t) => term_note(t, Cockpit.home_text(t.v, new Date()))],
+      ["/archive [name|all]", "",                      "take done agents off home and the crew; alone: all done ones", (t, a) => term_answer(t, Cockpit.archive_cmd(t.v, a, Date.now()))],
+      ["/undo [name] [yes]", "",                       "put back the files that agent's last turn changed (on its tab: that one); yes confirms", (t, a) => term_answer(t, View.view_crew_op(t.v, "undo", a))],
+      ["/handoff [name]",   "",                        "open that agent's work in Claude Code on its device, with its brief", (t, a) => term_answer(t, View.view_crew_op(t.v, "handoff", a))],
       ["/approve [name]",   "",                        "let a Claude Code worker asking to start run (auto mode, on its device)", (t, a) => term_approve(t, a, true)],
       ["/deny [name]",      "",                        "refuse a Claude Code worker asking to start",     (t, a) => term_approve(t, a, false)],
     ]],
@@ -238,6 +252,29 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_note(t, View.view_questions_note(t.v))],
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
+    ]],
+    ["Files", [
+      ["/look <path[:line]>", "",                      "a file's lines, from that line (asked of a device; secrets refused)", (t, a) => term_answer(t, View.view_look_cmd(a, process.cwd(), os.homedir()))],
+      ["/ls [folder|roots]", "",                       "a folder's entries (here if none); roots: the work dir, home repo, spaces", term_ls],
+      ["/find <name>",      "",                        "files by name in the workspace (this folder)",   (t, a) => term_find(t, "find", a)],
+      ["/grep <text>",      "",                        "lines holding the text in the workspace",        (t, a) => term_find(t, "grep", a)],
+      ["/git <op> [repo]",  "",                        "status, log, diff, changes (the branch's work since main), branches, show <rev>", (t, a) => term_answer(t, View.view_git_cmd(a, process.cwd(), os.homedir()))],
+      ["/edit [path]",      "",                        "edit the file shown (or path) in your $EDITOR; saved on exit unless it changed meanwhile", term_edit],
+      ["/editor <path>",    "",                        "open a file in your editor on the device",      (t, a) => a.trim() === "" ? term_note(t, "Which file? /editor <path>") : term_act(t, { $: "Look", what: { kind: "open", path: View.path_from(process.cwd(), a, os.homedir()) } })],
+    ]],
+    ["Inbox", [
+      ["/inbox [words]",    "",                        "review requests, your PRs, alerts, tickets, worktrees to clean, numbered; words filter", term_inbox],
+      ["/review <n…> [claude]", "",                    "a Legion agent reviews each review request (claude: as Claude Code workers)", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "review", a, Date.now()))],
+      ["/fix <n…> [claude]", "",                       "a Legion agent fixes each of your PRs failing, in conflict or with changes asked", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "fix", a, Date.now()))],
+      ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_note(t, "Reading the inbox anew; /inbox in a moment."))],
+    ]],
+    ["Pages", [
+      ["/digest",           "",                        "the team's week: merged by author, then in progress", (t) => term_note(t, Cockpit.digest_text(t.v))],
+      ["/themes",           "",                        "the digest summarized by theme (one call to the compactor's model)", (t) => (term_act(t, { $: "Themes" }), term_note(t, "Summarizing the digest by theme…"))],
+      ["/transcripts",      "",                        "recorded calls, the last 14 days",               (t) => term_note(t, Cockpit.transcripts_text(t.v))],
+      ["/transcript <n>",   "",                        "transcript n's summary (made once, by the compactor's model)", term_transcript],
+      ["/timesheet [act]",  "",                        "Harvest drafts by day; submit sends the open ones, drop <n>, weekly drafts every Friday", (t, a) => term_answer(t, Cockpit.timesheet_cmd(t.v, a))],
+      ["/lane",             "",                        "the timeline of the agent on this tab",          (t) => term_note(t, t.v.page === null ? "/lane shows an agent's timeline: /tab to one first." : Cockpit.lane_text(t.v.page.name, View.view_lane(t.v, Date.now())))],
     ]],
     ["Routines", [
       ["/routines",         "",                        "your routines: tasks a Legion agent starts on by the clock or on new review requests", (t) => term_note(t, View.view_routines_note(t.v))],
@@ -277,6 +314,7 @@ function term_new(url: string): Term {
     flow    : new Map(),
     logs    : new Map(),
   };
+  t.scr.pasted = (text) => term_pasted(t, text);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
   t.reads = Device.device_reads(RULES, (out) => term_send(t, out));
@@ -391,6 +429,16 @@ function term_status(t: Term, draw = true): void {
 function term_focus(t: Term, away: boolean): void {
   t.away = away;
   t.focused = true;
+  // the web's While you were away card, as a note on coming back
+  if (away && t.v.up) {
+    t.seen = Cockpit.away_seen(t.v, Date.now());
+  } else if (!away && t.seen !== undefined) {
+    const a = Cockpit.away(t.v, t.seen, Date.now(), term_inbox_changed(t));
+    t.seen = undefined;
+    if (a !== null) {
+      term_note(t, Cockpit.away_text(a));
+    }
+  }
   if (!away && t.goto !== undefined) {
     term_act(t, { $: "Goto", name: t.goto });
     t.goto = undefined;
@@ -608,23 +656,149 @@ function term_help(t: Term): void {
   t.out = t.out.concat(term_inset([[], ...term_groups(t.v).flatMap(group), [Paint.Run("Editing", bold)], ...edit]));
 }
 
-// attaches the image at a path (as typed or dropped: quoted, escaped, ~)
-// to the next message, its bytes as read now (a Bun file inside a Blob
-// adds nothing to it, Bun 1.3.14: the server got the text alone and
-// refused the message); a file of another kind is refused here
-async function term_image(t: Term, arg: string): Promise<void> {
-  const file = arg.replace(/^(['"])(.*)\1$/, "$2").replace(/\\(.)/g, "$1").replace(/^~(?=\/|$)/, os.homedir());
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    term_note(t, "No file " + arg + ".");
+// attaches the files at the paths (as typed or dropped: quoted, escaped,
+// ~), as the web does a dropped file: an image goes with the next
+// message, its bytes as read now (a Bun file inside a Blob adds nothing
+// to it, Bun 1.3.14: the server got the text alone and refused the
+// message); a text file goes in the box, fenced; a binary is refused
+async function term_attach(t: Term, arg: string): Promise<void> {
+  const files = View.paths_typed(arg, os.homedir());
+  if (files.length === 0) {
+    term_note(t, "Attach what? /attach <path>");
+  }
+  for (const file of files) {
+    if (!term_is_file(file)) {
+      term_note(t, "No file " + file + ".");
+      continue;
+    }
+    const bytes = await Bun.file(file).bytes();
+    const kind  = View.attach_kind(file.split("/").pop()!, bytes);
+    if (kind === null) {
+      term_note(t, "Not attached: " + file + " is neither text nor an image. " + View.IMAGES);
+    } else if (kind.$ === "image") {
+      t.imgs.push(new Blob([bytes]));
+      term_note(t, "Attached " + file + "; it goes with the next message (" + t.imgs.length + " waiting).");
+    } else {
+      Screen.ed_type(t.scr.ed, kind.text);
+      term_draw(t);
+    }
+  }
+}
+
+function term_is_file(file: string): boolean {
+  return fs.existsSync(file) && fs.statSync(file).isFile();
+}
+
+// a paste that is only images' paths (a terminal drops a file as its
+// path) attaches them; any other paste, a text file's path too, is typed
+function term_pasted(t: Term, text: string): boolean {
+  const files = View.paths_typed(text, os.homedir());
+  const image = (f: string) => term_is_file(f) && View.image_kind(fs.readFileSync(f).subarray(0, View.HEAD)) !== null;
+  if (files.length === 0 || !files.every(image)) {
+    return false;
+  }
+  void term_attach(t, text);
+  return true;
+}
+
+// /edit [path]: the file shown (else asked for, edited once it comes) in
+// the user's $VISUAL or $EDITOR, then saved as the web's Save does: the
+// device refuses it if the file changed since it was shown (its hash)
+function term_edit(t: Term, arg: string): void {
+  const path = arg.trim() === "" ? null : View.path_from(process.cwd(), arg, os.homedir());
+  const r = View.view_editable(t.v, path);
+  if (r === null) {
+    t.editing = path!;
+    term_act(t, { $: "Look", what: { kind: "file", path: path! } });
+  } else if (typeof r === "string") {
+    term_note(t, r);
+  } else {
+    term_edit_run(t, r);
+  }
+}
+
+function term_edit_run(t: Term, file: { path: string; text: string }): void {
+  if (!t.scr.tty) {
+    term_note(t, "/edit needs a terminal to run your editor in.");
     return;
   }
-  const bytes = await Bun.file(file).bytes();
-  if (View.image_kind(bytes) === null) {
-    term_note(t, "Not attached: " + arg + " is no image. " + View.IMAGES);
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-edit-");
+  const copy = dir + "/" + (file.path.split("/").pop() || "file");
+  try {
+    fs.writeFileSync(copy, file.text, { mode: 0o600 });
+    const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+    let status: number | null = null;
+    Screen.screen_lend(t.scr, () => {
+      status = child.spawnSync("/bin/sh", ["-c", editor + ' "$1"', "sh", copy], { stdio: "inherit" }).status;
+    });
+    const text = fs.readFileSync(copy, "utf8");
+    if (status !== 0) {
+      term_note(t, "Your editor exited " + status + ": " + file.path + " not saved.");
+    } else if (text === file.text) {
+      term_note(t, "No change: " + file.path + " not saved.");
+    } else {
+      term_act(t, { $: "Save", text });
+      term_note(t, "Saving " + file.path + "…");
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// /transcript <n>: its summary, or asked for (printed when it comes)
+function term_transcript(t: Term, arg: string): void {
+  const r = Cockpit.transcript_cmd(t.v, arg);
+  if (typeof r !== "string") {
+    term_act(t, r);
+    term_note(t, "Reading and summarizing…");
     return;
   }
-  t.imgs.push(new Blob([bytes]));
-  term_note(t, "Attached " + arg + "; it goes with the next message (" + t.imgs.length + " waiting).");
+  term_rows(t, View.entry_rows(null, "note", r), false);
+}
+
+// /ls [folder|roots]: asked anew each time (View keeps a folder's answer)
+function term_ls(t: Term, arg: string): void {
+  const path = arg.trim() === "roots" ? "@roots" : View.path_from(process.cwd(), arg.trim() || ".", os.homedir());
+  t.v.dirs.delete(path);
+  term_act(t, { $: "List", path });
+}
+
+// /find, /grep: in the workspaces open, this folder if none
+function term_find(t: Term, kind: "find" | "grep", q: string): void {
+  if (q.trim() === "") {
+    term_note(t, (kind === "find" ? "Find what? /find <name>" : "Grep what? /grep <text>"));
+    return;
+  }
+  if (t.v.workspaces.length === 0) {
+    t.v.workspaces = [process.cwd()];
+  }
+  term_act(t, { $: "Find", kind, q });
+}
+
+// the inbox's rows changed since /inbox last showed it (never shown: 0)
+function term_inbox_changed(t: Term): number {
+  return t.stamps === undefined ? 0 : Cockpit.inbox_changed(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", Date.now()), t.stamps);
+}
+
+// /inbox [words]: the inbox, then its rows kept as seen
+function term_inbox(t: Term, filter: string): void {
+  const now = Date.now();
+  term_note(t, Cockpit.inbox_text(t.v, filter, now, term_inbox_changed(t)));
+  if (t.v.inbox !== null) {
+    t.stamps = Cockpit.inbox_seen(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", now));
+  }
+}
+
+// pins message #id, or unpins it if pinned (the server says no past PINS)
+function term_pin(t: Term, arg: string): void {
+  const act = View.view_id_cmd("/pin", arg, (i) => ({ $: "Pin", i }));
+  if (typeof act === "string" || act.$ !== "Pin") {
+    term_answer(t, act);
+    return;
+  }
+  const on = !(t.v.pins ?? []).some((p) => p.i === act.i);
+  term_act(t, act);
+  term_note(t, (on ? "Pinning #" : "Unpinning #") + act.i + "; /pins lists them.");
 }
 
 // stops all that runs, or the agent named
@@ -1002,6 +1176,34 @@ function term_print(t: Term, msg: View.Server): void {
       }
       return;
     }
+    case "looked": {
+      if (msg.kind === "file" && t.editing !== undefined && msg.path === t.editing) {
+        t.editing = undefined;
+        const r = View.view_editable(v, msg.path);
+        typeof r === "string" ? term_note(t, r) : r !== null && term_edit_run(t, r);
+        return;
+      }
+      const md = View.looked_md(v, msg);
+      if (md !== null) {
+        term_rows(t, View.entry_rows(null, "note", md), false);
+      }
+      return;
+    }
+    case "recalled": {
+      term_note(t, View.view_recall_note(v));
+      return;
+    }
+    case "themes": {
+      term_note(t, Cockpit.digest_text(v));
+      return;
+    }
+    case "summary": {
+      const k = (v.inbox?.google?.docs ?? []).findIndex((d) => d.id === msg.id);
+      if (k >= 0) {
+        term_transcript(t, String(k + 1));
+      }
+      return;
+    }
   }
 }
 
@@ -1158,7 +1360,7 @@ function term_paint(t: Term): void {
   const crew  = t.v.crew.length > 0 && (t.crew ?? true) ? Paint.crew_lines(t.v, iw, Date.now(), CREW_ROWS) : [Paint.tabs_line(t.v, iw)];
   const hint  = t.v.page === null ? View.HINT + " · /help" : "Tell " + t.v.page.name + " · Tab to go on";
   const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length, off ? OFF : hint, off);
-  const status = { up: t.v.up, dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, model: t.v.pick?.model ?? "?", working: t.v.agents.length, spend: t.spend ?? { spend: null, stale: true, due: true }, questions: View.view_questions(t.v).length, mode: t.v.mode, waiting: View.view_waiting(t.v) };
+  const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
   const own   = term_inset([Paint.rule_line(t.v, iw), ...input.lines, under, ...crew]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));

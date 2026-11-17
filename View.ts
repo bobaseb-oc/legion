@@ -473,8 +473,30 @@ export function drop_text(name: string, bytes: Uint8Array): string | null {
   const label = name.replace(/[`\r\n]+/g, " ");
   const cut = head.length < bytes.length ? ` (first ${kb(head.length)} of ${kb(bytes.length)})` : "";
   const ext = /\.([\w+-]{1,16})$/.exec(label)?.[1] ?? "";
-  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  const fence = fence_of(text);
   return "`" + label + "`" + cut + ":\n" + fence + ext + "\n" + text.replace(/\n$/, "") + "\n" + fence + "\n";
+}
+
+// a code fence no run of backticks in text closes
+function fence_of(text: string): string {
+  return "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+}
+
+// a file the terminal attaches (/attach, a path dropped): it knows the
+// bytes, not a browser's type; null: a binary, refused
+export function attach_kind(name: string, bytes: Uint8Array): { $: "image" } | { $: "text"; text: string } | null {
+  if (image_kind(bytes) !== null) {
+    return { $: "image" };
+  }
+  const text = drop_text(name, bytes);
+  return text === null ? null : { $: "text", text };
+}
+
+// the paths in what was typed or pasted (a terminal drops a file as its
+// path): split at spaces and newlines not quoted or escaped, ~ for home
+export function paths_typed(s: string, home: string): string[] {
+  const words = [...s.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|[^\s'"\\])+)/g)];
+  return words.map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1")).map((p) => p.replace(/^~(?=\/|$)/, home));
 }
 
 // how a line of one tool call starts
@@ -1295,8 +1317,13 @@ export function view_status(v: View): string {
   if (s === undefined || s === null) {
     return "";
   }
-  const spend = { spend: s.spend, stale: s.stale };
-  return s.device + ": " + status_text({ up: v.up, dir: s.dir, branch: s.branch, model: v.pick?.model ?? "?", working: v.agents.length, spend, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, Date.now()) });
+  return s.device + ": " + status_text(view_status_line(v, { dir: s.dir, branch: s.branch, spend: { spend: s.spend, stale: s.stale } }, Date.now()));
+}
+
+// the status line both clients show: where (dir, branch, spend: the device's
+// report on the web, the terminal's own) plus what the view knows
+export function view_status_line(v: View, here: { dir: string; branch: string | null; spend: StatusLine["spend"] }, now: number): StatusLine {
+  return { up: v.up, ...here, model: v.pick?.model ?? "?", working: v.agents.length, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, now) };
 }
 
 // whether the AI service answered busy lately (the server's gateway report)
@@ -1419,6 +1446,177 @@ export function view_answer(v: View, arg: string): Act | string {
 export function view_drop(v: View, arg: string): Act | string {
   const q = [...view_questions(v), ...view_notes(v)].find((x) => String(x.id) === arg.trim());
   return q === undefined ? "No open question " + arg.trim() + ": /questions lists them." : { $: "Drop", q: q.id };
+}
+
+// what an undo does, asked before it (the web's confirm, the terminal's yes)
+export function undo_ask(name: string): string {
+  return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
+}
+
+// /undo [name] [yes], /handoff [name]: the agent named, else the page's;
+// an undo only of an agent not at work (the Crew view hides it then), and
+// only once yes confirms it
+export function view_crew_op(v: View, op: "undo" | "handoff", arg: string): Act | string {
+  const words = arg.trim().split(/\s+/).filter((w) => w !== "");
+  const yes   = words.at(-1) === "yes";
+  const name  = (yes ? words.slice(0, -1) : words).join(" ") || v.page?.name || "";
+  const c     = v.crew.find((x) => x.name === name);
+  if (name === "") {
+    return "Which agent? /" + op + " <name>, or on its tab.";
+  }
+  if (c === undefined) {
+    return "No agent " + name + ": /tab lists them.";
+  }
+  if (op === "handoff") {
+    return { $: "Handoff", name };
+  }
+  if (c.status === "working" || c.status === "waiting" || c.status === "asking") {
+    return name + " is at work: its last turn can be undone once it stops.";
+  }
+  return yes ? { $: "Undo", name } : undo_ask(name) + " Sure? /undo " + name + " yes";
+}
+
+// The terminal's files
+// --------------------
+// The Files page as commands (Term.ts): a path typed (quoted, ~, relative
+// to the terminal's folder) made absolute, as a device asked may not run
+// there; what came back as markdown, a file's lines numbered
+
+// p from dir, ".." and "." taken out
+export function path_from(dir: string, p: string, home: string): string {
+  const typed = paths_typed(p, home)[0] ?? "";
+  const parts: string[] = [];
+  for (const part of (typed.startsWith("/") ? typed : dir + "/" + typed).split("/")) {
+    if (part === "..") {
+      parts.pop();
+    } else if (part !== "" && part !== ".") {
+      parts.push(part);
+    }
+  }
+  return "/" + parts.join("/");
+}
+
+export function view_look_cmd(arg: string, dir: string, home: string): Act | string {
+  if (arg.trim() === "") {
+    return "Which file? /look <path[:line]>";
+  }
+  const line = view_line(arg);
+  const path = path_from(dir, arg.trim().replace(/(:\d+){1,2}$/, ""), home);
+  return { $: "Look", what: line === null ? { kind: "file", path } : { kind: "file", path, line } };
+}
+
+export const GIT_OPS = ["status", "log", "diff", "changes", "branches", "show"];
+
+// /git <op> [repo] [rev]: show takes a rev
+export function view_git_cmd(arg: string, dir: string, home: string): Act | string {
+  const [op, repo, rev] = arg.trim().split(/\s+/);
+  if (!GIT_OPS.includes(op ?? "") || (op === "show" && rev === undefined && repo === undefined)) {
+    return "/git status, log, diff, changes, branches or show <rev>, then a repo (here if none).";
+  }
+  // show <rev> alone: here
+  const [at, r] = op === "show" && rev === undefined ? [undefined, repo] : [repo, rev];
+  const path = at === undefined ? path_from(dir, ".", home) : path_from(dir, at, home);
+  return { $: "Look", what: r === undefined ? { kind: "git", repo: path, op: op! } : { kind: "git", repo: path, op: op!, rev: r } };
+}
+
+// a file's lines shown, from the line asked (a few before it) or the top
+export const FILE_ROWS = 60;
+
+// what a device answered as markdown for the terminal; null: nothing to
+// print yet (a find some workspaces haven't answered)
+export function looked_md(v: View, msg: Looked): string | null {
+  const name = "`" + (msg.path ?? "") + "`";
+  if (msg.kind === "dir") {
+    const d = v.dirs.get(msg.path ?? "");
+    if (d?.error !== undefined) {
+      return d.error;
+    }
+    const entry = (l: string) => l.slice(2) + (l[0] === "d" ? "/" : l[0] === "s" ? " (secrets: not shown)" : "");
+    const lines = (d?.text ?? "").split("\n").filter((l) => l !== "");
+    return name + ":\n" + (lines.map(entry).join("\n") || "(empty)");
+  }
+  if (msg.kind === "find" || msg.kind === "grep") {
+    const f = v.found;
+    if (f === null || f.q !== msg.q || [...f.by.values()].some((l) => l.text === undefined && l.error === undefined)) {
+      return null;
+    }
+    const part = ([w, l]: [string, Listing]) => "`" + w + "`" + (l.error !== undefined ? ": " + l.error : ":\n" + (l.text || "(none)"));
+    return f.kind + " “" + f.q + "”:\n" + [...f.by].map(part).join("\n");
+  }
+  if (msg.kind === "open" || msg.kind === "save") {
+    return msg.error ?? msg.text ?? null;
+  }
+  if (msg.error !== undefined) {
+    return msg.error;
+  }
+  const fence = (lang: string, text: string) => fence_of(text) + lang + "\n" + text + "\n" + fence_of(text);
+  if (msg.kind === "git") {
+    const diffy = ["diff", "changes", "show"].includes(msg.op ?? "");
+    return "`git " + msg.op + "` in " + name + ":\n" + fence(diffy ? "diff" : "", msg.text ?? "");
+  }
+  const all = (msg.text ?? "").split("\n");
+  const from = Math.max(1, Math.min((v.line ?? 1) - 10, all.length - FILE_ROWS + 1));
+  const to = Math.min(all.length, from + FILE_ROWS - 1);
+  const width = String(to).length;
+  const rows = all.slice(from - 1, to).map((l, k) => String(from + k).padStart(width) + (from + k === v.line ? "→ " : "  ") + l);
+  const more = to < all.length ? "; /look " + msg.path + ":" + (to + 1) + " for more" : "";
+  const head = from === 1 && to === all.length ? name + ":" : name + " (lines " + from + "–" + to + " of " + all.length + more + "):";
+  const ext = /\.([\w+-]{1,16})$/.exec(msg.path ?? "")?.[1] ?? "";
+  return head + "\n" + fence(ext, rows.join("\n"));
+}
+
+// /edit [path]: the file shown, if it is path's and came whole with its
+// hash (Save's base); null: not shown yet (ask for it, then edit); else why not
+export function view_editable(v: View, path: string | null): { path: string; text: string } | string | null {
+  const l = v.looked;
+  if (l?.kind !== "file" || l.path === undefined || (path !== null && l.path !== path)) {
+    return path === null ? "No file shown to edit: /edit <path>, or /look one first." : null;
+  }
+  if (l.error !== undefined || l.hash === undefined) {
+    return l.error ?? l.path + " can't be edited here.";
+  }
+  return { path: l.path, text: l.text ?? "" };
+}
+
+// a command's #id (or bare id) as its act; else why not
+export function view_id_cmd(cmd: string, arg: string, act: (id: number) => Act): Act | string {
+  const m = /^#?(\d+)$/.exec(arg.trim());
+  return m === null ? "Which message? " + cmd + " #id, as each block shows it." : act(Number(m[1]));
+}
+
+// an ISO date as both clients show it (UTC, to the minute): 2026-11-17 09:05
+export function minute(date: string): string {
+  return date.slice(0, 16).replace("T", " ");
+}
+
+function hit_text(h: Hit): string {
+  return "#" + h.i + " · " + minute(h.date) + " · " + h.kind + ": " + h.text;
+}
+
+// /pins: the user's pins, as the Memory page lists them
+export function view_pins_note(v: View): string {
+  const pins = v.pins ?? [];
+  if (pins.length === 0) {
+    return "Nothing pinned. /pin #id pins a message: every call then sees it whole, however old.";
+  }
+  const kb = (pins.reduce((t, p) => t + p.size, 0) / 1000).toFixed(1);
+  return ["Pinned, " + pins.length + " of " + PINS + " · " + kb + " of " + PINNED / 1000 + " KB:", ...pins.map(hit_text), "/pin #id again unpins it."].join("\n");
+}
+
+// the last search's hits (/recall), as the Memory page shows them
+export function view_recall_note(v: View): string {
+  const r = v.recall;
+  if (r === null) {
+    return "";
+  }
+  if (r.hits === null) {
+    return "Searching for “" + r.q + "”…";
+  }
+  if (r.hits.length === 0) {
+    return "No message has “" + r.q + "”.";
+  }
+  const more = r.more ? ["The newest " + FOUND + " shown: search for more words to reach older ones."] : [];
+  return ["“" + r.q + "”:", ...r.hits.map(hit_text), ...more, "/seek #id shows one in the chat."].join("\n");
 }
 
 // a path named in the chat (an inline code's text), its :line dropped, for
