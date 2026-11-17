@@ -5,7 +5,7 @@
 // filtered, and what changed since the user looked.
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
-import { view_needs, view_notes, view_questions, type Act, type Crew, type View } from "./View.ts";
+import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -329,6 +329,57 @@ export function archive_cmd(v: View, arg: string, now: number): Act | string {
     return name + " is at work: /stop " + name + " first, or wait till it is done.";
   }
   return done.some((c) => c.name === name) ? { $: "Archive", names: [name] } : "No agent " + name + " on home: /home lists them.";
+}
+
+// the inbox's rows, numbered as the terminal shows them (unfiltered, so a
+// filter keeps each row's number), with their section
+function inbox_numbered(v: View, now: number): { n: number; s: SectionId; r: Row }[] {
+  return inbox_sections(v.inbox, v.crew, "", now).flatMap((s) => s.rows.map((r) => ({ s: s.id, r }))).map((x, k) => ({ n: k + 1, ...x }));
+}
+
+// /inbox [words]: the inbox page as text; changed: rows changed since the
+// terminal last showed it (inbox_changed)
+export function inbox_text(v: View, filter: string, now: number, changed: number): string {
+  const inbox = v.inbox;
+  if (inbox === null) {
+    return "No device has read the inbox yet: a terminal (legion) or legion device reads it with your gh, acli and git. /refresh asks again.";
+  }
+  const number = new Map(inbox_numbered(v, now).map((x) => [x.s + " " + x.r.key, x.n]));
+  const row = (s: Section, r: Row) => "  " + number.get(s.id + " " + r.key) + ". " + [r.sub + " " + r.title, r.tag, r.age, r.old ? "older than 60 days" : ""].filter((x) => x !== "").join(" · ");
+  const shown = inbox_sections(inbox, v.crew, filter, now).filter((s) => s.count > 0 || s.note !== undefined);
+  const section = (s: Section) => [s.title + " (" + s.count + ")" + (s.sub === "" ? "" : " · " + s.sub) + ":", ...(s.note === undefined ? [] : ["  " + s.note]), ...s.rows.map((r) => row(s, r))];
+  return [
+    "Inbox · updated " + minute(new Date(inbox.at).toISOString()) + " · " + changed + " changed since you looked",
+    ...inbox.errors.filter((e) => !e.startsWith("acli")),
+    ...shown.flatMap(section),
+    ...(shown.length === 0 ? [filter.trim() === "" ? "Nothing in the inbox." : "No row holds “" + filter.trim() + "”."] : []),
+    "/review <n…>, /fix <n…> (add claude: as Claude Code workers), /refresh; /inbox <words> filters.",
+  ].join("\n");
+}
+
+// /review <n…> [claude], /fix <n…> [claude]: as the inbox's Review (a
+// review request) and Fix (the user's PR failing, in conflict, changes
+// asked) buttons, each PR to its own Legion agent
+export function review_cmd(v: View, how: "review" | "fix", arg: string, now: number): Act | string {
+  const words = arg.trim().split(/\s+/).filter((w) => w !== "");
+  const claude = words.includes("claude");
+  const ns = words.filter((w) => w !== "claude");
+  if (ns.length === 0) {
+    return "Which? /" + how + " <n…>, as /inbox numbers them.";
+  }
+  const rows = inbox_numbered(v, now);
+  const fits = (x: { s: SectionId; r: Row }) => x.r.pr !== undefined && (how === "review" ? x.s === "reviews" : (x.s === "mine" || x.s === "alerts") && FIX.includes(x.r.pr.state));
+  const prs: string[] = [];
+  for (const n of ns) {
+    const x = rows.find((y) => String(y.n) === n);
+    if (x === undefined || !fits(x)) {
+      return how === "review" ? "Nothing to review in " + n + ": /review takes review requests (/inbox numbers them)."
+        : "Nothing to fix in " + n + ": /fix takes your PRs failing, in conflict or with changes asked (/inbox numbers them).";
+    }
+    prs.push(x.r.pr!.url);
+  }
+  const unique = [...new Set(prs)];
+  return claude ? { $: "Review", prs: unique, how, claude: true } : { $: "Review", prs: unique, how };
 }
 
 export type SideAgent = { name: string; title: string; status: Crew["status"]; age: string; under: number };

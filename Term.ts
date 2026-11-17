@@ -63,6 +63,7 @@ type Term = {
   away?   : boolean; // the terminal not in front (it told FocusOut): alerts notify
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
   seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
+  stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
   spend?  : Cost.Spend;    // today's LiteLLM spend (term_status)
@@ -251,6 +252,12 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
     ]],
+    ["Inbox", [
+      ["/inbox [words]",    "",                        "review requests, your PRs, alerts, tickets, worktrees to clean, numbered; words filter", term_inbox],
+      ["/review <n…> [claude]", "",                    "a Legion agent reviews each review request (claude: as Claude Code workers)", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "review", a, Date.now()))],
+      ["/fix <n…> [claude]", "",                       "a Legion agent fixes each of your PRs failing, in conflict or with changes asked", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "fix", a, Date.now()))],
+      ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_note(t, "Reading the inbox anew; /inbox in a moment."))],
+    ]],
     ["Routines", [
       ["/routines",         "",                        "your routines: tasks a Legion agent starts on by the clock or on new review requests", (t) => term_note(t, View.view_routines_note(t.v))],
       ["/routine <act>",    "",                        "add daily HH:MM | every Nh | on review, then name: task; or run, on, off, drop <n>", (t, a) => term_answer(t, View.view_routine_cmd(t.v, a))],
@@ -408,7 +415,7 @@ function term_focus(t: Term, away: boolean): void {
   if (away && t.v.up) {
     t.seen = Cockpit.away_seen(t.v, Date.now());
   } else if (!away && t.seen !== undefined) {
-    const a = Cockpit.away(t.v, t.seen, Date.now());
+    const a = Cockpit.away(t.v, t.seen, Date.now(), term_inbox_changed(t));
     t.seen = undefined;
     if (a !== null) {
       term_note(t, Cockpit.away_text(a));
@@ -674,6 +681,20 @@ function term_pasted(t: Term, text: string): boolean {
   }
   void term_attach(t, text);
   return true;
+}
+
+// the inbox's rows changed since /inbox last showed it (never shown: 0)
+function term_inbox_changed(t: Term): number {
+  return t.stamps === undefined ? 0 : Cockpit.inbox_changed(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", Date.now()), t.stamps);
+}
+
+// /inbox [words]: the inbox, then its rows kept as seen
+function term_inbox(t: Term, filter: string): void {
+  const now = Date.now();
+  term_note(t, Cockpit.inbox_text(t.v, filter, now, term_inbox_changed(t)));
+  if (t.v.inbox !== null) {
+    t.stamps = Cockpit.inbox_seen(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", now));
+  }
 }
 
 // pins message #id, or unpins it if pinned (the server says no past PINS)

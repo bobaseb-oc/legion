@@ -296,6 +296,34 @@ test("the terminal's away note: how long, the agents (a failed one's why), the r
   expect(Cockpit.away_text(a)).toBe("While you were away (5h · 3 done · 1 failed):\n✗ F · fix ci · tests red\n✓ D · task D\n+2 more: /crew\nRoutines ran: nightly\n2 new questions · 1 new note: /questions");
 });
 
+test("the terminal's inbox: sections with numbered rows (a filter keeps the numbers), what changed, how to act; none read: how", () => {
+  const v = View.view_new();
+  expect(Cockpit.inbox_text(v, "", NOW, 0)).toMatch(/^No device has read the inbox yet: .*\/refresh/);
+  v.inbox = inbox({ reviews: [pr({ number: 5, title: "Add login" })], mine: [pr({ number: 7, title: "Fix deploy", state: "failing" })], errors: ["gh: rate limited", "acli: signed out"] });
+  const text = Cockpit.inbox_text(v, "", NOW, 2);
+  expect(text.split("\n")[0]).toBe("Inbox · updated 2026-11-12 12:00 · 2 changed since you looked");
+  expect(text).toContain("gh: rate limited");
+  expect(text).not.toContain("acli: signed out\n");
+  expect(text).toMatch(/Alerts \(1\):\n {2}1\. o\/r#7 Failing: Fix deploy · .+ · 1h/);
+  expect(text).toMatch(/Reviews \(1\) · 1 for you · 0 team · 0 bots:\n {2}2\. o\/r#5 Add login/);
+  expect(text).toMatch(/Your PRs \(1\):\n {2}3\. o\/r#7 Fix deploy/);
+  expect(text).toMatch(/\/review <n…>, \/fix <n…> \(add claude: as Claude Code workers\), \/refresh; \/inbox <words> filters\.$/);
+  const only = Cockpit.inbox_text(v, "login", NOW, 0);
+  expect(only).toContain("  2. o/r#5 Add login");
+  expect(only).not.toContain("Fix deploy");
+});
+
+test("/review and /fix: the rows' numbers, each a PR it fits; claude: as Claude Code workers", () => {
+  const v = View.view_new();
+  v.inbox = inbox({ reviews: [pr({ number: 5 })], mine: [pr({ number: 7, state: "failing" }), pr({ number: 8 })] });
+  const url = (n: number) => "https://github.com/o/r/pull/" + n;
+  expect(Cockpit.review_cmd(v, "review", "2", NOW)).toEqual({ $: "Review", prs: [url(5)], how: "review" });
+  expect(Cockpit.review_cmd(v, "fix", "1 3 claude", NOW)).toEqual({ $: "Review", prs: [url(7)], how: "fix", claude: true });
+  expect(Cockpit.review_cmd(v, "fix", "4", NOW)).toBe("Nothing to fix in 4: /fix takes your PRs failing, in conflict or with changes asked (/inbox numbers them).");
+  expect(Cockpit.review_cmd(v, "review", "3", NOW)).toBe("Nothing to review in 3: /review takes review requests (/inbox numbers them).");
+  expect(Cockpit.review_cmd(v, "review", "", NOW)).toBe("Which? /review <n…>, as /inbox numbers them.");
+});
+
 test("/archive: a done agent named, or all done ones; one at work refused", () => {
   const v = View.view_new();
   v.crew = [agent("A", "working"), agent("B", "done"), agent("C", "failed")];
