@@ -93,14 +93,9 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
   if (key === "g") {
     return out({ ...d, g: true });
   }
-  if (key === "WheelUp" || key === "WheelDown") {
-    const by = key === "WheelUp" ? -WHEEL : WHEEL;
-    return d.page === "crew" ? deck_crew_key(v, d, by < 0 ? "Up" : "Down", now)
-      : out({ ...d, top: Math.min(Math.max(0, deck_body(v, d, w, now).lines.length - room), Math.max(0, d.top + by)) });
-  }
-  const click = /^Click:(\d+):(\d+)$/.exec(key);
-  if (click !== null) {
-    return deck_click(v, was, d, Number(click[1]) - 1, Number(click[2]) - 1, w, now);
+  const mouse = deck_mouse(v, was, d, key, w, room, now);
+  if (mouse !== null) {
+    return mouse;
   }
   if (d.page === "crew") {
     return deck_crew_key(v, d, key, now);
@@ -133,6 +128,18 @@ const MOVES: Record<string, number> = { j: 1, Down: 1, k: -1, Up: -1 };
 
 // the lines a turn of the wheel scrolls
 const WHEEL = 3;
+
+// the mouse's keys (Screen's): the wheel scrolls (on the crew, moves its
+// pick), a click goes where it lands (deck_click); null: not the mouse's
+function deck_mouse(v: View.View, was: Deck, d: Deck, key: string, w: number, room: number, now: number): Out | null {
+  if (key === "WheelUp" || key === "WheelDown") {
+    const by = key === "WheelUp" ? -WHEEL : WHEEL;
+    return d.page === "crew" ? deck_crew_key(v, d, by < 0 ? "Up" : "Down", now)
+      : { deck: { ...d, top: Math.min(Math.max(0, deck_body(v, d, w, now).lines.length - room), Math.max(0, d.top + by)) }, acts: [], sends: [], done: false };
+  }
+  const click = /^Click:(\d+):(\d+)$/.exec(key);
+  return click === null ? null : deck_click(v, was, d, Number(click[1]) - 1, Number(click[2]) - 1, w, now);
+}
 
 // a click at column x, row y (0: the first) of the deck as it was drawn
 // (was: its line said above the body): on the nav, that page (the chat:
@@ -390,24 +397,23 @@ type Body = { lines: Paint.Line[]; items: { key: string; at: number; n: number }
 type Part = { text: string; ink?: Ink; key?: string; runs?: Paint.Line };
 type Ink = Paint.Run["s"];
 
+// the pages with items to pick: their parts
+const PARTS: Partial<Record<Page, (v: View.View, d: Deck, now: number) => Part[]>> = {
+  home: home_parts, inbox: inbox_parts, questions: (v) => questions_parts(v), memory: (v) => memory_parts(v),
+};
+
+// a page's body: its parts; the file as /look prints it (its code
+// colored); a text page's text
 function deck_body(v: View.View, d: Deck, w: number, now: number): Body {
-  if (d.page === "home") {
-    return parts_body(home_parts(v, d, now), w, d.sel);
+  const parts = PARTS[d.page];
+  if (parts !== undefined) {
+    return parts_body(parts(v, d, now), w, d.sel);
   }
-  if (d.page === "inbox") {
-    return parts_body(inbox_parts(v, d, now), w, d.sel);
+  const md = d.page === "file" && v.looked !== null ? View.looked_md(v, v.looked, Infinity) : null;
+  if (md !== null) {
+    return { lines: Paint.rows_lines(View.entry_rows(null, "note", md), w), items: [] };
   }
-  if (d.page === "questions") {
-    return parts_body(questions_parts(v), w, d.sel);
-  }
-  if (d.page === "memory") {
-    return parts_body(memory_parts(v), w, d.sel);
-  }
-  const text = deck_text(v, d, now);
-  if (d.page === "file" && v.looked !== null) {
-    return { lines: Paint.rows_lines(View.entry_rows(null, "note", text), w), items: [] };
-  }
-  return parts_body(text.split("\n").map((t) => ({ text: t })), w, d.sel);
+  return parts_body(deck_text(v, d.page).split("\n").map((t) => ({ text: t })), w, d.sel);
 }
 
 // parts as lines in w columns: an item marked "▸ " and bold when picked
@@ -543,18 +549,14 @@ function home_parts(v: View.View, d: Deck, now: number): Part[] {
   ];
 }
 
-function deck_text(v: View.View, d: Deck, now: number): string {
-  switch (d.page) {
-    case "home": return "";
-    case "inbox": return Cockpit.inbox_text(v, d.filter, now, 0);
-    case "questions": return View.view_questions_note(v);
-    case "memory": return [View.view_pins_note(v), ...(v.recall === null ? [] : [View.view_recall_note(v)])].join("\n\n");
-    case "file": return (v.looked === null ? null : View.looked_md(v, v.looked, Infinity)) ?? "No file shown yet: /look <path>, then g f.";
+// a text page's text, as its command prints it (the crew draws its own)
+function deck_text(v: View.View, page: Page): string {
+  switch (page) {
     case "routines": return View.view_routines_note(v);
     case "digest": return Cockpit.digest_text(v);
     case "transcripts": return Cockpit.transcripts_text(v);
     case "timesheet": return Cockpit.timesheet_text(v);
-    case "crew": return "";
+    default: return page === "file" ? "No file shown yet: /look <path>, then g f." : "";
   }
 }
 
