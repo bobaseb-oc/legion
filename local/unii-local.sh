@@ -98,8 +98,9 @@ server_exec() {
 # the server as launchd runs it (`legion server --install`): the gateway's
 # key, never in its plist, is read at each start from the helper named
 # (an absolute path to an executable that prints it, as Claude Code's
-# apiKeyHelper). A server already up (one `legion` started) is waited on:
-# its lock lets one serve at a time (Server.ts Main.lock)
+# apiKeyHelper). A server already up (one `legion` started) is waited on
+# for 10 s, then this one ends and launchd starts it again later: one
+# server per user (Server.ts Main.lock)
 server_run() {
   if [[ -z "${LITELLM_API_KEY:-}" ]]; then
     key_helper_check || return 1

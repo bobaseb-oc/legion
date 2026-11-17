@@ -31,6 +31,7 @@
 
 import * as fs from "node:fs";
 import * as net from "node:net";
+import * as os from "node:os";
 import type { ServerWebSocket } from "bun";
 import { Agent, READING } from "./Agent.ts";
 import { gateway_budget, type Budget } from "./Gateway.ts";
@@ -178,7 +179,13 @@ type Limit = { rate: number; most: number; keys: Map<string, { n: number; at: nu
 // Constants
 // =========
 
-const LOCK       = config.DIR + "/lock";
+// one server at a time for this user, whatever its dir: HOME's lock (a
+// test run's dir, deleted, would free its own); UNII_ANOTHER=1 runs one
+// beside it, held only per dir. One that holds it is waited on for HELD
+// ms (launchd's restart starts one before the last has ended), then this
+// one ends, naming it
+const LOCK       = process.env.UNII_ANOTHER === "1" ? config.DIR + "/lock" : os.homedir() + "/.unii/lock";
+const HELD       = 10_000;
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // unix socket devices and terminals reach this server on (Main.unix)
 const SOCK       = config.DIR + "/server.sock";
@@ -2301,27 +2308,42 @@ export namespace Main {
   export const gates  = new Map<string, Gate>();
   export const refs   = new WeakMap<Call, string>();
 
-  // a unix socket one process at a time listens on: one a crash left
-  // refuses connections and is taken; one held is waited on
-  export async function lock(): Promise<void> {
+  // a unix socket one process at a time listens on, which tells one that
+  // connects who holds it: one a crash left refuses connections and is
+  // taken; one held is waited on (HELD), then this process ends
+  export async function lock(port: number): Promise<void> {
     fs.mkdirSync(config.DIR, { recursive: true });
+    fs.mkdirSync(LOCK.slice(0, LOCK.lastIndexOf("/")), { recursive: true, mode: 0o700 });
+    const me = "pid " + process.pid + ", port " + port + ", dir " + config.DIR;
+    const until = Date.now() + HELD;
     while (true) {
       try {
-        Bun.listen({ unix: LOCK, socket: { data() {} } });
+        Bun.listen({ unix: LOCK, socket: { open: (sock) => void sock.write(me), data() {} } });
         return;
       } catch (err: any) {
         if (err.code !== "EADDRINUSE") {
           throw err;
         }
       }
-      const live = await new Promise<boolean>((done) => {
+      // what the holder says (one before this says nothing: "" once it
+      // stays quiet a second); null: nothing holds it (refused, or gone).
+      // Any other failure (a reset) is a holder's, never taken
+      const held = await new Promise<string | null>((done) => {
         const sock = net.connect(LOCK);
-        sock.on("connect", () => sock.on("close", () => done(true)));
-        sock.on("error", () => done(false));
+        const end = (said: string | null) => (sock.destroy(), done(said));
+        sock.on("connect", () => setTimeout(() => end(""), 1000));
+        sock.on("data", (piece) => end(String(piece)));
+        sock.on("error", (err: any) => end(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? null : ""));
       });
-      if (!live) {
+      if (held === null) {
         fs.rmSync(LOCK, { force: true });
+        continue;
       }
+      if (Date.now() > until) {
+        console.error("unii: a Legion server already runs (" + (held || "an older one, or not a server") + "), holding " + LOCK + ". Stop it first, or set UNII_ANOTHER=1 to run another beside it.");
+        process.exit(1);
+      }
+      await Bun.sleep(500);
     }
   }
 
@@ -3144,7 +3166,7 @@ export async function serve(port: number, run: string[] | null): Promise<void> {
   Main.count = run === null ? 1 : config.WORKERS;
   Main.index = Number(worker ?? 0);
   if (worker === undefined) {
-    await Main.lock();
+    await Main.lock(port);
   }
   if (worker === undefined && run !== null) {
     Main.supervise(port, run);

@@ -103,6 +103,9 @@ TCP, so a process that took the port first never gets their session.
 A server with `workers` above 0 (the hosted setup) opens no socket, so
 devices on that computer can't connect; run local devices against a lone
 server.
+One server runs per user on a computer, whatever its `$UNII_DIR`: a second
+one ends, naming the one that runs (pid, port, dir). `UNII_ANOTHER=1` runs
+one beside it on its own dir (the tests do).
 
 The Google grant and the Harvest token sit behind macOS Keychain prompts
 (no app is trusted to read them). Allow the Google one when you start a
