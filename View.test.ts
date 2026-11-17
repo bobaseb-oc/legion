@@ -483,6 +483,19 @@ test("dropped files: images attach, text files inline, binaries refused", () => 
   expect(out.includes("�")).toBe(false);
 });
 
+test("paths as a terminal drops or a user types them: quoted, escaped, ~, several", () => {
+  expect(View.paths_typed("'/a b/c.png' /d\\ e.txt ~/f \"/g h\"", "/h")).toEqual(["/a b/c.png", "/d e.txt", "/h/f", "/g h"]);
+  expect(View.paths_typed("/one.txt\n/two.txt\n", "/h")).toEqual(["/one.txt", "/two.txt"]);
+  expect(View.paths_typed("   ", "/h")).toEqual([]);
+});
+
+test("a file attached in the terminal: an image by its bytes, a text file fenced, a binary refused", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  expect(View.attach_kind("x.dat", png)).toEqual({ $: "image" });
+  expect(View.attach_kind("q.sql", new TextEncoder().encode("select 1;"))).toEqual({ $: "text", text: View.drop_text("q.sql", new TextEncoder().encode("select 1;"))! });
+  expect(View.attach_kind("b.bin", new Uint8Array([1, 0, 2]))).toBeNull();
+});
+
 test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
   const v = View.view_new();
   const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };

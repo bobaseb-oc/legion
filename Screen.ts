@@ -50,6 +50,7 @@ export type Screen = {
   up     : number;
   rows   : number;
   on     : (key: string) => void;
+  pasted?: (text: string) => boolean; // a paste Term.ts takes (a dropped file's path): not typed
 };
 
 // Constants
@@ -263,7 +264,10 @@ function screen_paste(scr: Screen, data: string): number {
   if (end < 0) {
     return 0;
   }
-  ed_type(scr.ed, data.slice(PASTE_ON.length, end).replace(/\r\n?/g, "\n"));
+  const text = data.slice(PASTE_ON.length, end).replace(/\r\n?/g, "\n");
+  if (!scr.pasted?.(text)) {
+    ed_type(scr.ed, text);
+  }
   return end + PASTE_OFF.length;
 }
 

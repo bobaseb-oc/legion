@@ -198,7 +198,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["",                  "Ctrl+C, Ctrl+D",          "clear; on an empty input, interrupt, quit",      term_clear],
       ["/goal <message>",   "",                        "send a message as the goal: at each turn's end, Legion asks itself if it is met, and goes on till it is", (t, a) => term_act(t, { $: "Send", text: "/goal " + a })],
       ["/halt",             "",                        "drop the goal; the turn running ends as it would", (t) => term_act(t, { $: "Send", text: "/halt" })],
-      ["/image <path>",     "",                        "attach an image to the next message",            term_image],
+      ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
       ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
@@ -277,6 +277,7 @@ function term_new(url: string): Term {
     flow    : new Map(),
     logs    : new Map(),
   };
+  t.scr.pasted = (text) => term_pasted(t, text);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
   t.reads = Device.device_reads(RULES, (out) => term_send(t, out));
@@ -608,23 +609,49 @@ function term_help(t: Term): void {
   t.out = t.out.concat(term_inset([[], ...term_groups(t.v).flatMap(group), [Paint.Run("Editing", bold)], ...edit]));
 }
 
-// attaches the image at a path (as typed or dropped: quoted, escaped, ~)
-// to the next message, its bytes as read now (a Bun file inside a Blob
-// adds nothing to it, Bun 1.3.14: the server got the text alone and
-// refused the message); a file of another kind is refused here
-async function term_image(t: Term, arg: string): Promise<void> {
-  const file = arg.replace(/^(['"])(.*)\1$/, "$2").replace(/\\(.)/g, "$1").replace(/^~(?=\/|$)/, os.homedir());
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    term_note(t, "No file " + arg + ".");
-    return;
+// attaches the files at the paths (as typed or dropped: quoted, escaped,
+// ~), as the web does a dropped file: an image goes with the next
+// message, its bytes as read now (a Bun file inside a Blob adds nothing
+// to it, Bun 1.3.14: the server got the text alone and refused the
+// message); a text file goes in the box, fenced; a binary is refused
+async function term_attach(t: Term, arg: string): Promise<void> {
+  const files = View.paths_typed(arg, os.homedir());
+  if (files.length === 0) {
+    term_note(t, "Attach what? /attach <path>");
   }
-  const bytes = await Bun.file(file).bytes();
-  if (View.image_kind(bytes) === null) {
-    term_note(t, "Not attached: " + arg + " is no image. " + View.IMAGES);
-    return;
+  for (const file of files) {
+    if (!term_is_file(file)) {
+      term_note(t, "No file " + file + ".");
+      continue;
+    }
+    const bytes = await Bun.file(file).bytes();
+    const kind  = View.attach_kind(file.split("/").pop()!, bytes);
+    if (kind === null) {
+      term_note(t, "Not attached: " + file + " is neither text nor an image. " + View.IMAGES);
+    } else if (kind.$ === "image") {
+      t.imgs.push(new Blob([bytes]));
+      term_note(t, "Attached " + file + "; it goes with the next message (" + t.imgs.length + " waiting).");
+    } else {
+      Screen.ed_type(t.scr.ed, kind.text);
+      term_draw(t);
+    }
   }
-  t.imgs.push(new Blob([bytes]));
-  term_note(t, "Attached " + arg + "; it goes with the next message (" + t.imgs.length + " waiting).");
+}
+
+function term_is_file(file: string): boolean {
+  return fs.existsSync(file) && fs.statSync(file).isFile();
+}
+
+// a paste that is only images' paths (a terminal drops a file as its
+// path) attaches them; any other paste, a text file's path too, is typed
+function term_pasted(t: Term, text: string): boolean {
+  const files = View.paths_typed(text, os.homedir());
+  const image = (f: string) => term_is_file(f) && View.image_kind(fs.readFileSync(f).subarray(0, View.HEAD)) !== null;
+  if (files.length === 0 || !files.every(image)) {
+    return false;
+  }
+  void term_attach(t, text);
+  return true;
 }
 
 // stops all that runs, or the agent named

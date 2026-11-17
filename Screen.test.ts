@@ -37,6 +37,17 @@ test("a paste never sends, whatever its reads", () => {
   });
 });
 
+test("a paste Term.ts takes (a dropped file's path) is not typed; any other is", () => {
+  const { scr } = screen();
+  const took: string[] = [];
+  (scr as Screen.Screen).pasted = (s) => (s.startsWith("/") ? (took.push(s), true) : false);
+  Screen.screen_feed(scr, "\x1b[200~/tmp/a.png\x1b[201~");
+  expect(took).toEqual(["/tmp/a.png"]);
+  expect(scr.ed.text).toBe("");
+  Screen.screen_feed(scr, "\x1b[200~hello\x1b[201~");
+  expect(scr.ed.text).toBe("hello");
+});
+
 test("kitty's keys never leak into the text, whatever their reads", () => {
   splits("hello!?\x1b[118;1:3u\x1b[27u\x1b[13;2u", (text, keys) => {
     expect(text).toBe("hello!?\n");

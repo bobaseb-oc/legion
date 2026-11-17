@@ -477,6 +477,23 @@ export function drop_text(name: string, bytes: Uint8Array): string | null {
   return "`" + label + "`" + cut + ":\n" + fence + ext + "\n" + text.replace(/\n$/, "") + "\n" + fence + "\n";
 }
 
+// a file the terminal attaches (/attach, a path dropped): it knows the
+// bytes, not a browser's type; null: a binary, refused
+export function attach_kind(name: string, bytes: Uint8Array): { $: "image" } | { $: "text"; text: string } | null {
+  if (image_kind(bytes) !== null) {
+    return { $: "image" };
+  }
+  const text = drop_text(name, bytes);
+  return text === null ? null : { $: "text", text };
+}
+
+// the paths in what was typed or pasted (a terminal drops a file as its
+// path): split at spaces and newlines not quoted or escaped, ~ for home
+export function paths_typed(s: string, home: string): string[] {
+  const words = [...s.matchAll(/'([^']*)'|"([^"]*)"|((?:\\.|[^\s'"\\])+)/g)];
+  return words.map((m) => m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, "$1")).map((p) => p.replace(/^~(?=\/|$)/, home));
+}
+
 // how a line of one tool call starts
 const TOOL = "tool: ";
 const FOLD = "The whole chat, folded into the fewest blocks.";
@@ -1300,7 +1317,7 @@ export function view_status(v: View): string {
 
 // the status line both clients show: where (dir, branch, spend: the device's
 // report on the web, the terminal's own) plus what the view knows
-export function view_status_line(v: View, here: Pick<StatusLine, "dir" | "branch" | "spend">, now: number): StatusLine {
+export function view_status_line(v: View, here: { dir: string; branch: string | null; spend: StatusLine["spend"] }, now: number): StatusLine {
   return { up: v.up, ...here, model: v.pick?.model ?? "?", working: v.agents.length, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, now) };
 }
 
