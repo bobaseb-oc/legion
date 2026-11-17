@@ -364,6 +364,22 @@ export function inbox_text(v: View, filter: string, now: number, changed: number
   ].join("\n");
 }
 
+// the picked rows' acts (the web's picked panel, the terminal deck's r
+// and f): each PR picked once (picks: rows' keys, in the order picked),
+// reviewed if picked as a review request, fixed if picked as the user's
+// to fix; always by the PR's own URL (an Alerts row's key is not one)
+export function picks_acts(sections: Section[], picks: Set<string>, claude: boolean): { picked: Row[]; review: Act | null; fix: Act | null } {
+  const rows = sections.flatMap((s) => s.rows.filter((r) => r.pr !== undefined).map((r) => ({ s: s.id, r, url: r.pr!.url })));
+  const urls = [...new Set([...picks].flatMap((k) => rows.filter((x) => x.r.key === k).map((x) => x.url)))];
+  const as = (u: string, ok: (x: (typeof rows)[number]) => boolean) => rows.some((x) => x.url === u && picks.has(x.r.key) && ok(x));
+  const act = (prs: string[], how: "review" | "fix"): Act | null => prs.length === 0 ? null : claude ? { $: "Review", prs, how, claude: true } : { $: "Review", prs, how };
+  return {
+    picked: urls.map((u) => rows.find((x) => x.url === u)!.r),
+    review: act(urls.filter((u) => as(u, (x) => x.s === "reviews")), "review"),
+    fix: act(urls.filter((u) => as(u, (x) => x.s !== "reviews" && FIX.includes(x.r.pr!.state))), "fix"),
+  };
+}
+
 // /review <n…> [claude], /fix <n…> [claude]: as the inbox's Review (a
 // review request) and Fix (the user's PR failing, in conflict, changes
 // asked) buttons, each PR to its own Legion agent

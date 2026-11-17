@@ -620,6 +620,9 @@ function term_deck_key(t: Term, key: string): void {
   t.deck = out.deck;
   out.sends.forEach((msg) => View.link_send(t.v, msg));
   out.acts.forEach((act) => term_act(t, act));
+  if (out.open !== undefined) {
+    browse(out.open);
+  }
   if (out.done) {
     term_deck(t, null);
     if (out.focus !== undefined) {
@@ -794,7 +797,11 @@ function term_inbox_changed(t: Term): number {
 // /inbox [words]: the inbox, then its rows kept as seen
 function term_inbox(t: Term, filter: string): void {
   const now = Date.now();
-  term_page_cmd(t, "inbox", () => Cockpit.inbox_text(t.v, filter, now, term_inbox_changed(t)), filter);
+  const changed = term_inbox_changed(t);
+  term_page_cmd(t, "inbox", () => Cockpit.inbox_text(t.v, filter, now, changed), filter);
+  if (t.deck !== undefined) {
+    t.deck = { ...t.deck, changed };
+  }
   if (t.v.inbox !== null) {
     t.stamps = Cockpit.inbox_seen(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", now));
   }

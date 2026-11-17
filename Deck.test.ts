@@ -7,6 +7,7 @@
 import { expect, test } from "bun:test";
 import * as Cockpit from "./Cockpit.ts";
 import * as Deck from "./Deck.ts";
+import type * as Inbox from "./Inbox.ts";
 import * as Paint from "./Paint.ts";
 import * as View from "./View.ts";
 
@@ -135,6 +136,80 @@ test("a picked item stays in sight: the page scrolls to it", () => {
   const far = key(v, Deck.deck_new("home"), ...Array(29).fill("j")).deck;
   expect(far.sel).toBe("A28");
   expect(Deck.deck_lines(v, far, W, H, 0).map(text).some((l) => l.startsWith("▸ ") && l.includes("A28"))).toBe(true);
+});
+
+const NOW = Date.parse("2026-11-12T12:00:00Z");
+const url = (n: number) => "https://github.com/o/r/pull/" + n;
+function pr(over: Partial<Inbox.Pr> = {}): Inbox.Pr {
+  return {
+    repo: "o/r", number: 1, title: "A change", url: url(over.number ?? 1), author: "ann", bot: false, updated: new Date(NOW - 3600e3).toISOString(),
+    add: 1, del: 0, files: 1, branch: "b", state: "ready", failing: [], body: "", you: true, ...over,
+  };
+}
+function inboxed(): View.View {
+  const v = team();
+  const inbox: Inbox.Inbox = { at: NOW, login: "me", merged: 0, today: 0, tickets: [], clean: [], notes: [], errors: [],
+    reviews: [pr({ number: 5, title: "Add cache", body: "Why it\nmatters" }), pr({ number: 6, title: "Bump deps" })], mine: [pr({ number: 7, title: "Fix race", state: "failing", failing: ["ci / test"] })] };
+  View.view_hear(v, { $: "inbox", inbox });
+  return v;
+}
+const ikey = (v: View.View, d: Deck.Deck, ...keys: string[]): Deck.Out => {
+  let out: Deck.Out = { deck: d, acts: [], sends: [], done: false };
+  for (const k of keys) {
+    out = Deck.deck_key(v, out.deck, k, W, H, NOW);
+  }
+  return out;
+};
+const shown = (v: View.View, d: Deck.Deck) => Deck.deck_lines(v, d, W, 40, NOW).map(text);
+
+test("the inbox, as the web's keys: j/k over the rows, space folds a section, Tab its details, Enter opens", () => {
+  const v = inboxed();
+  const d = Deck.deck_new("inbox");
+  const first = ikey(v, d, "j").deck;
+  expect(shown(v, first).find((l) => l.startsWith("▸ "))).toContain("Failing: Fix race");
+  const cache = ikey(v, d, "j", "j").deck;
+  expect(shown(v, cache).find((l) => l.startsWith("▸ "))).toContain("Add cache");
+  expect(shown(v, cache).join("\n")).toMatch(/▾ Reviews \(2\)/);
+  const folded = ikey(v, cache, " ").deck;
+  expect(shown(v, folded).join("\n")).toMatch(/▸ Reviews \(2\)/);
+  expect(shown(v, folded).join("\n")).not.toContain("Add cache");
+  expect(ikey(v, folded, " ").deck.shut).toEqual([]);
+  const detail = shown(v, ikey(v, cache, "Tab").deck).join("\n");
+  expect(detail).toContain("+1 −0 · 1 files · b · ann");
+  expect(detail).toContain("Why it");
+  expect(shown(v, ikey(v, cache, "Tab", "Tab").deck).join("\n")).not.toContain("Why it");
+  expect(ikey(v, cache, "Enter").open).toBe(url(5));
+});
+
+test("the inbox's picks: v picks PRs, r reviews / f fixes the picks (or the row on), c as Claude Code workers, Esc drops them first", () => {
+  const v = inboxed();
+  const d = Deck.deck_new("inbox");
+  const two = ikey(v, d, "j", "j", "v", "j", "v").deck;
+  expect(two.picks).toEqual([url(5), url(6)]);
+  expect(shown(v, two).join("\n")).toContain("2 picked · r review 2");
+  const sent = ikey(v, two, "r");
+  expect(sent.acts).toEqual([{ $: "Review", prs: [url(5), url(6)], how: "review" }]);
+  expect(sent.deck.picks).toEqual([]);
+  // the alert's row: fixed by the PR's own URL
+  expect(ikey(v, d, "j", "v", "f").acts).toEqual([{ $: "Review", prs: [url(7)], how: "fix" }]);
+  // no picks: the row the cursor is on
+  expect(ikey(v, d, "j", "j", "r").acts).toEqual([{ $: "Review", prs: [url(5)], how: "review" }]);
+  expect(ikey(v, d, "j", "j", "f").deck.say).toContain("Nothing to fix");
+  expect(ikey(v, d, "j", "j", "c", "r").acts).toEqual([{ $: "Review", prs: [url(5)], how: "review", claude: true }]);
+  const dropped = ikey(v, two, "Esc");
+  expect(dropped).toMatchObject({ done: false, deck: { picks: [] } });
+  expect(ikey(v, dropped.deck, "Esc").done).toBe(true);
+  expect(ikey(v, d, "R").acts).toEqual([{ $: "Fetch" }]);
+});
+
+test("the inbox's filter: / types it (keys are text till Enter or Esc), rows kept only if they hold it", () => {
+  const v = inboxed();
+  const typed = ikey(v, Deck.deck_new("inbox"), "/", "c", "a", "c", "h", "q", "Backspace", "e", "Enter").deck;
+  expect(typed).toMatchObject({ filter: "cache", typing: false });
+  const lines = shown(v, typed).join("\n");
+  expect(lines).toContain("Add cache");
+  expect(lines).not.toContain("Bump deps");
+  expect(ikey(v, Deck.deck_new("inbox"), "/", "g", "i").deck).toMatchObject({ page: "inbox", filter: "gi", typing: true });
 });
 
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {

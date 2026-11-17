@@ -33,8 +33,7 @@ function link_html(url: string, text = "↗"): string {
 }
 
 // what a PR row can have done to it: a review request reviewed, a PR of
-// the user's that fails, conflicts or had changes asked fixed
-const FIXABLE = ["failing", "conflicts", "changes"];
+// the user's that fails, conflicts or had changes asked fixed (Cockpit.FIX)
 function row_acts(s: Cockpit.SectionId, r: Cockpit.Row): string {
   if (r.pr === undefined) {
     return "";
@@ -42,7 +41,7 @@ function row_acts(s: Cockpit.SectionId, r: Cockpit.Row): string {
   if (s === "reviews") {
     return `<button class="ra"${act_html({ $: "Review", prs: [r.pr.url], how: "review" })} title="a Legion agent reviews it">Review</button>`;
   }
-  if ((s === "mine" || s === "alerts") && FIXABLE.includes(r.pr.state)) {
+  if ((s === "mine" || s === "alerts") && Cockpit.FIX.includes(r.pr.state)) {
     return `<button class="ra"${act_html({ $: "Review", prs: [r.pr.url], how: "fix" })} title="a Legion agent fixes it">Fix</button>`;
   }
   return "";
@@ -100,16 +99,13 @@ export function picks_html(sections: Cockpit.Section[], picks: Set<string>, clau
   if (picks.size === 0) {
     return "";
   }
-  const rows = sections.flatMap((s) => s.rows.filter((r) => picks.has(r.key) && r.pr !== undefined).map((r) => [s.id, r] as const));
-  const keys = [...new Set(rows.map(([, r]) => r.key))];
-  const reviews = keys.filter((k) => rows.some(([s, r]) => r.key === k && s === "reviews"));
-  const fixes = keys.filter((k) => rows.some(([s, r]) => r.key === k && s !== "reviews" && FIXABLE.includes(r.pr!.state)));
-  const go = (label: string, prs: string[], how: "review" | "fix") =>
-    prs.length === 0 ? "" : `<button class="pbtn"${act_html(claude ? { $: "Review", prs, how, claude: true } : { $: "Review", prs, how })}>${label} ${prs.length}</button>`;
-  const list = keys.map((k) => `<li>${esc(rows.find(([, r]) => r.key === k)![1].sub + " " + rows.find(([, r]) => r.key === k)![1].title)}</li>`).join("");
-  return `<aside class="picks"><b>${keys.length} picked</b><p class="meta">Each gets its own Legion agent.</p><ul>${list}</ul>`
+  const { picked, review, fix } = Cockpit.picks_acts(sections, picks, claude);
+  const go = (label: string, act: View.Act | null) =>
+    act === null || act.$ !== "Review" ? "" : `<button class="pbtn"${act_html(act)}>${label} ${act.prs.length}</button>`;
+  const list = picked.map((r) => `<li>${esc(r.sub + " " + r.title)}</li>`).join("");
+  return `<aside class="picks"><b>${picked.length} picked</b><p class="meta">Each gets its own Legion agent.</p><ul>${list}</ul>`
     + `<label class="cc"><input type="checkbox" data-claude${claude ? " checked" : ""}> as Claude Code workers</label>`
-    + `<div class="acts">${go("Review", reviews, "review")}${go("Fix", fixes, "fix")}<button class="pbtn" data-open-picks>Open</button><button class="pbtn" data-drop-picks>Drop picks</button></div></aside>`;
+    + `<div class="acts">${go("Review", review)}${go("Fix", fix)}<button class="pbtn" data-open-picks>Open</button><button class="pbtn" data-drop-picks>Drop picks</button></div></aside>`;
 }
 
 // Home
