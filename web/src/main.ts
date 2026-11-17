@@ -1373,7 +1373,7 @@ function crew_keys(ev: KeyboardEvent): void {
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) {
     return;
   }
-  const to = Date.now() - P.g < 1000 ? ({ c: "#crew", m: "#chat", h: "#home", i: "#inbox", r: "#routines", d: "#digest", t: "#transcripts", f: "#files", s: "#timesheet" } as Record<string, string>)[ev.key] : undefined;
+  const to = Date.now() - P.g < 1000 && Object.hasOwn(Cockpit.CHORDS, ev.key) ? "#" + Cockpit.CHORDS[ev.key] : undefined;
   P.g = ev.key === "g" ? Date.now() : 0;
   if (to !== undefined) {
     location.hash = to;

@@ -24,6 +24,7 @@ import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
 import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
+import * as Deck from "./Deck.ts";
 import * as Device from "./Device.ts";
 import * as Import from "./Import.ts";
 import { Machine } from "./Machine.ts";
@@ -59,7 +60,7 @@ type Term = {
   flow    : Map<View.Live, number>;
   logs    : Map<string, number>;
   crew?   : boolean; // the crew panel hidden (/crew)
-  full?   : { sel: string | null }; // /crew full shown: the agent selected
+  deck?   : Deck.Deck; // the deck shown full screen (Deck.ts): /crew full, /home, /inbox...
   away?   : boolean; // the terminal not in front (it told FocusOut): alerts notify
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
   seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
@@ -215,7 +216,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
     ]],
     ["Memory", [
       ["/pin #id",          "",                        "pin a message (again: unpin): every call then sees it whole, however old", term_pin],
-      ["/pins",             "",                        "the messages pinned",                           (t) => term_note(t, View.view_pins_note(t.v))],
+      ["/pins",             "",                        "the messages pinned",                           (t) => term_page_cmd(t, "memory", () => View.view_pins_note(t.v))],
       ["/recall <words>",   "",                        "search the whole chat for the words",           (t, a) => term_act(t, { $: "Search", q: a }).length === 0 && term_note(t, "Recall what? /recall <words>")],
       ["/seek #id",         "",                        "show message #id in the chat, its blocks opened", (t, a) => term_answer(t, View.view_id_cmd("/seek", a, (id) => ({ $: "Seek", id })))],
       ["/tree",             "",                        "the whole memory, in the browser (its link prints too)", (t) => term_browse(t, "The memory tree", t.url + "/tree")],
@@ -235,7 +236,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/stop [name]",      "",                        "stop all work, agents too; or that agent and those under it", term_stop],
       ["/crew [full]",      "",                        "show or hide the crew: Legion and every agent under its starter; full: the whole screen (Esc goes back)", term_crew],
       ["/dismiss [name]",   "",                        "take a done agent out of the crew; all done ones with no name", term_dismiss],
-      ["/home",             "",                        "home: who needs you, the stats, Legion's agents working then done (back after 2h away, what happened shows by itself)", (t) => term_note(t, Cockpit.home_text(t.v, new Date()))],
+      ["/home",             "",                        "home: who needs you, the stats, Legion's agents working then done (back after 2h away, what happened shows by itself)", (t) => term_page_cmd(t, "home", () => Cockpit.home_text(t.v, new Date()))],
       ["/archive [name|all]", "",                      "take done agents off home and the crew; alone: all done ones", (t, a) => term_answer(t, Cockpit.archive_cmd(t.v, a, Date.now()))],
       ["/undo [name] [yes]", "",                       "put back the files that agent's last turn changed (on its tab: that one); yes confirms", (t, a) => term_answer(t, View.view_crew_op(t.v, "undo", a))],
       ["/handoff [name]",   "",                        "open that agent's work in Claude Code on its device, with its brief", (t, a) => term_answer(t, View.view_crew_op(t.v, "handoff", a))],
@@ -249,7 +250,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/refuse <n>",       "",                        "refuse waiting call n",                          (t, a) => term_answer(t, View.view_consent_cmd(t.v, a, false))],
     ]],
     ["Questions", [
-      ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_note(t, View.view_questions_note(t.v))],
+      ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_page_cmd(t, "questions", () => View.view_questions_note(t.v))],
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
     ]],
@@ -269,15 +270,15 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_note(t, "Reading the inbox anew; /inbox in a moment."))],
     ]],
     ["Pages", [
-      ["/digest",           "",                        "the team's week: merged by author, then in progress", (t) => term_note(t, Cockpit.digest_text(t.v))],
+      ["/digest",           "",                        "the team's week: merged by author, then in progress", (t) => term_page_cmd(t, "digest", () => Cockpit.digest_text(t.v))],
       ["/themes",           "",                        "the digest summarized by theme (one call to the compactor's model)", (t) => (term_act(t, { $: "Themes" }), term_note(t, "Summarizing the digest by theme…"))],
-      ["/transcripts",      "",                        "recorded calls, the last 14 days",               (t) => term_note(t, Cockpit.transcripts_text(t.v))],
+      ["/transcripts",      "",                        "recorded calls, the last 14 days",               (t) => term_page_cmd(t, "transcripts", () => Cockpit.transcripts_text(t.v))],
       ["/transcript <n>",   "",                        "transcript n's summary (made once, by the compactor's model)", term_transcript],
-      ["/timesheet [act]",  "",                        "Harvest drafts by day; submit sends the open ones, drop <n>, weekly drafts every Friday", (t, a) => term_answer(t, Cockpit.timesheet_cmd(t.v, a))],
+      ["/timesheet [act]",  "",                        "Harvest drafts by day; submit sends the open ones, drop <n>, weekly drafts every Friday", (t, a) => a.trim() === "" ? term_page_cmd(t, "timesheet", () => Cockpit.timesheet_text(t.v)) : term_answer(t, Cockpit.timesheet_cmd(t.v, a))],
       ["/lane",             "",                        "the timeline of the agent on this tab",          (t) => term_note(t, t.v.page === null ? "/lane shows an agent's timeline: /tab to one first." : Cockpit.lane_text(t.v.page.name, View.view_lane(t.v, Date.now())))],
     ]],
     ["Routines", [
-      ["/routines",         "",                        "your routines: tasks a Legion agent starts on by the clock or on new review requests", (t) => term_note(t, View.view_routines_note(t.v))],
+      ["/routines",         "",                        "your routines: tasks a Legion agent starts on by the clock or on new review requests", (t) => term_page_cmd(t, "routines", () => View.view_routines_note(t.v))],
       ["/routine <act>",    "",                        "add daily HH:MM | every Nh | on review, then name: task; or run, on, off, drop <n>", (t, a) => term_answer(t, View.view_routine_cmd(t.v, a))],
     ]],
     ["Account", [
@@ -537,8 +538,8 @@ function term_press(t: Term, key: string): void {
   if (key === "FocusIn" || key === "FocusOut") {
     return term_focus(t, key === "FocusOut");
   }
-  if (t.full !== undefined) {
-    return term_full_key(t, key);
+  if (t.deck !== undefined) {
+    return term_deck_key(t, key);
   }
   const cmd = term_commands(t.v).find((c) => c[1] !== "" && c[1].split(", ").includes(key));
   if (cmd !== undefined) {
@@ -580,37 +581,45 @@ function term_cycle(t: Term): void {
   term_act(t, { $: "Goto", name: tabs[at % tabs.length].name });
 }
 
-// Full-screen Crew
-// ----------------
-// /crew full: the alternate screen, the whole crew (Paint.crew_full),
-// every key the Crew's (Screen grab: View.view_full); Esc, q or Ctrl+C
-// leaves, the scrollback as it was; Enter leaves on that agent's page
+// The Deck
+// --------
+// the web's pages full screen (Deck.ts): the alternate screen, every key
+// the deck's (Screen grab); Esc, q, g m or Ctrl+C leave, the scrollback
+// as it was; Enter on the crew leaves on that agent's page. On a pipe, a
+// page's command prints its text instead (term_page_cmd)
 
 const ALT_ON  = "\x1b[?1049h\x1b[?25l";
 const ALT_OFF = "\x1b[?25h\x1b[?1049l";
 
-function term_full(t: Term, on: boolean): void {
-  if (on && !t.scr.tty) {
-    return term_note(t, "/crew full needs a terminal.");
+// shows the deck at that page (null: leaves it)
+function term_deck(t: Term, page: Deck.Page | null, filter = ""): void {
+  if (page !== null && !t.scr.tty) {
+    return term_note(t, "The full-screen pages need a terminal.");
   }
-  if (on === (t.full !== undefined)) {
-    return;
+  const was = t.deck !== undefined;
+  t.deck = page === null ? undefined : { ...Deck.deck_new(page, filter), sel: page === "crew" ? t.v.page?.name ?? null : null };
+  t.scr.grab = page !== null;
+  if (was !== (page !== null)) {
+    process.stdout.write(page !== null ? ALT_ON : ALT_OFF);
   }
-  t.full = on ? { sel: t.v.page?.name ?? null } : undefined;
-  t.scr.grab = on;
-  process.stdout.write(on ? ALT_ON : ALT_OFF);
-  if (on) {
-    process.once("exit", () => t.full !== undefined && process.stdout.write(ALT_OFF));
+  if (page !== null && !was) {
+    process.once("exit", () => t.deck !== undefined && process.stdout.write(ALT_OFF));
   }
   term_draw(t);
 }
 
-function term_full_key(t: Term, key: string): void {
-  const out = View.view_full(t.v, t.full?.sel ?? null, key === "Ctrl+C" ? "Esc" : key);
-  t.full = { sel: out.sel };
-  out.acts.forEach((msg) => View.link_send(t.v, msg));
+// a page's command: the deck at it on a terminal, else its text printed
+function term_page_cmd(t: Term, page: Deck.Page, text: () => string, filter = ""): void {
+  return t.scr.tty ? term_deck(t, page, filter) : term_note(t, text());
+}
+
+function term_deck_key(t: Term, key: string): void {
+  const out = Deck.deck_key(t.v, t.deck!, key === "Ctrl+C" ? "Esc" : key, Screen.screen_width(), process.stdout.rows || 24, Date.now());
+  t.deck = out.deck;
+  out.sends.forEach((msg) => View.link_send(t.v, msg));
+  out.acts.forEach((act) => term_act(t, act));
   if (out.done) {
-    term_full(t, false);
+    term_deck(t, null);
     if (out.focus !== undefined) {
       term_act(t, { $: "Goto", name: out.focus });
     }
@@ -618,9 +627,9 @@ function term_full_key(t: Term, key: string): void {
   term_draw(t);
 }
 
-// the full-screen Crew drawn whole, from the top
-function term_full_paint(t: Term): void {
-  const lines = Paint.crew_full(t.v, Screen.screen_width(), process.stdout.rows || 24, t.full?.sel ?? null, Date.now());
+// the deck drawn whole, from the top
+function term_deck_paint(t: Term): void {
+  const lines = Deck.deck_lines(t.v, t.deck!, Screen.screen_width(), process.stdout.rows || 24, Date.now());
   process.stdout.write("\x1b[H\x1b[2J" + lines.map(Paint.line_ansi).join("\r\n"));
   t.due = false;
 }
@@ -783,7 +792,7 @@ function term_inbox_changed(t: Term): number {
 // /inbox [words]: the inbox, then its rows kept as seen
 function term_inbox(t: Term, filter: string): void {
   const now = Date.now();
-  term_note(t, Cockpit.inbox_text(t.v, filter, now, term_inbox_changed(t)));
+  term_page_cmd(t, "inbox", () => Cockpit.inbox_text(t.v, filter, now, term_inbox_changed(t)), filter);
   if (t.v.inbox !== null) {
     t.stamps = Cockpit.inbox_seen(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", now));
   }
@@ -828,7 +837,7 @@ function term_agent(t: Term, arg: string): string {
 // shows or hides the crew panel; full: the full-screen Crew
 function term_crew(t: Term, arg = ""): void {
   if (arg === "full") {
-    return term_full(t, true);
+    return term_deck(t, "crew");
   }
   t.crew = !(t.crew ?? true);
   term_note(t, t.crew ? "The crew shows below the input." : "The crew is hidden: /crew shows it.");
@@ -1327,7 +1336,7 @@ function term_inner(): number {
 // a new size: the page laid out again, at the new width, once the size
 // settles
 function term_resize(t: Term): void {
-  if (t.full !== undefined) {
+  if (t.deck !== undefined) {
     return term_draw(t);
   }
   clearTimeout(t.settle);
@@ -1348,8 +1357,8 @@ function term_draw(t: Term): void {
 // The screen's top row stays free: an erase from the top left clears
 // the screen, which tmux keeps in its scrollback at each paint
 function term_paint(t: Term): void {
-  if (t.full !== undefined) {
-    return term_full_paint(t);
+  if (t.deck !== undefined) {
+    return term_deck_paint(t);
   }
   t.out = t.out.concat(term_lines(t.v.notes.splice(0).flatMap(View.note_rows)));
   term_flow(t);

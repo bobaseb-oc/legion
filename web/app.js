@@ -3145,6 +3145,18 @@ function bar_text(v) {
   const n = (...s) => v.crew.filter((c) => s.includes(c.status)).length;
   return needing(v) + " need you · " + n("working") + " working · " + n("waiting") + " ready · " + n("done", "stopped") + " done";
 }
+var CHORDS = {
+  h: "home",
+  i: "inbox",
+  m: "chat",
+  c: "crew",
+  r: "routines",
+  d: "digest",
+  t: "transcripts",
+  f: "files",
+  s: "timesheet",
+  p: "memory"
+};
 var PAGE_ITEMS = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
@@ -3155,7 +3167,7 @@ var PAGE_ITEMS = [
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
   { label: "Files", hint: "page · g f", go: { href: "#files" } },
   { label: "Timesheet", hint: "page · g s", go: { href: "#timesheet" } },
-  { label: "Memory", hint: "page · search, pins, the tree", go: { href: "#memory" } },
+  { label: "Memory", hint: "page · g p · search, pins, the tree", go: { href: "#memory" } },
   { label: "New agent…", hint: "command · /agent", go: { cmd: "new-agent" } },
   { label: "Refresh the inbox", hint: "command", go: { act: { $: "Fetch" } } },
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },
@@ -4666,7 +4678,7 @@ function crew_keys(ev) {
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) {
     return;
   }
-  const to = Date.now() - P.g < 1000 ? { c: "#crew", m: "#chat", h: "#home", i: "#inbox", r: "#routines", d: "#digest", t: "#transcripts", f: "#files", s: "#timesheet" }[ev.key] : undefined;
+  const to = Date.now() - P.g < 1000 && Object.hasOwn(CHORDS, ev.key) ? "#" + CHORDS[ev.key] : undefined;
   P.g = ev.key === "g" ? Date.now() : 0;
   if (to !== undefined) {
     location.hash = to;

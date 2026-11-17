@@ -6,7 +6,7 @@
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
 import type { Given } from "./Routines.ts";
-import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Draft, type Mark, type View } from "./View.ts";
+import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -527,6 +527,12 @@ export function bar_text(v: View): string {
 export type Go = { href: string } | { open: string } | { act: Act } | { cmd: "new-agent" | "focus" } | { space: string };
 export type Item = { label: string; hint: string; go: Go };
 
+// g and a letter: the page it goes to, on the web (main.ts) and in the
+// terminal's deck (Deck.ts)
+export const CHORDS: Record<string, "chat" | "crew" | Deck> = {
+  h: "home", i: "inbox", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory",
+};
+
 const PAGE_ITEMS: Item[] = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
@@ -537,7 +543,7 @@ const PAGE_ITEMS: Item[] = [
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
   { label: "Files", hint: "page · g f", go: { href: "#files" } },
   { label: "Timesheet", hint: "page · g s", go: { href: "#timesheet" } },
-  { label: "Memory", hint: "page · search, pins, the tree", go: { href: "#memory" } },
+  { label: "Memory", hint: "page · g p · search, pins, the tree", go: { href: "#memory" } },
   { label: "New agent…", hint: "command · /agent", go: { cmd: "new-agent" } },
   { label: "Refresh the inbox", hint: "command", go: { act: { $: "Fetch" } } },
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },

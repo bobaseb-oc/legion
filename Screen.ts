@@ -105,6 +105,8 @@ const KEYS: Record<string, string> = {
   "1~"  : "Home",
   "3~"  : "Delete",
   "4~"  : "End",
+  "5~"  : "PageUp",
+  "6~"  : "PageDown",
   "7~"  : "Home",
   "8~"  : "End",
 };
