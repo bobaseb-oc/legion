@@ -312,6 +312,55 @@ test("a wide terminal: home's column beside the crew panel, in its rows; narrow:
   expect(text(tabs[0])).toContain("2 need you · 1 working");
 });
 
+const CMDS: [string, string][] = [["/inbox [words]", "the inbox"], ["/answer <n> <text>", "answer a question"], ["/help", "this list"], ["", "keys only"]];
+
+test("the / menu: commands by their start, then the palette's items (pages, agents, PRs) by its words; closed once an argument is typed", () => {
+  const v = team();
+  const items = Deck.menu_items(v, CMDS, "/in");
+  expect(items[0]).toMatchObject({ label: "/inbox [words]", go: { run: "/inbox [words]" } });
+  expect(items.some((it) => it.label === "Inbox" && "href" in it.go)).toBe(true);
+  expect(Deck.menu_items(v, CMDS, "/").map((it) => it.label)).toEqual(["/inbox [words]", "/answer <n> <text>", "/help"]);
+  expect(Deck.menu_items(v, CMDS, "/mgr").some((it) => it.label === "Mgr" && it.hint.startsWith("agent Mgr"))).toBe(true);
+  expect(Deck.menu_items(v, CMDS, "/inbox foo")).toEqual([]);
+  expect(Deck.menu_items(v, CMDS, "hello")).toEqual([]);
+  expect(Deck.menu_items(v, CMDS, "/zzz")).toEqual([]);
+});
+
+test("a menu item's going: a command runs (one needing an argument is typed), a page opens full screen, an agent's tab, a link, an act", () => {
+  expect(Deck.menu_go({ label: "/help", hint: "", go: { run: "/help" } })).toEqual({ run: "/help" });
+  expect(Deck.menu_go({ label: "/inbox [words]", hint: "", go: { run: "/inbox [words]" } })).toEqual({ run: "/inbox" });
+  expect(Deck.menu_go({ label: "/answer <n> <text>", hint: "", go: { run: "/answer <n> <text>" } })).toEqual({ type: "/answer " });
+  expect(Deck.menu_go({ label: "Home", hint: "", go: { href: "#home" } })).toEqual({ page: "home" });
+  expect(Deck.menu_go({ label: "Files", hint: "", go: { href: "#files" } })).toEqual({ page: "file" });
+  expect(Deck.menu_go({ label: "Crew", hint: "", go: { href: "#crew" } })).toEqual({ page: "crew" });
+  expect(Deck.menu_go({ label: "Chat", hint: "", go: { href: "#chat" } })).toEqual({ chat: true });
+  expect(Deck.menu_go({ label: "Mgr", hint: "", go: { href: "#crew/Mgr" } })).toEqual({ goto: "Mgr" });
+  expect(Deck.menu_go({ label: "PR", hint: "", go: { open: "https://x/1" } })).toEqual({ open: "https://x/1" });
+  expect(Deck.menu_go({ label: "Plan", hint: "", go: { act: { $: "Mode", mode: "plan" } } })).toEqual({ act: { $: "Mode", mode: "plan" } });
+  expect(Deck.menu_go({ label: "New agent…", hint: "", go: { cmd: "new-agent" } })).toEqual({ type: "/agent " });
+  expect(Deck.menu_go({ label: "o/r", hint: "", go: { space: "o/r" } })).toEqual({ page: "inbox", filter: "o/r" });
+});
+
+test("the menu's pick: Down from none is the first, Up the last; round at the ends", () => {
+  expect(Deck.menu_pick(-1, 5, "Down")).toBe(0);
+  expect(Deck.menu_pick(-1, 5, "Up")).toBe(4);
+  expect(Deck.menu_pick(4, 5, "Down")).toBe(0);
+  expect(Deck.menu_pick(0, 5, "Up")).toBe(4);
+  expect(Deck.menu_pick(2, 5, "Down")).toBe(3);
+});
+
+test("the menu's lines: at most MENU items around the one picked, it marked; the keys; within the width", () => {
+  const items = Array.from({ length: 20 }, (_, k): Deck.MenuItem => ({ label: "/c" + k, hint: "does " + k, go: { run: "/c" + k } }));
+  const lines = Deck.menu_lines(items, 15, 40).map(text);
+  expect(lines.length).toBeLessThanOrEqual(Deck.MENU + 1);
+  expect(lines.find((l) => l.startsWith("▸ "))).toContain("/c15");
+  expect(lines.at(-1)).toContain("Tab");
+  expect(Deck.menu_lines(items, -1, 40).map(text)[0]).toContain("/c0");
+  for (const l of lines) {
+    expect(Paint.text_width(l)).toBeLessThanOrEqual(40);
+  }
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

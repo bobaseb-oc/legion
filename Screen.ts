@@ -51,6 +51,7 @@ export type Screen = {
   rows   : number;
   on     : (key: string) => void;
   pasted?: (text: string) => boolean; // a paste Term.ts takes (a dropped file's path): not typed
+  keys?  : (key: string) => boolean;   // a key Term.ts takes before the input edits (the / menu's): not edited
 };
 
 // Constants
@@ -228,9 +229,13 @@ function screen_key(scr: Screen, data: string): number {
   return 1;
 }
 
-// a key: an editing key edits the input; any other goes to Term.ts
+// a key: one Term.ts takes first (keys) is its; an editing key edits the
+// input; any other goes to Term.ts
 // (all of them, grabbed)
 function screen_press(scr: Screen, key: string): void {
+  if (scr.keys?.(key)) {
+    return;
+  }
   if (scr.grab || !ed_key(scr.ed, key)) {
     scr.on(key);
   }

@@ -594,6 +594,72 @@ function side_lines(v: View.View, now: number): Paint.Line[] {
   ];
 }
 
+// The / menu
+// ----------
+// The web's Ctrl+K palette in the chat's box: the input a / and a word,
+// the commands starting with it, then the palette's items holding it
+// (Cockpit.palette: pages, agents, PRs, spaces); an item's going, as
+// Term.ts does it
+
+export type MenuItem = { label: string; hint: string; go: Cockpit.Go | { run: string } };
+export type Going = { run: string } | { type: string } | { page: Page; filter?: string } | { goto: string } | { open: string } | { act: View.Act } | { chat: true } | { say: string };
+
+// the most items shown at once
+export const MENU = 6;
+
+// the items for the input (commands: their use and what they do)
+export function menu_items(v: View.View, cmds: [use: string, text: string][], text: string): MenuItem[] {
+  if (!/^\/\S*$/.test(text)) {
+    return [];
+  }
+  const q = text.slice(1).toLowerCase();
+  const own = cmds.filter(([use]) => use !== "" && use.slice(1).toLowerCase().startsWith(q)).map(([use, hint]): MenuItem => ({ label: use, hint, go: { run: use } }));
+  const more = q === "" ? [] : Cockpit.palette(v, q).map((it): MenuItem => it);
+  return [...own, ...more];
+}
+
+// what choosing an item does: a command runs (one that needs an
+// argument, <...>, typed in the box), a page opens full screen, an agent's
+// tab shows, a link opens, an act is sent
+export function menu_go(it: MenuItem): Going {
+  const go = it.go;
+  if ("run" in go) {
+    const word = go.run.split(" ")[0];
+    return go.run.includes("<") ? { type: word + " " } : { run: word };
+  }
+  if ("href" in go) {
+    const r = View.view_route(go.href);
+    return r.mode === "chat" ? { chat: true } : r.mode === "crew" ? (r.name === null ? { page: "crew" } : { goto: r.name }) : { page: r.mode === "files" ? "file" : r.mode };
+  }
+  if ("open" in go) {
+    return { open: go.open };
+  }
+  if ("act" in go) {
+    return { act: go.act };
+  }
+  if ("space" in go) {
+    return { page: "inbox", filter: go.space };
+  }
+  return go.cmd === "new-agent" ? { type: "/agent " } : { say: "No side columns to hide in the terminal: /crew hides the crew." };
+}
+
+// the item picked after Up or Down, of n (sel -1: none yet), round
+export function menu_pick(sel: number, n: number, key: "Up" | "Down"): number {
+  return sel < 0 ? (key === "Down" ? 0 : n - 1) : (sel + (key === "Down" ? 1 : n - 1)) % n;
+}
+
+// the menu's lines, w wide: MENU items at most, around the one picked
+// (-1: none yet) and it marked; the keys
+export function menu_lines(items: MenuItem[], sel: number, w: number): Paint.Line[] {
+  const from = Math.min(Math.max(0, sel - MENU + 1), Math.max(0, items.length - MENU));
+  const shown = items.slice(from, from + MENU).map((it, k): Paint.Line => {
+    const here = from + k === sel;
+    return line_cut([Paint.Run(here ? "▸ " : "  ", BOLD), Paint.Run(it.label, here ? BOLD : Paint.INK), Paint.Run("  " + it.hint, Paint.DIM)], w);
+  });
+  const more = items.length > MENU ? " · " + items.length + " in all" : "";
+  return [...shown, line_cut([Paint.Run("↑↓ pick · Tab complete · Enter run · Esc close" + more, Paint.DIM)], w)];
+}
+
 // the page a chord's letter goes to (m: the chat), else null
 export function deck_chord(key: string): Page | "chat" | null {
   return Object.hasOwn(CHORDS, key) ? CHORDS[key] : null;

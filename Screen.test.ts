@@ -48,6 +48,20 @@ test("a paste Term.ts takes (a dropped file's path) is not typed; any other is",
   expect(scr.ed.text).toBe("hello");
 });
 
+test("a key Term.ts takes first (the / menu's Up, Down, Tab) does not edit; any other edits as ever", () => {
+  const { scr, keys } = screen();
+  const took: string[] = [];
+  (scr as Screen.Screen).keys = (k) => (k === "Up" || k === "Tab" ? (took.push(k), true) : false);
+  scr.ed.hist = ["before"];
+  scr.ed.at = 1;
+  Screen.screen_feed(scr, "/in\x1b[A\t");
+  expect(took).toEqual(["Up", "Tab"]);
+  expect(scr.ed.text).toBe("/in");
+  expect(keys).toEqual([]);
+  Screen.screen_feed(scr, "\x1b[D");
+  expect(scr.ed.pos).toBe(2);
+});
+
 test("kitty's keys never leak into the text, whatever their reads", () => {
   splits("hello!?\x1b[118;1:3u\x1b[27u\x1b[13;2u", (text, keys) => {
     expect(text).toBe("hello!?\n");

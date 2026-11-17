@@ -68,6 +68,8 @@ type Term = {
   looking?: string; // /look's file, asked of a device: the deck's file page shows it once it comes (a terminal)
   chord?  : boolean; // Ctrl+G pressed: the next key a page's letter (term_chord)
   toast?  : { text: string; until: number }; // a word over the input till then (term_toast)
+  menu?   : { text: string; sel: number }; // the / menu's item picked, for that text (term_menu)
+  shut?   : string;  // the text whose / menu Esc closed
   stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
@@ -320,6 +322,7 @@ function term_new(url: string): Term {
     logs    : new Map(),
   };
   t.scr.pasted = (text) => term_pasted(t, text);
+  t.scr.keys = (key) => term_menu_key(t, key);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
   t.reads = Device.device_reads(RULES, (out) => term_send(t, out));
@@ -641,6 +644,61 @@ function term_chord_key(t: Term, key: string): void {
     term_deck(t, to);
   }
   term_draw(t);
+}
+
+// The / menu (Deck.menu_items): the input a / and a word; Up and Down
+// pick, Tab completes a command (runs any other item), Enter runs the one
+// picked (none picked: Enter as ever), Esc closes it for that text
+
+function term_menu(t: Term): { items: Deck.MenuItem[]; sel: number } {
+  const text = t.scr.ed.text;
+  const items = t.deck !== undefined || t.chord || t.shut === text ? [] : Deck.menu_items(t.v, term_commands(t.v).map((c) => [c[0], c[2]]), text);
+  return { items, sel: t.menu?.text === text ? Math.min(t.menu.sel, items.length - 1) : -1 };
+}
+
+function term_menu_key(t: Term, key: string): boolean {
+  const { items, sel } = term_menu(t);
+  const text = t.scr.ed.text;
+  if (items.length === 0 || !["Up", "Down", "Tab", "Enter", "Esc"].includes(key)) {
+    return false;
+  }
+  if (key === "Up" || key === "Down") {
+    t.menu = { text, sel: Deck.menu_pick(sel, items.length, key) };
+  } else if (key === "Esc") {
+    t.shut = text;
+  } else if (key === "Enter" && sel < 0) {
+    return false;
+  } else {
+    const it = items[Math.max(0, sel)];
+    const going = Deck.menu_go(it);
+    Screen.ed_take(t.scr.ed);
+    t.menu = undefined;
+    key === "Tab" && "run" in it.go ? Screen.ed_type(t.scr.ed, it.go.run.split(" ")[0] + " ") : term_going(t, going);
+  }
+  term_draw(t);
+  return true;
+}
+
+// a menu item chosen, done
+function term_going(t: Term, g: Deck.Going): void {
+  if ("run" in g) {
+    term_command(t, g.run);
+  } else if ("type" in g) {
+    Screen.ed_type(t.scr.ed, g.type);
+  } else if ("page" in g) {
+    g.page === "inbox" ? term_inbox(t, g.filter ?? "") : term_deck(t, g.page);
+  } else if ("goto" in g) {
+    term_act(t, { $: "Goto", name: g.goto });
+  } else if ("open" in g) {
+    browse(g.open);
+    term_toast(t, "Opened in the browser: " + g.open);
+  } else if ("act" in g) {
+    term_act(t, g.act);
+  } else if ("chat" in g) {
+    term_act(t, { $: "Goto", name: null });
+  } else {
+    term_toast(t, g.say);
+  }
 }
 
 // a short word for a while over the input (the web's #toast), not kept
@@ -1440,17 +1498,18 @@ function term_paint(t: Term): void {
   const off   = !View.view_typing(t.v);
   const crew  = Deck.crew_foot(t.v, iw, Date.now(), CREW_ROWS, t.v.crew.length > 0 && (t.crew ?? true));
   const hint  = t.v.page === null ? View.HINT + " · /help" : "Tell " + t.v.page.name + " · Tab to go on";
-  const toast = t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [];
+  const menu  = term_menu(t);
+  const over  = [...(menu.items.length === 0 ? [] : Deck.menu_lines(menu.items, menu.sel, iw)), ...(t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [])];
   const foot  = [Deck.foot_line(t.v, iw)];
-  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - toast.length - foot.length, off ? OFF : hint, off);
+  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - over.length - foot.length, off ? OFF : hint, off);
   const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
-  const own   = term_inset([...toast, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
+  const own   = term_inset([...over, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));
   const held  = t.v.page === null ? View.view_rows(t.v, t.wait).flat() : [];
   const tail  = term_lines([...held, ...View.view_tail(t.v, rest)]).flatMap((l) => Paint.runs_wrap(l, w, true));
   const above = tail.slice(Math.max(0, tail.length - room + own.length));
-  const at    = { row: above.length + toast.length + 1 + input.at.row, col: input.at.col + MARGIN };
+  const at    = { row: above.length + over.length + 1 + input.at.row, col: input.at.col + MARGIN };
   Screen.screen_paint(t.scr, t.out, t.wipe, [...above, ...own], at);
   t.out  = [];
   t.wipe = false;
