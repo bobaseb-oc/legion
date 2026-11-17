@@ -1150,7 +1150,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, pins: chat.mem.pinned };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, assigned: chat.mem.assigned, pins: chat.mem.pinned };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1501,8 +1501,52 @@ export namespace Chat {
       case "pin": {
         return Chat.pin(chat, device, msg);
       }
+      case "assignment": {
+        return Chat.assignment(chat, id, device, msg);
+      }
     }
     return { error: "No act " + msg.$ + "." };
+  }
+
+  // RED ZONE (access control; DRAFT awaiting the user's sign-off): the
+  // user's Done or Drop of a todo an agent filed (Tools.assign). A view's
+  // act only: a device's socket is within an agent's reach, and an agent
+  // must not tick its own todos done (refused, as Chat.pin refuses it).
+  // The todo leaves the list at once, so a resent act finds none and the
+  // filer is told once. Done: Legion's todo, a message quoting it and a
+  // turn (as an answer; refused short of credit, the todo kept); an agent
+  // at work, told as a tell; else Legion's note. Drop: a note, no turn
+  export async function assignment(chat: Chat, id: string, device: string, msg: any): Promise<Answer> {
+    if (device !== "") {
+      return { error: "Todos are the user's: tick them in a view (the web, or the terminal's Todo page)." };
+    }
+    const a = Number.isInteger(msg.n) && typeof msg.done === "boolean" ? chat.mem.assigned.find((x) => x.n === msg.n) : undefined;
+    if (a === undefined) {
+      return { error: "No todo " + JSON.stringify(msg.n)?.slice(0, 40) + "." };
+    }
+    const refused = msg.done && a.by === "main" ? await Chat.afford(chat) : null;
+    if (refused !== null) {
+      return refused;
+    }
+    chat.mem.assigned = chat.mem.assigned.filter((x) => x !== a);
+    Memory.save(chat.mem);
+    Chat.change(chat);
+    const whose = a.by === "main" ? "your" : a.by + "'s";
+    const said = "todo " + a.n + " (" + a.text + ")";
+    if (!msg.done) {
+      Chat.note(chat, "The user dropped " + whose + " " + said + ".");
+      return {};
+    }
+    if (a.by === "main") {
+      await Chat.said(chat, id, "Done: your " + said + ".");
+      return {};
+    }
+    const agent = chat.tools.agents.get(a.by);
+    const told = agent !== undefined && Tools.working(chat.tools).includes(agent) ? await Tools.tell(chat.tools, "main", a.by, "The user did your " + said + ".") : null;
+    if (told === null || told.fail) {
+      Chat.note(chat, "The user did " + whose + " " + said + ".");
+    }
+    return {};
   }
 
   // the user's pin of a chat message, or unpin (Memory.pin): a view's act

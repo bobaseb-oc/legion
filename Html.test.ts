@@ -76,6 +76,14 @@ test("the mode switch: the one shown marked, the pill on Crew", () => {
   expect(Html.mode_html("chat", "").join("")).not.toContain("pill");
 });
 
+test("the top bar's Todo tab: after Inbox, its count when any are open, marked when shown", () => {
+  const bar = Html.mode_html("chat", "", 0, undefined, 0, 0, 2).join("");
+  expect(bar).toContain('<a href="#todo">Todo <span class="pill need">2</span></a>');
+  expect(bar.indexOf("#inbox")).toBeLessThan(bar.indexOf("#todo"));
+  expect(bar.indexOf("#todo")).toBeLessThan(bar.indexOf("#chat"));
+  expect(Html.mode_html("todo", "", 0, undefined, 0, 0, 0).join("")).toContain('<a href="#todo" class="here">Todo</a>');
+});
+
 test("the focus card: the agent in focus with its actions, or Unii's chat", () => {
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [crew("Run", "main", "working")] });

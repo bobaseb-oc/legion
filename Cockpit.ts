@@ -6,7 +6,7 @@
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
 import type { Given } from "./Routines.ts";
-import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
+import { MAIN, minute, view_needs, view_notes, view_questions, type Act, type Assignment, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -459,6 +459,41 @@ export const TIMESHEET_ROUTINE: Given = {
 
 const draft_open = (d: Draft) => d.state === "draft" || d.state === "failed";
 
+// Todo
+// ====
+// What agents need the user to do (Tools.assign), as the Todo page lists
+// them: each its number, text, who filed it (Legion's: MAIN) and when
+
+export function todo_who(a: Assignment): string {
+  return a.by === "main" ? MAIN : a.by;
+}
+
+export function todo_line(a: Assignment): string {
+  return a.n + ". " + a.text + " · by " + todo_who(a) + " · " + minute(a.date);
+}
+
+// the Todo page with none open (web, deck, /todos)
+export const TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
+
+// /todos: the open todos, oldest first, and how to tick them
+export function todo_text(v: View): string {
+  const all = v.assigned ?? [];
+  if (all.length === 0) {
+    return TODO_NONE;
+  }
+  return ["Your todos (" + all.length + "):", ...all.map(todo_line), "/todos done <n> when it is done (its agent hears it), drop <n> if it isn't yours to do."].join("\n");
+}
+
+// /todos done <n> | drop <n>: the page's Done and Drop
+export function todo_cmd(v: View, arg: string): Act | string {
+  const [verb, n] = arg.trim().split(/\s+/);
+  if ((verb !== "done" && verb !== "drop") || !/^\d+$/.test(n ?? "")) {
+    return "/todos done <n> or /todos drop <n>, as /todos numbers them.";
+  }
+  const a = (v.assigned ?? []).find((x) => x.n === Number(n));
+  return a === undefined ? "No todo " + n + ": /todos lists them." : { $: "Assignment", n: a.n, done: verb === "done" };
+}
+
 // /timesheet: the drafts by day, newest first, as the Timesheet page
 export function timesheet_text(v: View): string {
   const drafts = v.drafts ?? [];
@@ -554,12 +589,13 @@ export type Item = { label: string; hint: string; go: Go };
 // g and a letter: the page it goes to, on the web (main.ts) and in the
 // terminal's deck (Deck.ts)
 export const CHORDS: Record<string, "chat" | "crew" | Deck> = {
-  h: "home", i: "inbox", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory",
+  h: "home", i: "inbox", o: "todo", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory",
 };
 
 const PAGE_ITEMS: Item[] = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
+  { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },

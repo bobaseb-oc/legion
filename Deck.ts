@@ -17,7 +17,7 @@ import * as View from "./View.ts";
 // Types
 // =====
 
-export const PAGES = ["home", "inbox", "crew", "questions", "memory", "file", "routines", "digest", "transcripts", "timesheet"] as const;
+export const PAGES = ["home", "inbox", "todo", "crew", "questions", "memory", "file", "routines", "digest", "transcripts", "timesheet"] as const;
 export type Page = (typeof PAGES)[number];
 
 // the deck: the page shown, what is selected on it (an agent's name, a
@@ -52,7 +52,7 @@ const CHORDS: Record<string, Page | "chat"> = {
 
 // the nav: each page's letter and label, in the web's order
 const NAV: [letter: string, label: string, page: Page | "chat"][] = [
-  ["h", "Home", "home"], ["i", "Inbox", "inbox"], ["m", "Chat", "chat"], ["c", "Crew", "crew"],
+  ["h", "Home", "home"], ["i", "Inbox", "inbox"], ["o", "Todo", "todo"], ["m", "Chat", "chat"], ["c", "Crew", "crew"],
   ["q", "Questions", "questions"], ["p", "Memory", "memory"], ["f", "File", "file"],
   ["r", "Routines", "routines"], ["d", "Digest", "digest"], ["t", "Transcripts", "transcripts"], ["s", "Timesheet", "timesheet"],
 ];
@@ -167,7 +167,7 @@ function deck_click(v: View.View, was: Deck, d: Deck, x: number, y: number, w: n
 
 // a page's own keys, before Esc, q and the moves (null: not its key)
 type Keys = (v: View.View, d: Deck, key: string, now: number) => Out | null;
-const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key };
+const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key, todo: deck_todo_key };
 
 // a key while a filter is typed: text goes in it, Backspace takes the last
 // character, Enter or Esc end it (a key's name, as Screen names keys, is
@@ -276,6 +276,15 @@ function deck_questions_key(v: View.View, d: Deck, key: string, _now: number): O
   const offered = q.options?.[Number(key) - 1];
   return offered === undefined ? act_or_say(d, (q.options === undefined ? "This one has no offered answers" : "No answer " + key) + ": Enter types yours.")
     : act_or_say(d, View.view_answer(v, q.id + " " + key));
+}
+
+// the Todo page's keys (the web's buttons): d ticks the one picked Done
+// (its agent hears it), x drops it, as /todos done and drop
+function deck_todo_key(v: View.View, d: Deck, key: string, _now: number): Out | null {
+  if (key !== "d" && key !== "x") {
+    return null;
+  }
+  return act_or_say(d, d.sel === null ? "Pick a todo first: ↑↓." : Cockpit.todo_cmd(v, (key === "d" ? "done " : "drop ") + d.sel));
 }
 
 // memory's keys (the web's page): Enter shows the message picked in the
@@ -399,7 +408,7 @@ type Ink = Paint.Run["s"];
 
 // the pages with items to pick: their parts
 const PARTS: Partial<Record<Page, (v: View.View, d: Deck, now: number) => Part[]>> = {
-  home: home_parts, inbox: inbox_parts, questions: (v) => questions_parts(v), memory: (v) => memory_parts(v),
+  home: home_parts, inbox: inbox_parts, questions: (v) => questions_parts(v), memory: (v) => memory_parts(v), todo: (v) => todo_parts(v),
 };
 
 // a page's body: its parts; the file as /look prints it (its code
@@ -450,6 +459,17 @@ function questions_parts(v: View.View): Part[] {
     ...(notes.length === 0 ? [] : [{ text: "" }, { text: "Notes (" + notes.length + ")", ink: HEAD }, ...notes.flatMap(item)]),
     { text: "" },
     { text: "↑↓ pick · 1-9 that answer · Enter types /answer in the box · x dismiss · Esc chat", ink: Paint.DIM },
+  ];
+}
+
+// the Todo page, as the web's: each todo to pick (Cockpit.todo_line); the keys
+function todo_parts(v: View.View): Part[] {
+  const all = v.assigned ?? [];
+  return [
+    { text: all.length === 0 ? Cockpit.TODO_NONE : "Your todos (" + all.length + ")", ink: BOLD },
+    ...all.map((a): Part => ({ key: String(a.n), text: Cockpit.todo_line(a) })),
+    { text: "" },
+    { text: "↑↓ pick · d done (its agent hears it) · x drop · Esc chat", ink: Paint.DIM },
   ];
 }
 
@@ -582,6 +602,7 @@ function nav_layout(v: View.View, page: Page | "chat", w: number, tail?: Paint.L
     chat: [asked === 0 ? "" : "?" + asked, notes === 0 ? "" : "i" + notes].filter((x) => x !== "").join(" "),
     crew: tail === undefined ? View.view_pill(v) : "",
     memory: String((v.pins ?? []).length || ""),
+    todo: String((v.assigned ?? []).length || ""),
   };
   const item = ([letter, label, to]: (typeof NAV)[number]): Paint.Line => {
     const n = count[to] ?? "";

@@ -739,6 +739,11 @@ pre.code .sha { font: inherit; color: var(--accent); padding: 0; text-decoration
 .trow .why { grid-column: 2; font-size: 11.5px; }
 .trow > :last-child { grid-column: 3; grid-row: 1; }
 .trow.sent { opacity: .7; }
+/* a todo (Pages.todo_html): its text and who over it, Done and Drop side by side on the right */
+.trow.todo { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.trow.todo .n, .trow.todo .why { grid-column: 1; }
+.trow.todo .go { grid-column: 2; grid-row: 1 / span 2; }
+.trow.todo > :last-child { grid-column: 3; grid-row: 1 / span 2; }
 .trow .tag.ok { color: #2da44e; }
 .trow .tag.bad { color: #cf222e; }
 .fsh { margin-bottom: 8px; }

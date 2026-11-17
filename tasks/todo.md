@@ -926,3 +926,34 @@ changed files: only no-bun/node-types noise; 4 mutants (picks by URL, keys
 hook, undo asks first, Esc drops picks) each killed. Not run by hand in a
 live terminal.
 Open: the terminal also prints looks another view asked for (since #24).
+
+## Todo page: what agents need the user to do (2026-11-17, feat/todo-page, after #25)
+Why: agents have `ask` (decisions) and `notify` (FYI) but no place for "only you can do this":
+approve PR #352 on GitHub, run `! gcloud auth login`, send Dan the draft. These get buried
+in notes or the chat. (Planned before TUI parity, never built: picked up now.)
+Promise: any agent (main and native subagents) files an action for the user with a new
+`assign` tool; it shows on a #todo page (web) and the deck's Todo page (terminal) with who
+filed it and when, until the user ticks it Done or Drops it. Done: the filer hears it (main:
+a message quoting it and a turn, as an answer; a subagent at work: told, as a tell; gone:
+main's note). Drop: a note, no turn. An agent withdraws its own with `close`.
+Names: tool `assign`, type `Assignment`, state `assigned` (`Todo`/`Tools.todo` is the agents'
+own checklist), act `Assignment` / client `assignment`; chord `g o`.
+RED ZONE (access control, DRAFT for the user's sign-off): Done/Drop is a view's act only;
+a device's socket (within an agent's reach) is refused, as `Chat.pin` refuses it.
+- [x] Red tests: Todo.test.ts (server: filed by main and a subagent, cleaned and capped, at
+      most ASSIGNS open, close only your own; Done/Drop from a view only; filer told once;
+      the state tells the list); Pages/Cockpit (#todo page, sidebar count, Home Apps, palette);
+      Deck (the Todo page: pick, d done, x drop)
+- [x] Implement until green; mutation check (who-check, device guard, cap, told-once)
+- [x] End-to-end: one real page load of #todo (lessons 2026-11-12: routing changes get one)
+- [x] Proof: full suite, bundle rebuilt, tsc on changed files
+
+Review (2026-11-17): built web + terminal. Also a Todo tab in the web's top bar (with its
+count) beside the sidebar's, and `/todos [done|drop <n>]` + the deck's Todo page (d, x).
+Proof: full suite 547 pass, 2 fail (the known log-staging pair); tsc on changed files: no
+diagnostic on a changed line (Server.ts's are old: Agent, BodyInit, ImportMeta); 4 mutants
+(close anyone's, no device guard, not removed so told twice, no cap) each killed; end to end
+on a throwaway server in headless Chrome over CDP: #todo lists both seeded todos with who and
+when, the sidebar and top bar show 2, a real click on × drops one (page and view.json), g o
+from Home goes to #todo, no page errors.
+RED ZONE open: the view-only guard in Chat.assignment awaits the user's sign-off.

@@ -81,7 +81,12 @@ export type State = {
   routines? : Routine[];     // the user's (Routines.ts)
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
   pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
+  assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
 };
+
+// what an agent needs the user to do, only they can (Tools.assign): its
+// number, text, who filed it, when (ISO)
+export type Assignment = { n: number; text: string; by: string; date: string };
 
 // a message the user pinned (Memory.pin), kept whole in every call's view:
 // its index, kind, date, its text's head (SHOWN chars), its bytes there
@@ -154,7 +159,7 @@ export type TreeRow = CrewRow & { kids: number; rollup: string; open: boolean };
 export type Mode = "chat" | "crew" | Deck;
 // the cockpit's pages (Cockpit.ts, web/src/Pages.ts): #home, #inbox, ...
 // (not "Page": an agent's page is)
-export const PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
+export const PAGES = ["home", "inbox", "todo", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
 export type Deck = (typeof PAGES)[number];
 
 // a tile of the Crew grid: an agent Unii started, a dot per agent under
@@ -306,6 +311,8 @@ export type Client =
   | { $: "consent"; n: number; yes: boolean } // a waiting call (auto's reviewer couldn't check it): run it, or not
   | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
+  | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
+  | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
 
 // an act not answered: with its id, the socket it went by, what its
@@ -366,6 +373,8 @@ export type Act =
   | { $: "Bang"; command: string; dir: string }  // a command run in a folder (the Files page's box)
   | { $: "Timesheet"; op: "submit" | "drop"; ns: number[] } // timesheet drafts submitted to Harvest, or dropped (K5)
   | { $: "Pin"; i: number }                     // a chat message pinned, or unpinned if it is (its pin button, the Memory page)
+  | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
+  | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
   | { $: "Roots" }                              // the tree's roots asked (the Memory page's map)
   | { $: "Map"; id: number; n: number }         // a map line opened into its two (asked once), or folded
   | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
@@ -878,6 +887,9 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Pin": {
       return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
+    }
+    case "Assignment": {
+      return (v.assigned ?? []).some((a) => a.n === act.n) ? [{ $: "assignment", n: act.n, done: act.done }] : [];
     }
     case "Roots": {
       return [{ $: "root" }];
@@ -1644,7 +1656,7 @@ export function view_line(text: string): number | null {
 
 // the web's route by its hash, and back
 export function view_route(hash: string): Route {
-  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }

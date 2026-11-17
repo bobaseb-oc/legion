@@ -211,7 +211,7 @@ test("the palette: pages, commands, agents and inbox PRs; the words typed filter
   v.crew = [agent("Mgr", "working", { title: "Fix flaky login" })];
   v.inbox = inbox({ reviews: [pr({ number: 5, title: "Add custodians" })] });
   const all = Cockpit.palette(v, "");
-  expect(all.slice(0, 7).map((i) => i.label)).toEqual(["Home", "Inbox", "Chat", "Crew", "Routines", "Digest", "Transcripts"]);
+  expect(all.slice(0, 8).map((i) => i.label)).toEqual(["Home", "Inbox", "Todo", "Chat", "Crew", "Routines", "Digest", "Transcripts"]);
   expect(all.some((i) => i.label === "New agent…")).toBe(true);
   expect(all.find((i) => i.label === "Fix flaky login")!.go).toEqual({ href: "#crew/Mgr" });
   expect(all.find((i) => i.label === "Add custodians")!.go).toEqual({ open: "https://github.com/o/r/pull/5" });
@@ -392,4 +392,22 @@ test("the picks' acts: Review the review requests, Fix the PRs to fix, by their 
   expect(all.picked.map((r) => r.pr!.url)).toEqual([u(5), u(7), u(8)]);
   expect(Cockpit.picks_acts(s, new Set([u(8)]), false)).toMatchObject({ review: null, fix: null });
   expect(Cockpit.picks_acts(s, new Set([u(6)]), true).review).toEqual({ $: "Review", prs: [u(6)], how: "review", claude: true });
+});
+
+// the Todo page's chord and palette item; /todos (the terminal): each todo
+// numbered, who and when; done <n> and drop <n> as its Done and Drop
+test("todos: g o, the palette's Todo; /todos lists them; done and drop n are the page's buttons", () => {
+  expect(Cockpit.CHORDS.o).toBe("todo");
+  const v = View.view_new();
+  expect(Cockpit.palette(v, "todo")[0]).toMatchObject({ label: "Todo", hint: "page · g o", go: { href: "#todo" } });
+  expect(Cockpit.todo_text(v)).toContain("Nothing to do");
+  v.assigned = [{ n: 1, text: "Approve PR #352", by: "main", date: "2026-11-12T11:00:00Z" }, { n: 4, text: "Send Dan the draft", by: "Wkr", date: "2026-11-12T11:30:00Z" }];
+  const text = Cockpit.todo_text(v);
+  expect(text).toMatch(/1\. Approve PR #352 · by Legion · 2026-11-12/);
+  expect(text).toMatch(/4\. Send Dan the draft · by Wkr/);
+  expect(text).toContain("/todos done <n>");
+  expect(Cockpit.todo_cmd(v, "done 4")).toEqual({ $: "Assignment", n: 4, done: true });
+  expect(Cockpit.todo_cmd(v, "drop 1")).toEqual({ $: "Assignment", n: 1, done: false });
+  expect(Cockpit.todo_cmd(v, "done 9")).toMatch(/No todo 9/);
+  expect(Cockpit.todo_cmd(v, "finish 1")).toMatch(/done <n>/);
 });

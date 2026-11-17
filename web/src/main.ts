@@ -1268,7 +1268,7 @@ function crew_bars(): void {
   document.body.classList.toggle("crewmode", crew && !P.guest);
   const asked = View.view_questions(v).length + View.view_waiting(v);
   const notes = View.view_notes(v).length;
-  markup($("#mode"), Html.mode_html(mode, View.view_pill(v), asked, P.guest ? undefined : v.mode, Cockpit.inbox_badge(v.inbox), notes));
+  markup($("#mode"), Html.mode_html(mode, View.view_pill(v), asked, P.guest ? undefined : v.mode, Cockpit.inbox_badge(v.inbox), notes, (v.assigned ?? []).length));
   side_bars(mode);
   if (page_bars(mode)) {
     $("#questions").hidden = true;
@@ -1414,6 +1414,10 @@ function page_bars(mode: View.Mode): boolean {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), Pages.timesheet_html(v));
+  } else if (mode === "todo") {
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    markup($("#page .pbody"), Pages.todo_html(v));
   } else if (mode === "files") {
     files_open();
     $("#picks").hidden = true;

@@ -270,18 +270,19 @@ function ops_html(c: View.Crew): string {
   return `<div class="ops">${undo}<button class="pbtn" title="a terminal running claude in its repo, with its brief"${act_html({ $: "Handoff", name: c.name })}>Open in Claude Code</button></div>`;
 }
 
-// Home | Inbox (its count) | Chat | Crew, the one shown marked; the pill (View.view_pill) on Crew,
+// Home | Inbox (its count) | Todo (its count) | Chat | Crew, the one shown marked; the pill (View.view_pill) on Crew,
 // marked when someone needs the person
 // and the questions open (a button showing or hiding their pane)
 // and the permission mode's chip (a click: the next)
-export function mode_html(mode: View.Mode, pill: string, asked = 0, perm?: Perm, inbox = 0, notes = 0): string[] {
+export function mode_html(mode: View.Mode, pill: string, asked = 0, perm?: Perm, inbox = 0, notes = 0, todos = 0): string[] {
   const here = (m: View.Mode) => (m === mode ? ` class="here"` : "");
   const count = inbox === 0 ? "" : ` <span class="pill need">${inbox}</span>`;
+  const todo = todos === 0 ? "" : ` <span class="pill need">${todos}</span>`;
   const tag = pill === "" ? "" : ` <span class="pill${pill.includes("need you") ? " need" : ""}">${esc(pill)}</span>`;
   const said = [asked === 0 ? "" : "? " + asked, notes === 0 ? "" : "i " + notes].filter((x) => x !== "").join(" · ");
   const qs = said === "" ? [] : [`<button class="qs" data-qs title="${notes === 0 ? "your questions" : "your questions and notes"}">${said}</button>`];
   const chip = perm === undefined ? [] : [`<button class="perm ${perm}" title="the mode: Shift+Tab in the box cycles it"${act_html({ $: "Mode" })}>${perm} mode</button>`];
-  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, ...chip, ...qs];
+  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, ...chip, ...qs];
 }
 
 export function tabs_html(tabs: View.Tab[]): string[] {
