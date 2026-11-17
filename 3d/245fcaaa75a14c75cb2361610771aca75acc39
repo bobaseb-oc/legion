@@ -1,0 +1,36 @@
+Deck.ts
+  s_67beeddb9b1d84::t_a7be3739c89e36 465-472
+  s_67beeddb9b1d84::t_a324af7950a62e 281-289,474
+  s_a4db4f2f31fc4c::t_b2fbd28df52afe 20,55,170,411,473,475,605
+tasks/todo.md
+  s_67beeddb9b1d84::t_d986bd8f7869ae 943,947-959
+  s_67beeddb9b1d84::t_02857f0c6f6ce0 929-942,944-946
+Deck.test.ts
+  s_67beeddb9b1d84::t_8c2a134930eb7e 385-399
+Term.ts
+  s_67beeddb9b1d84::t_5c19eb42319bd3 214,259,643
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d245fcaaa75a14c75cb2361610771aca75acc39",
+  "prompts": {},
+  "sessions": {
+    "s_67beeddb9b1d84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "301a66aa-ce4f-413e-be2f-92088b63fa53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_a4db4f2f31fc4c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "SleepyOyster",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
