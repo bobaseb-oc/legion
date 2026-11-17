@@ -212,6 +212,20 @@ test("the inbox's filter: / types it (keys are text till Enter or Esc), rows kep
   expect(ikey(v, Deck.deck_new("inbox"), "/", "g", "i").deck).toMatchObject({ page: "inbox", filter: "gi", typing: true });
 });
 
+test("questions, as the web's pane: pick one, a number sends that offered answer, Enter types /answer in the box, x dismisses; notes under", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, questions: [...v.questions!, { id: 2, text: "Which db?\nWe need one", options: ["pg", "sqlite"], at: 0, date: "" }, { id: 3, text: "Deployed", at: 0, date: "", fyi: true }] });
+  const d = Deck.deck_new("questions");
+  const lines = Deck.deck_lines(v, d, W, H, 0).map(text).join("\n");
+  expect(lines).toMatch(/Ship it\?[\s\S]*Which db\?[\s\S]*We need one[\s\S]*1\) pg · 2\) sqlite[\s\S]*Notes \(1\)[\s\S]*Deployed/);
+  expect(key(v, d, "j", "j", "j").deck.sel).toBe("3");
+  expect(key(v, d, "j", "j", "2").acts).toEqual([{ $: "Answer", q: 2, text: "sqlite" }]);
+  expect(key(v, d, "j", "1").deck.say).toContain("no offered answers");
+  expect(key(v, d, "j", "Enter")).toMatchObject({ done: true, type: "/answer 1 " });
+  expect(key(v, d, "j", "j", "j", "x").acts).toEqual([{ $: "Drop", q: 3 }]);
+  expect(key(v, d, "x").deck.say).toContain("Pick");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

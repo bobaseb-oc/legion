@@ -36,8 +36,8 @@ export type Deck = {
 // a key's outcome: the deck next, the acts it asks (Term.ts runs them),
 // what it sent (the crew's keys send as they act: View.view_full),
 // whether the deck closes (focus: the agent whose page to show), a link
-// to open in the browser
-export type Out = { deck: Deck; acts: View.Act[]; sends: View.Client[]; done: boolean; focus?: string; open?: string };
+// to open in the browser, text to type in the box (once the deck closes)
+export type Out = { deck: Deck; acts: View.Act[]; sends: View.Client[]; done: boolean; focus?: string; open?: string; type?: string };
 
 // Constants
 // =========
@@ -115,7 +115,7 @@ const MOVES: Record<string, number> = { j: 1, Down: 1, k: -1, Up: -1 };
 
 // a page's own keys, before Esc, q and the moves (null: not its key)
 type Keys = (v: View.View, d: Deck, key: string, now: number) => Out | null;
-const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key };
+const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key };
 
 // a key while a filter is typed: text goes in it, Backspace takes the last
 // character, Enter or Esc end it (a key's name, as Screen names keys, is
@@ -200,6 +200,32 @@ function deck_inbox_key(v: View.View, d: Deck, key: string, now: number): Out | 
   return null;
 }
 
+// the questions' keys (the web's pane): 1-9 sends that offered answer,
+// Enter leaves with /answer typed in the box, x dismisses (a note too),
+// as /answer and /drop
+function deck_questions_key(v: View.View, d: Deck, key: string, _now: number): Out | null {
+  const q = d.sel === null ? undefined : [...View.view_questions(v), ...View.view_notes(v)].find((x) => String(x.id) === d.sel);
+  const done = { deck: d, acts: [], sends: [], done: true };
+  if (!/^[1-9]$/.test(key) && key !== "Enter" && key !== "x") {
+    return null;
+  }
+  if (q === undefined) {
+    return act_or_say(d, "Pick a question first: ↑↓.");
+  }
+  if (key === "x") {
+    return act_or_say(d, View.view_drop(v, String(q.id)));
+  }
+  if (q.fyi) {
+    return act_or_say(d, "A note awaits no answer: x dismisses it.");
+  }
+  if (key === "Enter") {
+    return { ...done, type: "/answer " + q.id + " " };
+  }
+  const offered = q.options?.[Number(key) - 1];
+  return offered === undefined ? act_or_say(d, (q.options === undefined ? "This one has no offered answers" : "No answer " + key) + ": Enter types yours.")
+    : act_or_say(d, View.view_answer(v, q.id + " " + key));
+}
+
 // the first line in sight that keeps line at in sight, room lines shown
 function deck_sight(at: number, top: number, room: number): number {
   return at < top ? at : at >= top + room ? at - room + 1 : top;
@@ -267,6 +293,9 @@ function deck_body(v: View.View, d: Deck, w: number, now: number): Body {
   if (d.page === "inbox") {
     return parts_body(inbox_parts(v, d, now), w, d.sel);
   }
+  if (d.page === "questions") {
+    return parts_body(questions_parts(v), w, d.sel);
+  }
   const text = deck_text(v, d, now);
   if (d.page === "file" && v.looked !== null) {
     return { lines: Paint.rows_lines(View.entry_rows(null, "note", text), w), items: [] };
@@ -290,6 +319,25 @@ function parts_body(parts: Part[], w: number, sel: string | null): Body {
       .forEach((l, k) => lines.push([Paint.Run(k === 0 && here ? "▸ " : "  ", BOLD), ...l]));
   }
   return { lines, items };
+}
+
+// the questions, as the web's pane: each open one to pick (its number,
+// its lines, the answers offered), then the notes; the keys
+function questions_parts(v: View.View): Part[] {
+  const qs = View.view_questions(v);
+  const notes = View.view_notes(v);
+  const item = (q: View.Question): Part[] => {
+    const [first, ...more] = q.text.split("\n");
+    const offered = q.options === undefined ? [] : [{ text: "    " + q.options.map((o, k) => k + 1 + ") " + o).join(" · "), ink: SAY }];
+    return [{ key: String(q.id), text: q.id + ". " + first }, ...more.map((l): Part => ({ text: "    " + l })), ...offered];
+  };
+  return [
+    { text: qs.length === 0 ? "No open questions." : "Your questions (" + qs.length + ")", ink: BOLD },
+    ...qs.flatMap(item),
+    ...(notes.length === 0 ? [] : [{ text: "" }, { text: "Notes (" + notes.length + ")", ink: HEAD }, ...notes.flatMap(item)]),
+    { text: "" },
+    { text: "↑↓ pick · 1-9 that answer · Enter types /answer in the box · x dismiss · Esc chat", ink: Paint.DIM },
+  ];
 }
 
 // a row's tag's ink by its tone, as the web's tags

@@ -892,11 +892,11 @@ and `deck_lines(v, deck, w, h, now)`; crew stays View.view_full + Paint.crew_ful
 called from it. Term.ts swaps `t.full` for `t.deck`; on a pipe, commands print
 text as now.
 
-- [ ] E1 Deck frame: Deck.ts, head line as the web's nav (Home · Inbox n · Chat ?n ·
+- [x] E1 Deck frame: Deck.ts, head line as the web's nav (Home · Inbox n · Chat ?n ·
       Crew pill · mode), `g h/i/c/q/m` switch pages, Esc/q leave; /crew full is its crew page
-- [ ] E2 Crew keys: u undo (asks View.undo_ask, y confirms), o handoff, A archive done
-- [ ] E3 Home page: away card on top, stats, working/done cards, up next; j/k, Enter focus, A archive
-- [ ] E4 Inbox page, the web's page_keys: j/k, space fold, Tab detail, Enter open, v pick,
+- [x] E2 Crew keys: u undo (asks View.undo_ask, y confirms), o handoff, A archive done
+- [x] E3 Home page: away card on top, stats, working/done cards, up next; j/k, Enter focus, A archive
+- [x] E4 Inbox page, the web's page_keys: j/k, space fold, Tab detail, Enter open, v pick,
       / filter, r review / f fix the picks (claude with Shift), R refresh
       -> checkpoint with the user here (diff ~300 lines)
 - [ ] E5 Questions page: j/k, 1-9 an offered answer, Enter types `/answer n ` in the box, x drop; notes under

@@ -628,6 +628,9 @@ function term_deck_key(t: Term, key: string): void {
     if (out.focus !== undefined) {
       term_act(t, { $: "Goto", name: out.focus });
     }
+    if (out.type !== undefined) {
+      Screen.ed_type(t.scr.ed, out.type);
+    }
   }
   term_draw(t);
 }
