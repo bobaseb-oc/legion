@@ -813,16 +813,16 @@ copied out of web/src. Constraints: one slice per commit, a red test first in
 Paint.test.ts / View.test.ts style (pure View -> lines), tsc clean, full suite
 shows no new failures (3 known baseline fails).
 
-- [ ] T1 Status line shows gateway budget + busy: Term builds StatusLine without
+- [x] T1 Status line shows gateway budget + busy: Term builds StatusLine without
       budget/busy (Term.ts:1161); share one builder with view_status (View.ts:1293)
-- [ ] T2 `/attach <path>`: image -> drop_image path, text -> drop_text fenced block
+- [x] T2 `/attach <path>`: image -> drop_image path, text -> drop_text fenced block
       in the box; a bracketed paste that is one existing path does the same
-- [ ] T3 Pins + recall: pin key on a message, `/pins`, `/recall <words>` showing
+- [x] T3 Pins + recall: pin key on a message, `/pins`, `/recall <words>` showing
       `recalled` hits, Seek jumps to the hit
-- [ ] T4 `/undo <agent>` (typed y/N confirm) and `/handoff <agent>` via the
+- [x] T4 `/undo <agent>` (typed y/N confirm) and `/handoff <agent>` via the
       existing Undo/Handoff acts; show the device's `did` answer
-- [ ] T5 `/home`: cockpit cards + "While you were away" card + Archive (Cockpit.home_cards, away)
-- [ ] T6 `/inbox`: inbox_sections, Review / Fetch acts, badge in the status line
+- [x] T5 `/home`: cockpit cards + "While you were away" card + Archive (Cockpit.home_cards, away)
+- [x] T6 `/inbox`: inbox_sections, Review / Fetch acts, badge in the status line
 - [ ] T7 Files, read-only: `/look <path[:line]>`, `/ls [dir]`, `/find`, `/grep`, git view
 - [ ] T8 Files, writes: edit + save (separate slice; same server guards as the web)
 - [ ] T9 Code highlighting in the terminal: split Hl.ts into tokens + HTML renderer, add ANSI renderer
