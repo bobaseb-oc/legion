@@ -899,13 +899,30 @@ text as now.
 - [x] E4 Inbox page, the web's page_keys: j/k, space fold, Tab detail, Enter open, v pick,
       / filter, r review / f fix the picks (claude with Shift), R refresh
       -> checkpoint with the user here (diff ~300 lines)
-- [ ] E5 Questions page: j/k, 1-9 an offered answer, Enter types `/answer n ` in the box, x drop; notes under
-- [ ] E6 Memory page: pins and the last recall's hits; Enter seeks, p unpins, / types `/recall `
-- [ ] E7 File page: the file shown, Hl-colored, numbered, scrolled (j/k, PgUp/PgDn, g/G),
+- [x] E5 Questions page: j/k, 1-9 an offered answer, Enter types `/answer n ` in the box, x drop; notes under
+- [x] E6 Memory page: pins and the last recall's hits; Enter seeks, p unpins, / types `/recall `
+- [x] E7 File page: the file shown, Hl-colored, numbered, scrolled (j/k, PgUp/PgDn, g/G),
       / find in it, n/N, e edits; /look on a terminal opens it when the file comes
-- [ ] E8 Footer: the nav badge line in place of the bare tabs line, Cockpit.bar_text on the
+- [x] E8 Footer: the nav badge line in place of the bare tabs line, Cockpit.bar_text on the
       crew panel, toasts (a note gone after 7 s) for confirmations
-- [ ] E9 Wide terminal (>= 120 cols): a home column beside the crew panel (needs you, inbox, up next)
-- [ ] E10 `/` menu: input starting `/` shows matching commands and palette items (pages, agents,
+- [x] E9 Wide terminal (>= 120 cols): a home column beside the crew panel (needs you, inbox, up next)
+- [x] E10 `/` menu: input starting `/` shows matching commands and palette items (pages, agents,
       PRs, spaces) above the box; Up/Down pick, Tab completes, Enter runs (Screen key hook)
-- [ ] E11 Mouse in the deck (SGR 1006: click selects, wheel scrolls), a spinner on working agents
+- [x] E11 Mouse in the deck (SGR 1006: click selects, wheel scrolls), a spinner on working agents
+
+Review (2026-11-17): E1-E11 done, a red test first per slice, no server change.
+Found on the way, fixed with tests: #24's multi-line notes printed squashed
+(View.note_rows); the web's picked panel sent an Alerts row's key
+("alert:<url>") as the PR to fix (Cockpit.picks_acts, now shared).
+Choices: page commands open the deck on a terminal, print on a pipe (asked:
+keep); from the chat the chord is Ctrl+G + letter (a bare g is typing); the
+mouse is reported only in the deck (the chat keeps native selection); /look
+opens the file page only for the path this terminal asked (the server tells
+every view what a device showed); a chord starts its page anew.
+Shared with the web now: Cockpit.CHORDS (web gains g p: memory),
+picks_acts, FIX (Pages' copy gone), card_text, stats_text.
+Proof: full suite 542 pass, 2 fail (the known log-staging pair); tsc on
+changed files: only no-bun/node-types noise; 4 mutants (picks by URL, keys
+hook, undo asks first, Esc drops picks) each killed. Not run by hand in a
+live terminal.
+Open: the terminal also prints looks another view asked for (since #24).

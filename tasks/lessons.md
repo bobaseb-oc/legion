@@ -17,3 +17,4 @@ Rule: when asked to address all points, every item I can fix is fixed before the
 when it needs the user's call, and then I ask (with a recommendation) before opening the PR, not after.
 Also: an unsandboxed shell has a different $TMPDIR than a sandboxed one, so mutation backups belong in the
 repo (work-tasks/), never in $TMPDIR across sandbox modes.
+- 2026-11-17: PR #24's /home, /inbox, /digest and /questions printed squashed on one line: their text helpers were tested, but Term printed every note as one Cap row, which Paint flattens (newlines become spaces), and no test went through that path. Rule: for terminal output, test the lines Paint draws from the rows Term builds (a pure rows helper, e.g. View.note_rows), not only the text a helper returns.
