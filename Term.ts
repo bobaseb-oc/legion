@@ -66,6 +66,8 @@ type Term = {
   seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
   editing?: string; // /edit's file, asked of a device: its editor runs once it comes
   looking?: string; // /look's file, asked of a device: the deck's file page shows it once it comes (a terminal)
+  chord?  : boolean; // Ctrl+G pressed: the next key a page's letter (term_chord)
+  toast?  : { text: string; until: number }; // a word over the input till then (term_toast)
   stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
@@ -207,6 +209,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
+      ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, c crew, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
       ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
@@ -268,11 +271,11 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/inbox [words]",    "",                        "review requests, your PRs, alerts, tickets, worktrees to clean, numbered; words filter", term_inbox],
       ["/review <n…> [claude]", "",                    "a Legion agent reviews each review request (claude: as Claude Code workers)", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "review", a, Date.now()))],
       ["/fix <n…> [claude]", "",                       "a Legion agent fixes each of your PRs failing, in conflict or with changes asked", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "fix", a, Date.now()))],
-      ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_note(t, "Reading the inbox anew; /inbox in a moment."))],
+      ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_toast(t, "Reading the inbox anew; /inbox in a moment."))],
     ]],
     ["Pages", [
       ["/digest",           "",                        "the team's week: merged by author, then in progress", (t) => term_page_cmd(t, "digest", () => Cockpit.digest_text(t.v))],
-      ["/themes",           "",                        "the digest summarized by theme (one call to the compactor's model)", (t) => (term_act(t, { $: "Themes" }), term_note(t, "Summarizing the digest by theme…"))],
+      ["/themes",           "",                        "the digest summarized by theme (one call to the compactor's model)", (t) => (term_act(t, { $: "Themes" }), term_toast(t, "Summarizing the digest by theme…"))],
       ["/transcripts",      "",                        "recorded calls, the last 14 days",               (t) => term_page_cmd(t, "transcripts", () => Cockpit.transcripts_text(t.v))],
       ["/transcript <n>",   "",                        "transcript n's summary (made once, by the compactor's model)", term_transcript],
       ["/timesheet [act]",  "",                        "Harvest drafts by day; submit sends the open ones, drop <n>, weekly drafts every Friday", (t, a) => a.trim() === "" ? term_page_cmd(t, "timesheet", () => Cockpit.timesheet_text(t.v)) : term_answer(t, Cockpit.timesheet_cmd(t.v, a))],
@@ -541,6 +544,9 @@ function term_press(t: Term, key: string): void {
   if (key === "FocusIn" || key === "FocusOut") {
     return term_focus(t, key === "FocusOut");
   }
+  if (t.chord) {
+    return term_chord_key(t, key);
+  }
   if (t.deck !== undefined) {
     return term_deck_key(t, key);
   }
@@ -600,7 +606,9 @@ function term_deck(t: Term, page: Deck.Page | null, filter = ""): void {
     return term_note(t, "The full-screen pages need a terminal.");
   }
   const was = t.deck !== undefined;
-  t.deck = page === null ? undefined : { ...Deck.deck_new(page, filter), sel: page === "crew" ? t.v.page?.name ?? null : null };
+  t.deck = page === null ? undefined
+    : page === "file" ? Deck.deck_file(t.v, Screen.screen_width(), process.stdout.rows || 24, Date.now())
+    : { ...Deck.deck_new(page, filter), sel: page === "crew" ? t.v.page?.name ?? null : null };
   t.scr.grab = page !== null;
   if (was !== (page !== null)) {
     process.stdout.write(page !== null ? ALT_ON : ALT_OFF);
@@ -608,6 +616,39 @@ function term_deck(t: Term, page: Deck.Page | null, filter = ""): void {
   if (page !== null && !was) {
     process.once("exit", () => t.deck !== undefined && process.stdout.write(ALT_OFF));
   }
+  term_draw(t);
+}
+
+// Ctrl+G from the chat: the next key a page's letter (Deck.deck_chord),
+// as g is in the deck; the keys grabbed till it comes
+function term_chord(t: Term): void {
+  if (!t.scr.tty) {
+    return;
+  }
+  t.chord = true;
+  t.scr.grab = true;
+  term_toast(t, "Go to: h home · i inbox · c crew · q questions · p memory · f file · r routines · d digest · t transcripts · s timesheet · any other key: stay");
+}
+
+function term_chord_key(t: Term, key: string): void {
+  t.chord = false;
+  t.scr.grab = t.deck !== undefined;
+  t.toast = undefined;
+  const to = Deck.deck_chord(key);
+  if (to === "inbox") {
+    term_inbox(t, "");
+  } else if (to !== null && to !== "chat") {
+    term_deck(t, to);
+  }
+  term_draw(t);
+}
+
+// a short word for a while over the input (the web's #toast), not kept
+// in the scrollback: what was done, what goes on
+const TOAST = 7000;
+function term_toast(t: Term, text: string): void {
+  t.toast = { text, until: Date.now() + TOAST };
+  setTimeout(() => term_draw(t), TOAST + 50);
   term_draw(t);
 }
 
@@ -698,7 +739,7 @@ async function term_attach(t: Term, arg: string): Promise<void> {
       term_note(t, "Not attached: " + file + " is neither text nor an image. " + View.IMAGES);
     } else if (kind.$ === "image") {
       t.imgs.push(new Blob([bytes]));
-      term_note(t, "Attached " + file + "; it goes with the next message (" + t.imgs.length + " waiting).");
+      term_toast(t, "Attached " + file + "; it goes with the next message (" + t.imgs.length + " waiting).");
     } else {
       Screen.ed_type(t.scr.ed, kind.text);
       term_draw(t);
@@ -759,7 +800,7 @@ function term_edit_run(t: Term, file: { path: string; text: string }): void {
       term_note(t, "No change: " + file.path + " not saved.");
     } else {
       term_act(t, { $: "Save", text });
-      term_note(t, "Saving " + file.path + "…");
+      term_toast(t, "Saving " + file.path + "…");
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -771,7 +812,7 @@ function term_transcript(t: Term, arg: string): void {
   const r = Cockpit.transcript_cmd(t.v, arg);
   if (typeof r !== "string") {
     term_act(t, r);
-    term_note(t, "Reading and summarizing…");
+    term_toast(t, "Reading and summarizing…");
     return;
   }
   term_rows(t, View.entry_rows(null, "note", r), false);
@@ -866,7 +907,7 @@ function term_crew(t: Term, arg = ""): void {
     return term_deck(t, "crew");
   }
   t.crew = !(t.crew ?? true);
-  term_note(t, t.crew ? "The crew shows below the input." : "The crew is hidden: /crew shows it.");
+  term_toast(t, t.crew ? "The crew shows below the input." : "The crew is hidden: /crew shows it.");
 }
 
 // the person's yes or no to a Claude Code worker asking to start: the
@@ -1221,7 +1262,6 @@ function term_print(t: Term, msg: View.Server): void {
       if (msg.kind === "file" && msg.error === undefined && t.looking !== undefined && msg.path === t.looking) {
         t.looking = undefined;
         term_deck(t, "file");
-        t.deck = Deck.deck_file(v, Screen.screen_width(), process.stdout.rows || 24, Date.now());
         return;
       }
       const md = View.looked_md(v, msg);
@@ -1400,15 +1440,17 @@ function term_paint(t: Term): void {
   const off   = !View.view_typing(t.v);
   const crew  = t.v.crew.length > 0 && (t.crew ?? true) ? Paint.crew_lines(t.v, iw, Date.now(), CREW_ROWS) : [Paint.tabs_line(t.v, iw)];
   const hint  = t.v.page === null ? View.HINT + " · /help" : "Tell " + t.v.page.name + " · Tab to go on";
-  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length, off ? OFF : hint, off);
+  const toast = t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [];
+  const foot  = [Deck.foot_line(t.v, iw)];
+  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - toast.length - foot.length, off ? OFF : hint, off);
   const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
-  const own   = term_inset([Paint.rule_line(t.v, iw), ...input.lines, under, ...crew]);
+  const own   = term_inset([...toast, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));
   const held  = t.v.page === null ? View.view_rows(t.v, t.wait).flat() : [];
   const tail  = term_lines([...held, ...View.view_tail(t.v, rest)]).flatMap((l) => Paint.runs_wrap(l, w, true));
   const above = tail.slice(Math.max(0, tail.length - room + own.length));
-  const at    = { row: above.length + 1 + input.at.row, col: input.at.col + MARGIN };
+  const at    = { row: above.length + toast.length + 1 + input.at.row, col: input.at.col + MARGIN };
   Screen.screen_paint(t.scr, t.out, t.wipe, [...above, ...own], at);
   t.out  = [];
   t.wipe = false;
@@ -1430,7 +1472,7 @@ function term_bg(t: Term): void {
     t.jobs.delete(id);
     run.away.abort();
   }
-  term_note(t, "Sent " + shells.length + (shells.length === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
+  term_toast(t, "Sent " + shells.length + (shells.length === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
 }
 
 // Login

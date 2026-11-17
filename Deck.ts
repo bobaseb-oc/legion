@@ -84,11 +84,11 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
     return out(d.page === "file" && key === "Enter" ? file_find(typed, deck_body(v, typed, w, now).lines, room, 0) : typed);
   }
   if (d.g) {
-    const to = Object.hasOwn(CHORDS, key) ? CHORDS[key] : undefined;
+    const to = deck_chord(key);
     if (to === "chat") {
       return out({ ...d, g: false }, { done: true });
     }
-    return out(to === undefined ? { ...d, g: false } : deck_new(to));
+    return out(to === null ? { ...d, g: false } : deck_new(to));
   }
   if (key === "g") {
     return out({ ...d, g: true });
@@ -523,22 +523,23 @@ function deck_text(v: View.View, d: Deck, now: number): string {
 }
 
 // the nav, as the web's: each page's letter (underlined), its label (the
-// one shown bold) and count; then the mode. Pages that do not fit in w
-// are left out, the one shown kept
-export function deck_nav(v: View.View, page: Page, w: number): Paint.Line {
+// one shown bold) and count (the crew's: its pill, unless the tail says
+// it); then the tail (the deck's: the mode). Pages that do not fit in w
+// are left out, the one shown kept; then the tail, if it fits
+export function deck_nav(v: View.View, page: Page | "chat", w: number, tail?: Paint.Line): Paint.Line {
   const asked = View.view_questions(v).length;
   const notes = View.view_notes(v).length;
   const count: Partial<Record<Page | "chat", string>> = {
     inbox: String(Cockpit.inbox_badge(v.inbox) || ""),
     chat: [asked === 0 ? "" : "?" + asked, notes === 0 ? "" : "i" + notes].filter((x) => x !== "").join(" "),
-    crew: View.view_pill(v),
+    crew: tail === undefined ? View.view_pill(v) : "",
     memory: String((v.pins ?? []).length || ""),
   };
   const item = ([letter, label, to]: (typeof NAV)[number]): Paint.Line => {
     const n = count[to] ?? "";
     return [Paint.Run(letter, KEY), Paint.Run(" "), Paint.Run(label + (n === "" ? "" : " " + n), to === page ? BOLD : Paint.INK)];
   };
-  const mode = v.mode === undefined ? [] : [Paint.Run("· " + v.mode + " mode", Paint.DIM)];
+  const mode = tail ?? (v.mode === undefined ? [] : [Paint.Run("· " + v.mode + " mode", Paint.DIM)]);
   const width = (l: Paint.Line) => Paint.text_width(l.map((r) => r.x).join(""));
   const shown: Paint.Line[] = [];
   let used = width(mode);
@@ -553,6 +554,17 @@ export function deck_nav(v: View.View, page: Page, w: number): Paint.Line {
   }
   const line = [...shown.flatMap((l, k) => (k === 0 ? l : [Paint.Run("  "), ...l])), ...(used <= w && mode.length > 0 ? [Paint.Run("  "), ...mode] : [])];
   return line_cut(line, w);
+}
+
+// the chat's footer line: the nav (the chat shown), the web's bottom bar
+// (Cockpit.bar_text), how to go to a page from the chat
+export function foot_line(v: View.View, w: number): Paint.Line {
+  return deck_nav(v, "chat", w, [Paint.Run("· " + Cockpit.bar_text(v) + " · Ctrl+G + letter", Paint.DIM)]);
+}
+
+// the page a chord's letter goes to (m: the chat), else null
+export function deck_chord(key: string): Page | "chat" | null {
+  return Object.hasOwn(CHORDS, key) ? CHORDS[key] : null;
 }
 
 // a line cut to w columns (its runs' inks kept)

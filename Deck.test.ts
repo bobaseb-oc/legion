@@ -269,6 +269,30 @@ test("the file page: the whole file, numbered; / finds in it, n and N go between
   expect(Deck.deck_file(v, W, H, 0).page).toBe("file");
 });
 
+test("from the chat, Ctrl+G and a letter: the chord's page", () => {
+  expect(Deck.deck_chord("i")).toBe("inbox");
+  expect(Deck.deck_chord("q")).toBe("questions");
+  expect(Deck.deck_chord("f")).toBe("file");
+  expect(Deck.deck_chord("m")).toBe("chat");
+  expect(Deck.deck_chord("x")).toBeNull();
+  expect(Deck.deck_chord("constructor")).toBeNull();
+});
+
+test("the footer's nav: the pages and their counts, the chat bold, the web's bottom bar, how to go; within the width", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, crew: [...v.crew, crew("Old", "main", "done")] });
+  const line = Deck.foot_line(v, 160);
+  const all = text(line);
+  expect(all).toContain("Chat ?1");
+  expect(all).toContain("2 need you · 1 working · 0 ready · 1 done");
+  expect(all).toContain("Ctrl+G");
+  expect(line.find((r) => r.x.startsWith("Chat"))!.s.b).toBe(true);
+  expect(line.find((r) => r.x.startsWith("Home"))!.s.b).toBe(false);
+  for (const w of [20, 40, 80]) {
+    expect(Paint.text_width(text(Deck.foot_line(v, w)))).toBeLessThanOrEqual(w);
+  }
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

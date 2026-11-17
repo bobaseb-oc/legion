@@ -418,6 +418,12 @@ export function rule_line(v: View.View, w: number): Line {
 export type Status = View.StatusLine;
 export const status_text = View.status_text;
 
+// a toast (Term.ts, as the web's #toast): one line over the input, bold,
+// in the color of what is for the user, cut to w
+export function toast_line(text: string, w: number): Line {
+  return [Run(text_cut(text_clean(text), w), { ...INK, b: true, c: Theme.ANSI.you })];
+}
+
 export function rule_text(text: string, w: number): Line {
   const tag = text === "" ? "" : " " + text + " ";
   return [Run("─".repeat(Math.max(0, w - text_width(tag) - 1)) + tag + "─", DIM)];

@@ -110,3 +110,13 @@ test("a file the terminal looked at prints as a note's code block, each line who
   expect(lines.some((l) => l.includes("1  const x = 1;"))).toBe(true);
   expect(lines.some((l) => l.includes("2  // done"))).toBe(true);
 });
+
+// a toast (Term.ts, as the web's #toast): one line over the input, in the
+// color of what is for the user, cut to the width
+test("a toast is one line, the user's color, cut to the width", () => {
+  const l = Paint.toast_line("Reading the inbox anew; /inbox in a moment.", 20);
+  expect(Paint.text_width(text(l))).toBeLessThanOrEqual(20);
+  expect(text(l)).toMatch(/^Reading the inbox a.*…$/);
+  expect(l[0].s.c).toBe(Theme.ANSI.you);
+  expect(text(Paint.toast_line("Saved", 40))).toBe("Saved");
+});
