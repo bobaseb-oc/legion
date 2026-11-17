@@ -1471,6 +1471,98 @@ export function view_crew_op(v: View, op: "undo" | "handoff", arg: string): Act 
   return yes ? { $: "Undo", name } : undo_ask(name) + " Sure? /undo " + name + " yes";
 }
 
+// The terminal's files
+// --------------------
+// The Files page as commands (Term.ts): a path typed (quoted, ~, relative
+// to the terminal's folder) made absolute, as a device asked may not run
+// there; what came back as markdown, a file's lines numbered
+
+// p from dir, ".." and "." taken out
+export function path_from(dir: string, p: string, home: string): string {
+  const typed = paths_typed(p, home)[0] ?? "";
+  const parts: string[] = [];
+  for (const part of (typed.startsWith("/") ? typed : dir + "/" + typed).split("/")) {
+    if (part === "..") {
+      parts.pop();
+    } else if (part !== "" && part !== ".") {
+      parts.push(part);
+    }
+  }
+  return "/" + parts.join("/");
+}
+
+export function view_look_cmd(arg: string, dir: string, home: string): Act | string {
+  if (arg.trim() === "") {
+    return "Which file? /look <path[:line]>";
+  }
+  const line = view_line(arg);
+  const path = path_from(dir, arg.trim().replace(/(:\d+){1,2}$/, ""), home);
+  return { $: "Look", what: line === null ? { kind: "file", path } : { kind: "file", path, line } };
+}
+
+export const GIT_OPS = ["status", "log", "diff", "changes", "branches", "show"];
+
+// /git <op> [repo] [rev]: show takes a rev
+export function view_git_cmd(arg: string, dir: string, home: string): Act | string {
+  const [op, repo, rev] = arg.trim().split(/\s+/);
+  if (!GIT_OPS.includes(op ?? "") || (op === "show" && rev === undefined && repo === undefined)) {
+    return "/git status, log, diff, changes, branches or show <rev>, then a repo (here if none).";
+  }
+  // show <rev> alone: here
+  const [at, r] = op === "show" && rev === undefined ? [undefined, repo] : [repo, rev];
+  const path = at === undefined ? path_from(dir, ".", home) : path_from(dir, at, home);
+  return { $: "Look", what: r === undefined ? { kind: "git", repo: path, op: op! } : { kind: "git", repo: path, op: op!, rev: r } };
+}
+
+// a file's lines shown, from the line asked (a few before it) or the top
+export const FILE_ROWS = 60;
+
+// what a device answered as markdown for the terminal; null: nothing to
+// print yet (a find some workspaces haven't answered)
+export function looked_md(v: View, msg: Looked): string | null {
+  const name = "`" + (msg.path ?? "") + "`";
+  if (msg.kind === "dir") {
+    const d = v.dirs.get(msg.path ?? "");
+    if (d?.error !== undefined) {
+      return d.error;
+    }
+    const entry = (l: string) => l.slice(2) + (l[0] === "d" ? "/" : l[0] === "s" ? " (secrets: not shown)" : "");
+    const lines = (d?.text ?? "").split("\n").filter((l) => l !== "");
+    return name + ":\n" + (lines.map(entry).join("\n") || "(empty)");
+  }
+  if (msg.kind === "find" || msg.kind === "grep") {
+    const f = v.found;
+    if (f === null || f.q !== msg.q || [...f.by.values()].some((l) => l.text === undefined && l.error === undefined)) {
+      return null;
+    }
+    const part = ([w, l]: [string, Listing]) => "`" + w + "`" + (l.error !== undefined ? ": " + l.error : ":\n" + (l.text || "(none)"));
+    return f.kind + " “" + f.q + "”:\n" + [...f.by].map(part).join("\n");
+  }
+  if (msg.kind === "open" || msg.kind === "save") {
+    return msg.error ?? msg.text ?? null;
+  }
+  if (msg.error !== undefined) {
+    return msg.error;
+  }
+  const fence = (lang: string, text: string) => {
+    const ticks = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+    return ticks + lang + "\n" + text + "\n" + ticks;
+  };
+  if (msg.kind === "git") {
+    const diffy = ["diff", "changes", "show"].includes(msg.op ?? "");
+    return "`git " + msg.op + "` in " + name + ":\n" + fence(diffy ? "diff" : "", msg.text ?? "");
+  }
+  const all = (msg.text ?? "").split("\n");
+  const from = Math.max(1, Math.min((v.line ?? 1) - 10, all.length - FILE_ROWS + 1));
+  const to = Math.min(all.length, from + FILE_ROWS - 1);
+  const width = String(to).length;
+  const rows = all.slice(from - 1, to).map((l, k) => String(from + k).padStart(width) + (from + k === v.line ? "→ " : "  ") + l);
+  const more = to < all.length ? "; /look " + msg.path + ":" + (to + 1) + " for more" : "";
+  const head = from === 1 && to === all.length ? name + ":" : name + " (lines " + from + "–" + to + " of " + all.length + more + "):";
+  const ext = /\.([\w+-]{1,16})$/.exec(msg.path ?? "")?.[1] ?? "";
+  return head + "\n" + fence(ext, rows.join("\n"));
+}
+
 // a command's #id (or bare id) as its act; else why not
 export function view_id_cmd(cmd: string, arg: string, act: (id: number) => Act): Act | string {
   const m = /^#?(\d+)$/.exec(arg.trim());

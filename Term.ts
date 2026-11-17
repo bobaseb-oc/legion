@@ -252,6 +252,14 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
     ]],
+    ["Files", [
+      ["/look <path[:line]>", "",                      "a file's lines, from that line (asked of a device; secrets refused)", (t, a) => term_answer(t, View.view_look_cmd(a, process.cwd(), os.homedir()))],
+      ["/ls [folder|roots]", "",                       "a folder's entries (here if none); roots: the work dir, home repo, spaces", term_ls],
+      ["/find <name>",      "",                        "files by name in the workspace (this folder)",   (t, a) => term_find(t, "find", a)],
+      ["/grep <text>",      "",                        "lines holding the text in the workspace",        (t, a) => term_find(t, "grep", a)],
+      ["/git <op> [repo]",  "",                        "status, log, diff, changes (the branch's work since main), branches, show <rev>", (t, a) => term_answer(t, View.view_git_cmd(a, process.cwd(), os.homedir()))],
+      ["/editor <path>",    "",                        "open a file in your editor on the device",      (t, a) => a.trim() === "" ? term_note(t, "Which file? /editor <path>") : term_act(t, { $: "Look", what: { kind: "open", path: View.path_from(process.cwd(), a, os.homedir()) } })],
+    ]],
     ["Inbox", [
       ["/inbox [words]",    "",                        "review requests, your PRs, alerts, tickets, worktrees to clean, numbered; words filter", term_inbox],
       ["/review <n…> [claude]", "",                    "a Legion agent reviews each review request (claude: as Claude Code workers)", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "review", a, Date.now()))],
@@ -683,6 +691,25 @@ function term_pasted(t: Term, text: string): boolean {
   return true;
 }
 
+// /ls [folder|roots]: asked anew each time (View keeps a folder's answer)
+function term_ls(t: Term, arg: string): void {
+  const path = arg.trim() === "roots" ? "@roots" : View.path_from(process.cwd(), arg.trim() || ".", os.homedir());
+  t.v.dirs.delete(path);
+  term_act(t, { $: "List", path });
+}
+
+// /find, /grep: in the workspaces open, this folder if none
+function term_find(t: Term, kind: "find" | "grep", q: string): void {
+  if (q.trim() === "") {
+    term_note(t, (kind === "find" ? "Find what? /find <name>" : "Grep what? /grep <text>"));
+    return;
+  }
+  if (t.v.workspaces.length === 0) {
+    t.v.workspaces = [process.cwd()];
+  }
+  term_act(t, { $: "Find", kind, q });
+}
+
 // the inbox's rows changed since /inbox last showed it (never shown: 0)
 function term_inbox_changed(t: Term): number {
   return t.stamps === undefined ? 0 : Cockpit.inbox_changed(Cockpit.inbox_sections(t.v.inbox, t.v.crew, "", Date.now()), t.stamps);
@@ -1081,6 +1108,13 @@ function term_print(t: Term, msg: View.Server): void {
     case "zoom": {
       if (main) {
         term_shown(t, msg.id, msg.n, true);
+      }
+      return;
+    }
+    case "looked": {
+      const md = View.looked_md(v, msg);
+      if (md !== null) {
+        term_rows(t, View.entry_rows(null, "note", md), false);
       }
       return;
     }

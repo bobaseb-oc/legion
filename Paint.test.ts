@@ -90,3 +90,11 @@ test("the status line shows the mode and what waits", () => {
   const s = { up: true, dir: "repo", branch: null, model: "m", working: 0, spend: { spend: null, stale: false }, mode: "plan" as const, waiting: 2 };
   expect(Paint.status_text(s)).toBe("repo · m · plan mode · 2 waiting for you");
 });
+
+test("a file the terminal looked at prints as a note's code block, each line whole", () => {
+  const rows = View.entry_rows(null, "note", "`/w/a.ts`:\n```ts\n1  const x = 1;\n2  // done\n```");
+  const lines = Paint.rows_lines(rows, 60).map(text);
+  expect(lines.some((l) => l.includes("/w/a.ts"))).toBe(true);
+  expect(lines.some((l) => l.includes("1  const x = 1;"))).toBe(true);
+  expect(lines.some((l) => l.includes("2  // done"))).toBe(true);
+});

@@ -527,6 +527,41 @@ test("/undo and /handoff in the terminal: a crew member, idle for an undo, confi
   expect(View.view_crew_op(v, "undo", "yes")).toEqual({ $: "Undo", name: "Mgr" });
 });
 
+test("files in the terminal: /look path[:line], /git op [repo] [rev], made absolute from the terminal's folder", () => {
+  expect(View.view_look_cmd("src/a.ts:120", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/w/src/a.ts", line: 120 } });
+  expect(View.view_look_cmd("~/x.sql", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/h/x.sql" } });
+  expect(View.view_look_cmd("'/a b/c.md'", "/w", "/h")).toEqual({ $: "Look", what: { kind: "file", path: "/a b/c.md" } });
+  expect(View.view_look_cmd("", "/w", "/h")).toBe("Which file? /look <path[:line]>");
+  expect(View.view_git_cmd("log", "/w", "/h")).toEqual({ $: "Look", what: { kind: "git", repo: "/w", op: "log" } });
+  expect(View.view_git_cmd("show ../r abc123", "/w/x", "/h")).toEqual({ $: "Look", what: { kind: "git", repo: "/w/r", op: "show", rev: "abc123" } });
+  expect(View.view_git_cmd("push", "/w", "/h")).toBe("/git status, log, diff, changes, branches or show <rev>, then a repo (here if none).");
+});
+
+test("files in the terminal: what a device answered, as markdown: a file's lines numbered around the one asked, a folder, finds", () => {
+  const v = View.view_new();
+  const text = Array.from({ length: 200 }, (_, k) => "line " + (k + 1)).join("\n");
+  View.view_act(v, { $: "Look", what: { kind: "file", path: "/w/a.ts", line: 100 } });
+  View.view_hear(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h", text });
+  const md = View.looked_md(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h", text })!;
+  expect(md.split("\n")[0]).toBe("`/w/a.ts` (lines 90–149 of 200; /look /w/a.ts:150 for more):");
+  expect(md).toContain("```ts\n 90  line 90\n");
+  expect(md).toContain("100→ line 100\n");
+  expect(md.endsWith("149  line 149\n```")).toBe(true);
+  View.view_hear(v, { $: "looked", id: "2", kind: "dir", path: "/w", text: "d src\nf a.ts\ns .env" });
+  expect(View.looked_md(v, { $: "looked", id: "2", kind: "dir", path: "/w" })).toBe("`/w`:\nsrc/\na.ts\n.env (secrets: not shown)");
+  View.view_hear(v, { $: "looked", id: "3", kind: "dir", path: "/nope", error: "No file /nope here." });
+  expect(View.looked_md(v, { $: "looked", id: "3", kind: "dir", path: "/nope", error: "No file /nope here." })).toBe("No file /nope here.");
+  v.workspaces = ["/w", "/r"];
+  View.view_act(v, { $: "Find", kind: "grep", q: "TODO" });
+  const one = { $: "looked" as const, id: "4", kind: "grep" as const, path: "/w", q: "TODO", text: "a.ts:3:// TODO x" };
+  View.view_hear(v, one);
+  expect(View.looked_md(v, one)).toBeNull(); // /r not answered yet
+  const two = { $: "looked" as const, id: "5", kind: "grep" as const, path: "/r", q: "TODO", error: "not a repo" };
+  View.view_hear(v, two);
+  expect(View.looked_md(v, two)).toBe("grep “TODO”:\n`/w`:\na.ts:3:// TODO x\n`/r`: not a repo");
+  expect(View.looked_md(v, { $: "looked", id: "6", kind: "git", path: "/w", op: "diff", text: "+a\n-b" })).toBe("`git diff` in `/w`:\n```diff\n+a\n-b\n```");
+});
+
 test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
   const v = View.view_new();
   const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };
