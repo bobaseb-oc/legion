@@ -805,6 +805,38 @@ Review of 8facfc1..main (PRs #9–#20). Red test first for each, then the fix.
 - Review: 8 fixes, red test first for each; 9/9 mutants (each fix reverted alone) killed; suite 490 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
 - Left as Low follow-ups: fetch metadata before the re-resolve, dids cap, gateway text to users, view.json rough/pins checks, search cost, <pinned> escaping, key-helper owner check, key in env's argv, okf-wiki caps, undo deleting a re-unignored file, mcp.extra.json personal paths.
 
+## One Legion server at a time (branch fix/one-server)
+Why: three e2e servers from 12 Nov ran side by side on 9555 for five days. Main.lock is per
+UNII_DIR, and the e2e run deleted its dir between starts, which removed the lock file, so every
+start took a fresh lock. A server on another UNII_DIR is never blocked at all.
+Promise: by default, one Legion server per user on this machine. A second start ends at once
+with a clear message (who holds it: pid, dir, port) unless UNII_ANOTHER=1. Restarts by launchd
+still work (a holder that is ending is waited on briefly).
+Edit scope: Server.ts (Main.lock + serve), Server.test.ts / Secure.test.ts (spawned servers set
+UNII_ANOTHER=1), README (one line), local/unii-local.sh only if `legion serve` needs a flag.
+- [x] Red test: with a live holder at the machine lock, a second `Server.ts` on a fresh UNII_DIR
+      exits non-zero and names the holder; with UNII_ANOTHER=1 it serves
+- [x] Red test: deleting the holder's UNII_DIR doesn't free the machine lock
+- [x] Server.ts: machine lock at ~/.unii/one.lock (fixed, outside any other UNII_DIR), same
+      unix-socket mechanism as Main.lock; the holder answers a connect with its pid/dir/port
+- [x] Spawned-server tests pass with the real Legion running (they set UNII_ANOTHER=1)
+- [x] Proof: suite green apart from the 3 known failures; mutants (no machine lock, override
+      ignored) each fail a test
+- [x] Found mid-way: the holder ending each connection made the next start see ECONNRESET,
+      take it as stale, delete the live lock and serve. Now the holder only writes, and only
+      ECONNREFUSED/ENOENT means stale; a non-socket lock is left alone (fail closed)
+
+Review: full suite 495 tests, 493 pass, 2 fail (the known log-staging pair); 4/4 mutants
+killed (lock per dir, override ignored, any error = stale, holder silent); a kill -9'd
+holder's lock is taken over; tsc adds only environment errors (no node/bun types).
+
+## Open tabs pick up new web code (separate PR, after the one above)
+Why: a tab opened before a server restart keeps running its old app.js; it reconnects to the
+new server but never reloads (the 16 Nov drop fix looked broken for this reason).
+Promise: the server sends a hash of the app.js it serves when a socket opens; a tab whose hash
+differs reloads once (or shows "Legion was updated: reload"), with any unsent text in the box kept.
+- [ ] Plan the details once the first PR is merged
+
 ## TUI parity with the web UI (2026-11-17, feat/tui-parity)
 
 Intent: the terminal (Term.ts + Paint.ts) can do what the web UI does, by reusing

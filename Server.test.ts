@@ -15,7 +15,7 @@ async function server_get(port: number, env: Record<string, string>, path: strin
   const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
   const site = "http://127.0.0.1:" + port;
   const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], {
-    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site, ...env },
+    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site, UNII_ANOTHER: "1", ...env },
     stdout : "ignore",
     stderr : "inherit",
   });
@@ -52,7 +52,7 @@ test("with workers, Server.ts routes to them", async () => {
 async function server_sock(port: number, dir: string): Promise<{ code: number | null; err: string; answers: boolean }> {
   const site = "http://127.0.0.1:" + port;
   const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], {
-    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site },
+    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site, UNII_ANOTHER: "1" },
     stdout : "ignore",
     stderr : "pipe",
   });
@@ -115,6 +115,58 @@ test("a free server bills nothing: it says so, and shows no prices or terms", as
   expect((await server_get(9482, {}, "/pricing")).status).toBe(404);
   expect((await server_get(9483, {}, "/terms.html")).status).toBe(404);
 });
+
+// one server at a time for this user (HOME's ~/.unii/lock), whatever its
+// UNII_DIR: a second ends, naming the one that runs, unless UNII_ANOTHER=1.
+// Deleting the first's dir (as a test run's cleanup does) frees nothing
+test("one server per user: a second on another dir ends naming the first; UNII_ANOTHER=1 runs one beside it", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  const first = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const site = "http://127.0.0.1:9501";
+  const holder = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9501"], {
+    env    : { ...process.env, HOME: home, UNII_DIR: first, UNII_SITE: site, UNII_ANOTHER: "" },
+    stdout : "ignore",
+    stderr : "inherit",
+  });
+  try {
+    for (let k = 0; k < 100 && (await fetch(site + "/api/hello").catch(() => null)) === null; k++) {
+      await Bun.sleep(50);
+    }
+    fs.rmSync(first, { recursive: true, force: true });
+    const second = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9502"], {
+      env    : { ...process.env, HOME: home, UNII_DIR: fs.mkdtempSync(os.tmpdir() + "/unii-server-"), UNII_SITE: "http://127.0.0.1:9502", UNII_ANOTHER: "" },
+      stdout : "ignore",
+      stderr : "pipe",
+    });
+    expect(await second.exited).not.toBe(0);
+    const said = await new Response(second.stderr).text();
+    expect(said).toContain("pid " + holder.pid);
+    expect(said).toContain("port 9501");
+    expect(said).toContain("UNII_ANOTHER=1");
+    expect((await fetch("http://127.0.0.1:9502/api/hello").catch(() => null))).toBeNull();
+    const beside = await server_get(9503, { HOME: home }, "/api/hello");
+    expect(beside.status).toBe(200);
+  } finally {
+    holder.kill();
+    await holder.exited;
+  }
+}, 30_000);
+
+// only a lock nothing listens on is taken: anything else there (not a
+// socket) is left, and the server ends
+test("a lock that is not a socket is left alone: the server ends", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  fs.mkdirSync(home + "/.unii");
+  fs.writeFileSync(home + "/.unii/lock", "not a socket");
+  const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9504"], {
+    env    : { ...process.env, HOME: home, UNII_DIR: fs.mkdtempSync(os.tmpdir() + "/unii-server-"), UNII_SITE: "http://127.0.0.1:9504", UNII_ANOTHER: "" },
+    stdout : "ignore",
+    stderr : "pipe",
+  });
+  expect(await proc.exited).not.toBe(0);
+  expect(await new Response(proc.stderr).text()).toContain("UNII_ANOTHER=1");
+  expect(fs.readFileSync(home + "/.unii/lock", "utf8")).toBe("not a socket");
+}, 30_000);
 
 // a /model while the turn's call runs picks the next call's: the wait
 // names the model the running one asked. Its own process, as config is
