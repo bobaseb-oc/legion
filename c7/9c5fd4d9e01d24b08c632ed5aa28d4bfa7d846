@@ -1,0 +1,25 @@
+web/app.js
+  s_67beeddb9b1d84::t_d609151ed69d53 3136,3574
+Cockpit.ts
+  s_67beeddb9b1d84::t_938a3d9cfaa8c7 475-477,482
+Deck.ts
+  s_67beeddb9b1d84::t_564a7758f5df3d 469
+web/src/Pages.ts
+  s_67beeddb9b1d84::t_d6941287643fab 485
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c79c5fd4d9e01d24b08c632ed5aa28d4bfa7d846",
+  "prompts": {},
+  "sessions": {
+    "s_67beeddb9b1d84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "301a66aa-ce4f-413e-be2f-92088b63fa53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
