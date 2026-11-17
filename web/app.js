@@ -1436,7 +1436,7 @@ var PINNED = 16000;
 var FIND = 200;
 var FOUND = 50;
 var SHOWN = 200;
-var PAGES = ["home", "inbox", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
+var PAGES = ["home", "inbox", "todo", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
 var MAIN = "Legion";
 var TURN = "Unii's turn";
 var WIRE = 2;
@@ -1830,6 +1830,9 @@ function view_act(v, act) {
     case "Pin": {
       return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
     }
+    case "Assignment": {
+      return (v.assigned ?? []).some((a) => a.n === act.n) ? [{ $: "assignment", n: act.n, done: act.done }] : [];
+    }
     case "Roots": {
       return [{ $: "root" }];
     }
@@ -2183,7 +2186,7 @@ function view_line(text) {
   return m === null ? null : Number(m[1]);
 }
 function view_route(hash) {
-  const m = /^#(chat|crew|home|inbox|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }
@@ -2747,14 +2750,15 @@ function ops_html(c) {
   const undo = at ? "" : `<button class="pbtn" title="put back the files its last turn changed"${act_html({ $: "Undo", name: c.name })}>Undo last turn</button>`;
   return `<div class="ops">${undo}<button class="pbtn" title="a terminal running claude in its repo, with its brief"${act_html({ $: "Handoff", name: c.name })}>Open in Claude Code</button></div>`;
 }
-function mode_html(mode, pill, asked = 0, perm, inbox = 0, notes = 0) {
+function mode_html(mode, pill, asked = 0, perm, inbox = 0, notes = 0, todos = 0) {
   const here = (m) => m === mode ? ` class="here"` : "";
   const count = inbox === 0 ? "" : ` <span class="pill need">${inbox}</span>`;
+  const todo = todos === 0 ? "" : ` <span class="pill need">${todos}</span>`;
   const tag = pill === "" ? "" : ` <span class="pill${pill.includes("need you") ? " need" : ""}">${esc2(pill)}</span>`;
   const said = [asked === 0 ? "" : "? " + asked, notes === 0 ? "" : "i " + notes].filter((x) => x !== "").join(" · ");
   const qs = said === "" ? [] : [`<button class="qs" data-qs title="${notes === 0 ? "your questions" : "your questions and notes"}">${said}</button>`];
   const chip = perm === undefined ? [] : [`<button class="perm ${perm}" title="the mode: Shift+Tab in the box cycles it"${act_html({ $: "Mode" })}>${perm} mode</button>`];
-  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, ...chip, ...qs];
+  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, ...chip, ...qs];
 }
 function tabs_html(tabs) {
   return tabs.map((tab) => {
@@ -3126,6 +3130,9 @@ var TIMESHEET_ROUTINE = {
   when: { $: "weekly", day: 5, at: "09:00" },
   tier: "worker"
 };
+function todo_who(a) {
+  return a.by === "main" ? MAIN : a.by;
+}
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3159,6 +3166,7 @@ function bar_text(v) {
 var CHORDS = {
   h: "home",
   i: "inbox",
+  o: "todo",
   m: "chat",
   c: "crew",
   r: "routines",
@@ -3171,6 +3179,7 @@ var CHORDS = {
 var PAGE_ITEMS = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
+  { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },
@@ -3315,7 +3324,8 @@ function home_html(v, now, away = null) {
   const next = up_next(v, now.getTime());
   const meet = (url) => url === "" ? "" : `<a class="pbtn" href="${esc2(url)}" target="_blank" rel="noopener noreferrer">Join</a>`;
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? next.map((e) => `<div class="next"><span class="when">${esc2(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc2(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>` : `<p class="meta">${esc2(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
+  const todos = (v.assigned ?? []).length;
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
   return [head, ...away === null ? [] : [away_html(away)], stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 function with_files(v) {
@@ -3341,6 +3351,7 @@ function side_html(v, mode, now) {
   const pages = [
     ["home", "Home", 0],
     ["inbox", "Inbox", inbox_badge(v.inbox)],
+    ["todo", "Todo", (v.assigned ?? []).length],
     ["chat", "Chat", (v.questions ?? []).length],
     ["crew", "Crew", working],
     ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length],
@@ -3555,6 +3566,15 @@ function shown_html(looked, source, at) {
 `)}</pre>`;
 }
 var TIMESHEET_ROUTINE2 = TIMESHEET_ROUTINE;
+function todo_html(v) {
+  const all = v.assigned ?? [];
+  const head = `<div class="phead"><h2>Todo</h2><p class="meta">What only you can do, put here by your agents: tick it Done and its agent hears it</p></div>`;
+  if (all.length === 0) {
+    return [head, `<p class="meta">Nothing to do. Agents put here what only you can do: approve a PR, run a login, send something.</p>`];
+  }
+  const row = (a) => `<div class="trow todo"><span class="n">${esc2(a.text)}</span><span class="meta why">by ${esc2(todo_who(a))} · ${esc2(minute(a.date))}</span>` + `<button class="pbtn go"${act_html2({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html2({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
+  return [head, `<div class="tday">${all.map(row).join("")}</div>`];
+}
 function timesheet_html(v) {
   const drafts = v.drafts ?? [];
   const open2 = drafts.filter((d) => d.state === "draft" || d.state === "failed").map((d) => d.n);
@@ -4599,7 +4619,7 @@ function crew_bars() {
   document.body.classList.toggle("crewmode", crew && !P.guest);
   const asked = view_questions(v).length + view_waiting(v);
   const notes = view_notes(v).length;
-  markup($("#mode"), mode_html(mode, view_pill(v), asked, P.guest ? undefined : v.mode, inbox_badge(v.inbox), notes));
+  markup($("#mode"), mode_html(mode, view_pill(v), asked, P.guest ? undefined : v.mode, inbox_badge(v.inbox), notes, (v.assigned ?? []).length));
   side_bars(mode);
   if (page_bars(mode)) {
     $("#questions").hidden = true;
@@ -4716,6 +4736,10 @@ function page_bars(mode) {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), timesheet_html(v));
+  } else if (mode === "todo") {
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    markup($("#page .pbody"), todo_html(v));
   } else if (mode === "files") {
     files_open();
     $("#picks").hidden = true;

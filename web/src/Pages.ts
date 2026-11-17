@@ -162,7 +162,8 @@ export function home_html(v: View.View, now: Date, away: Cockpit.Away | null = n
   const meet = (url: string) => url === "" ? "" : `<a class="pbtn" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Join</a>`;
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? (next.map((e) => `<div class="next"><span class="when">${esc(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>`)
     : `<p class="meta">${esc(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
+  const todos = (v.assigned ?? []).length;
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
     + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>`
     + `<section><h3>Activity</h3>${Cockpit.home_activity(v).map((n) => `<a class="act" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc(n.title)}</span><span class="meta">${esc(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
   return [head, ...(away === null ? [] : [away_html(away)]), stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
@@ -201,7 +202,7 @@ export function side_html(v: View.View, mode: View.Mode, now: number): string[] 
   const n = (k: number) => (k === 0 ? "" : `<span class="n">${k}</span>`);
   const working = v.crew.filter((c) => c.status === "working").length;
   const pages = [
-    ["home", "Home", 0], ["inbox", "Inbox", Cockpit.inbox_badge(v.inbox)], ["chat", "Chat", (v.questions ?? []).length],
+    ["home", "Home", 0], ["inbox", "Inbox", Cockpit.inbox_badge(v.inbox)], ["todo", "Todo", (v.assigned ?? []).length], ["chat", "Chat", (v.questions ?? []).length],
     ["crew", "Crew", working], ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length], ["digest", "Digest", 0], ["transcripts", "Transcripts", 0],
     ["files", "Files", with_files(v)], ["timesheet", "Timesheet", drafts_open(v)], ["memory", "Memory", (v.pins ?? []).length],
   ] as const;
@@ -472,6 +473,22 @@ export const TIMESHEET_ROUTINE = Cockpit.TIMESHEET_ROUTINE;
 // day's hours; each draft's project, task, hours, notes and why, a Drop
 // while unsent; Submit sends exactly those not sent nor sending (the
 // user's act, to one device); sent ones with Harvest's id, failed ones why
+// Todo
+// ====
+
+// what agents need the user to do (Tools.assign), oldest first: each its
+// text, who filed it and when, Done (its agent hears it) and Drop
+export function todo_html(v: View.View): string[] {
+  const all = v.assigned ?? [];
+  const head = `<div class="phead"><h2>Todo</h2><p class="meta">What only you can do, put here by your agents: tick it Done and its agent hears it</p></div>`;
+  if (all.length === 0) {
+    return [head, `<p class="meta">Nothing to do. Agents put here what only you can do: approve a PR, run a login, send something.</p>`];
+  }
+  const row = (a: View.Assignment) => `<div class="trow todo"><span class="n">${esc(a.text)}</span><span class="meta why">by ${esc(Cockpit.todo_who(a))} · ${esc(minute(a.date))}</span>`
+    + `<button class="pbtn go"${act_html({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
+  return [head, `<div class="tday">${all.map(row).join("")}</div>`];
+}
+
 export function timesheet_html(v: View.View): string[] {
   const drafts = v.drafts ?? [];
   const open = drafts.filter((d) => d.state === "draft" || d.state === "failed").map((d) => d.n);

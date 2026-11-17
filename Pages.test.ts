@@ -485,3 +485,23 @@ test("files: a file edited and saved as shown; a refusal keeps the edit", async 
   expect(View.view_act(v, { $: "Save", text: "x" })).toEqual([]);
   expect(Pages.files_html(v).join("")).not.toContain(act({ $: "Edit", on: true }));
 });
+
+// the Todo page (Pages.todo_html): what agents need the user to do, each
+// with who filed it and when, Done and Drop; linked from the sidebar (its
+// count) and Home's Apps
+test("the Todo page: each todo, who filed it and when, Done and Drop; none: what it is for; linked from the sidebar and Home", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  v.assigned = [{ n: 1, text: "Approve <PR> #352", by: "main", date: "2026-11-12T11:00:00Z" }, { n: 2, text: "Run ! gcloud auth login", by: "Wkr", date: "2026-11-12T11:30:00Z" }];
+  const html = Pages.todo_html(v).join("");
+  expect(html).toContain("Approve &lt;PR&gt; #352");
+  expect(html).toContain("by Legion");
+  expect(html).toContain("by Wkr");
+  expect(html).toContain(act({ $: "Assignment", n: 1, done: true }));
+  expect(html).toContain(act({ $: "Assignment", n: 2, done: false }));
+  expect(Pages.todo_html(View.view_new()).join("")).toContain("Nothing to do");
+  const side = Pages.side_html(v, "todo", NOW).join("");
+  expect(side).toContain('href="#todo" class="here">Todo<span class="n">2</span>');
+  expect(Pages.home_html(v, new Date(NOW)).join("")).toContain('href="#todo"');
+  expect(View.view_route("#todo")).toEqual({ mode: "todo", name: null });
+});

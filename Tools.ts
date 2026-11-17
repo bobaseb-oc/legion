@@ -46,7 +46,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
-import type { Crew, Draft, Live, Pulse, Question, Status, Todo, Waiting } from "./View.ts";
+import type { Assignment, Crew, Draft, Live, Pulse, Question, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
 
@@ -401,6 +401,10 @@ const ASK = spec("ask", "File a question for the user in their backlog of questi
 // Harvest only by the user's Submit; at most DRAFTS kept
 const TIMESHEET = spec("timesheet", "File drafts of the user's Harvest time entries for their review on the Timesheet page; only the user submits them to Harvest. entries: each with project_id and task_id (from harvest's projects), project and task (their names), date (YYYY-MM-DD), hours (in hundredths, at most 24 a day), notes (what was done, as the user would write it) and why (your evidence: calendar events, PRs, commits, tickets). Read harvest's entries first and don't draft time already logged. clear: true drops your drafts not yet sent.", { entries: { type: "array", items: { type: "object" } }, clear: { type: "boolean" } }, []);
 const NOTIFY = spec("notify", "Put a short note in the user's pane beside their questions, to keep them in the loop without asking anything: a decision you made and why, a milestone done or an agent's result worth knowing, a risk or a change of plan, something they should look at when they can. One thing per note, said in full in a few lines (it is read apart from the chat). No answer is awaited; they may dismiss it or reply. Don't note routine progress the chat already shows.", { text: STR }, ["text"]);
+// what an agent needs the user to do (any agent: Tools.assign), on their
+// Todo page till they tick it Done or drop it; at most ASSIGNS open
+const ASSIGNS = 30;
+const ASSIGN = spec("assign", "Put an action on the user's Todo page that only they can take, and that your work waits on or needs: approve or merge a PR on GitHub, run a login (say the command, as `! gcloud auth login`), send or sign something, decide in a meeting. One action each, said in full as a short brief: what, where (a link, a path, a command) and why. They tick it Done (you hear it: Unii as a message quoting it, an agent at work as a message) or drop it. Not for a decision (ask), news (notify) or anything you can do yourself. close: the number of a todo of yours no longer needed, to withdraw it.", { text: STR, close: INT }, []);
 // plan mode's way out (Modes.ts), as Claude Code's ExitPlanMode
 const PLAN = spec("plan", "In plan mode: file your plan for the user's approval, once you (and your managers, reading) know enough. Say it whole: the steps, who does each, what changes where, how it will be checked. The user approves it (the mode they pick comes next, and you go ahead) or sends it back with their feedback.", { plan: STR }, ["plan"]);
 // auto mode's reviewer (Modes.ts): one call on the compactor's model per
@@ -558,7 +562,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, TIMESHEET, PLAN, ...BOSS, ...kit(who), HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ...BOSS, ...kit(who), HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -567,7 +571,7 @@ export namespace Tools {
     if (role?.$ === "cli") {
       return [];
     }
-    return [...OWN, TODO, TIMESHEET, ...(role?.tier === "manager" ? MANAGES : []), ...kit(who), ...CODE, ...Mcp.cached(MCP)];
+    return [...OWN, TODO, ASSIGN, TIMESHEET, ...(role?.tier === "manager" ? MANAGES : []), ...kit(who), ...CODE, ...Mcp.cached(MCP)];
   }
 
   // auto mode's check of a call: the reviewer's refusal; when it can't
@@ -769,6 +773,9 @@ export namespace Tools {
       }
       case "timesheet": {
         return Tools.timesheet(tools, who, args);
+      }
+      case "assign": {
+        return Tools.assign(tools, who, args);
       }
       case "todo": {
         return Tools.todo(tools, who, args.items);
@@ -1321,6 +1328,35 @@ export namespace Tools {
     Memory.save(mem);
     tools.hooks.change();
     return { text: "Noted for the user as note " + q.id + "; no answer is awaited.", fail: false };
+  }
+
+  // an action for the user filed by any agent (its text one line of spaces,
+  // at most ASK_TEXT; at most ASSIGNS open), or one of its own withdrawn
+  // (close: never another's)
+  export function assign(tools: Tools, who: string, args: any): Out {
+    const mem = tools.mem;
+    if (args?.close !== undefined) {
+      const a = mem.assigned.find((x) => x.n === Number(args.close));
+      if (a === undefined || a.by !== who) {
+        return { text: a === undefined ? "No open todo " + args.close + "." : "Todo " + a.n + " is " + a.by + "'s: close only your own.", fail: true };
+      }
+      mem.assigned = mem.assigned.filter((x) => x !== a);
+      Memory.save(mem);
+      tools.hooks.change();
+      return { text: "Withdrew todo " + a.n + ".", fail: false };
+    }
+    const text = String(args?.text ?? "").replace(/\s+/g, " ").trim().slice(0, ASK_TEXT);
+    if (text === "") {
+      return { text: "Give the todo's text, or close: a todo's number.", fail: true };
+    }
+    if (mem.assigned.length >= ASSIGNS) {
+      return { text: ASSIGNS + " todos are open: wait for the user, or close some of yours.", fail: true };
+    }
+    const a: Assignment = { n: (mem.assigns += 1), text, by: who, date: new Date().toISOString() };
+    mem.assigned.push(a);
+    Memory.save(mem);
+    tools.hooks.change();
+    return { text: "Put on the user's Todo page as todo " + a.n + "; you'll hear when it is done.", fail: false };
   }
 
   // an agent's own checklist set whole, cleaned: each item one line, at

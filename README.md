@@ -30,7 +30,9 @@ How it works
   spawns managers, managers spawn workers (or Claude Code workers), and
   each agent has a title, repos and a todo list. The web's Crew view and
   the terminal's `/crew` show the tree; questions the orchestrator has
-  for you wait in a Questions pane.
+  for you wait in a Questions pane, and what only you can do (approve a
+  PR, run a login) waits on the Todo page (`#todo`, the terminal's
+  `/todos`), where Done tells the agent that filed it.
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings (so the

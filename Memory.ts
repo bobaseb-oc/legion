@@ -70,7 +70,7 @@ import { Agent } from "./Agent.ts";
 import { AskAI, type Ask, type Bill, type Block, type Call, type End as Ended, type Img, type Kind, type Pay, type Say, type Served } from "./AskAI.ts";
 import { clip_page, clip_pages } from "./Clip.ts";
 import { type Mode, Modes } from "./Modes.ts";
-import type { Draft, Hit, Pin, Question, Summary } from "./View.ts";
+import type { Assignment, Draft, Hit, Pin, Question, Summary } from "./View.ts";
 import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import type { Routine } from "./Routines.ts";
 import * as config from "./Config.ts";
@@ -124,7 +124,7 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
@@ -165,6 +165,8 @@ export type Memory = {
   routines: Routine[];
   routined: number;
   drafts : Draft[];  // the timesheet's (Tools.timesheet), drafted: the last one's number
+  assigned: Assignment[]; // what agents need the user to do (Tools.assign), assigns: the last one's number
+  assigns : number;
   drafted: number;
   summaries: Record<string, Summary>;
   pins   : number[]; // the messages the user pinned (Memory.pin), in order; pinned: as views list them
@@ -273,7 +275,7 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "auto", plan: null, routines: [], routined: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
       rough: new Map(), redoing: false, rest: { until: null },
@@ -288,6 +290,8 @@ export namespace Memory {
     mem.routines = Array.isArray(saved?.routines) ? saved.routines : [];
     mem.routined = Number(saved?.routined ?? 0) || 0;
     mem.drafts = Array.isArray(saved?.drafts) ? saved.drafts : [];
+    mem.assigned = Array.isArray(saved?.assigned) ? saved.assigned : [];
+    mem.assigns = Number.isInteger(saved?.assigns) ? saved!.assigns! : 0;
     mem.drafted = Number(saved?.drafted ?? 0) || 0;
     mem.summaries = typeof saved?.summaries === "object" && saved.summaries !== null ? saved.summaries : {};
     mem.work = saved?.work ?? [];
@@ -332,7 +336,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }
