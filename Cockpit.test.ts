@@ -378,3 +378,18 @@ test("/archive: a done agent named, or all done ones; one at work refused", () =
   v.crew = [agent("A", "working")];
   expect(Cockpit.archive_cmd(v, "all", NOW)).toBe("Nothing done to archive.");
 });
+
+// the picked rows' acts (the web's picked panel, the terminal deck's r
+// and f): review requests reviewed, PRs failing, in conflict or with
+// changes asked fixed, each by its PR's own URL (an Alerts row's key is
+// "alert:<url>": never sent as a PR), once each
+test("the picks' acts: Review the review requests, Fix the PRs to fix, by their URLs", () => {
+  const u = (n: number) => "https://github.com/o/r/pull/" + n;
+  const s = Cockpit.inbox_sections(inbox({ reviews: [pr({ number: 5 }), pr({ number: 6 })], mine: [pr({ number: 7, state: "failing" }), pr({ number: 8 })] }), [], "", NOW);
+  const all = Cockpit.picks_acts(s, new Set([u(5), "alert:" + u(7), u(7), u(8)]), false);
+  expect(all.review).toEqual({ $: "Review", prs: [u(5)], how: "review" });
+  expect(all.fix).toEqual({ $: "Review", prs: [u(7)], how: "fix" });
+  expect(all.picked.map((r) => r.pr!.url)).toEqual([u(5), u(7), u(8)]);
+  expect(Cockpit.picks_acts(s, new Set([u(8)]), false)).toMatchObject({ review: null, fix: null });
+  expect(Cockpit.picks_acts(s, new Set([u(6)]), true).review).toEqual({ $: "Review", prs: [u(6)], how: "review", claude: true });
+});

@@ -526,6 +526,11 @@ export function Cap(text: string): Row {
   return { $: "Cap", text };
 }
 
+// a note as the terminal prints it: a Cap per line (a Cap is one line)
+export function note_rows(text: string): Row[] {
+  return text.split("\n").map(Cap);
+}
+
 // View
 // ====
 
@@ -1523,8 +1528,8 @@ export function view_git_cmd(arg: string, dir: string, home: string): Act | stri
 export const FILE_ROWS = 60;
 
 // what a device answered as markdown for the terminal; null: nothing to
-// print yet (a find some workspaces haven't answered)
-export function looked_md(v: View, msg: Looked): string | null {
+// print yet (a find some workspaces haven't answered); a file: most of its lines (the deck: all)
+export function looked_md(v: View, msg: Looked, most = FILE_ROWS): string | null {
   const name = "`" + (msg.path ?? "") + "`";
   if (msg.kind === "dir") {
     const d = v.dirs.get(msg.path ?? "");
@@ -1555,8 +1560,8 @@ export function looked_md(v: View, msg: Looked): string | null {
     return "`git " + msg.op + "` in " + name + ":\n" + fence(diffy ? "diff" : "", msg.text ?? "");
   }
   const all = (msg.text ?? "").split("\n");
-  const from = Math.max(1, Math.min((v.line ?? 1) - 10, all.length - FILE_ROWS + 1));
-  const to = Math.min(all.length, from + FILE_ROWS - 1);
+  const from = Math.max(1, Math.min((v.line ?? 1) - 10, all.length - most + 1));
+  const to = Math.min(all.length, from + most - 1);
   const width = String(to).length;
   const rows = all.slice(from - 1, to).map((l, k) => String(from + k).padStart(width) + (from + k === v.line ? "→ " : "  ") + l);
   const more = to < all.length ? "; /look " + msg.path + ":" + (to + 1) + " for more" : "";
@@ -1589,7 +1594,7 @@ export function minute(date: string): string {
   return date.slice(0, 16).replace("T", " ");
 }
 
-function hit_text(h: Hit): string {
+export function hit_text(h: Hit): string {
   return "#" + h.i + " · " + minute(h.date) + " · " + h.kind + ": " + h.text;
 }
 

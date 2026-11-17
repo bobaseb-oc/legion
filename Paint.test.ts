@@ -50,7 +50,7 @@ test("the full-screen Crew: head, needs, tree with its selection, within the scr
   View.view_act(v, { $: "Expand", name: "Mgr1" });
   const lines = Paint.crew_full(v, 70, 24, "W1-0", 1e12).map(text);
   expect(lines.length).toBeLessThanOrEqual(24);
-  expect(lines[0]).toMatch(/^Crew · \d+ working, \d+ need you/);
+  expect(lines.slice(0, 2).join(" ")).toContain("u undo · o handoff · A archive");
   expect(lines.some((l) => l.includes("Claude1 asks to start"))).toBe(true);
   expect(lines.filter((l) => l.startsWith("▸ "))).toHaveLength(1);
   expect(lines.find((l) => l.startsWith("▸ "))).toContain("W1-0");
@@ -109,4 +109,29 @@ test("a file the terminal looked at prints as a note's code block, each line who
   expect(lines.some((l) => l.includes("/w/a.ts"))).toBe(true);
   expect(lines.some((l) => l.includes("1  const x = 1;"))).toBe(true);
   expect(lines.some((l) => l.includes("2  // done"))).toBe(true);
+});
+
+// a toast (Term.ts, as the web's #toast): one line over the input, in the
+// color of what is for the user, cut to the width
+test("a toast is one line, the user's color, cut to the width", () => {
+  const l = Paint.toast_line("Reading the inbox anew; /inbox in a moment.", 20);
+  expect(Paint.text_width(text(l))).toBeLessThanOrEqual(20);
+  expect(text(l)).toMatch(/^Reading the inbox a.*…$/);
+  expect(l[0].s.c).toBe(Theme.ANSI.you);
+  expect(text(Paint.toast_line("Saved", 40))).toBe("Saved");
+});
+
+// an agent at work spins in the crew panel (the web's pulse), a frame
+// per SPIN ms; the others keep their marks
+test("a working agent's mark spins; the others keep theirs", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "working"), crew("Old", "main", "done")] });
+  const at = (now: number) => Paint.crew_lines(v, 60, now, 8).map(text);
+  const a = at(0);
+  const b = at(Paint.SPIN_MS);
+  expect(Paint.SPIN).toContain(a[1].trim()[0]);
+  expect(Paint.SPIN).toContain(b[1].trim()[0]);
+  expect(a[1]).not.toBe(b[1]);
+  expect(a[2]).toBe(b[2]);
+  expect(a[2]).toContain("✓ Old");
 });

@@ -51,6 +51,7 @@ export type Screen = {
   rows   : number;
   on     : (key: string) => void;
   pasted?: (text: string) => boolean; // a paste Term.ts takes (a dropped file's path): not typed
+  keys?  : (key: string) => boolean;   // a key Term.ts takes before the input edits (the / menu's): not edited
 };
 
 // Constants
@@ -105,6 +106,8 @@ const KEYS: Record<string, string> = {
   "1~"  : "Home",
   "3~"  : "Delete",
   "4~"  : "End",
+  "5~"  : "PageUp",
+  "6~"  : "PageDown",
   "7~"  : "Home",
   "8~"  : "End",
 };
@@ -203,6 +206,13 @@ function screen_key(scr: Screen, data: string): number {
     scr.kitty = true;
     return seq[0].length;
   }
+  if (seq !== null && (seq[2] === "M" || seq[2] === "m") && seq[1]?.startsWith("<")) {
+    const key = mouse_key(seq[1].slice(1), seq[2]);
+    if (key !== null) {
+      screen_press(scr, key);
+    }
+    return seq[0].length;
+  }
   if (seq !== null) {
     const ch = seq_text(seq[1] ?? "", seq[2]);
     if (ch !== null) {
@@ -226,9 +236,13 @@ function screen_key(scr: Screen, data: string): number {
   return 1;
 }
 
-// a key: an editing key edits the input; any other goes to Term.ts
+// a key: one Term.ts takes first (keys) is its; an editing key edits the
+// input; any other goes to Term.ts
 // (all of them, grabbed)
 function screen_press(scr: Screen, key: string): void {
+  if (scr.keys?.(key)) {
+    return;
+  }
   if (scr.grab || !ed_key(scr.ed, key)) {
     scr.on(key);
   }
@@ -299,6 +313,20 @@ function screen_line(scr: Screen, data: string): number {
   }
   scr.on("Enter");
   return k + 1;
+}
+
+// a mouse event (SGR: CSI < button ; column ; row, M pressed, m let go)
+// as a key: a left press "Click:column:row", the wheel "WheelUp" or
+// "WheelDown"; any other (a release, a drag, another button): none
+function mouse_key(params: string, end: string): string | null {
+  const [b = 0, x = 0, y = 0] = params.split(";").map(Number);
+  if (end === "m") {
+    return null;
+  }
+  if (b & 64) {
+    return b & 1 ? "WheelDown" : "WheelUp";
+  }
+  return (b & 3) === 0 && (b & 32) === 0 ? "Click:" + x + ":" + y : null;
 }
 
 // a sequence's key: its code's (kitty, modifyOtherKeys) or its final's

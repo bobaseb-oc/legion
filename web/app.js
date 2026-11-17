@@ -3109,6 +3109,17 @@ function away(v, seen, now, inbox = 0) {
   };
 }
 var MARK = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+function picks_acts(sections, picks, claude) {
+  const rows = sections.flatMap((s) => s.rows.filter((r) => r.pr !== undefined).map((r) => ({ s: s.id, r, url: r.pr.url })));
+  const urls = [...new Set([...picks].flatMap((k) => rows.filter((x) => x.r.key === k).map((x) => x.url)))];
+  const as = (u, ok) => rows.some((x) => x.url === u && picks.has(x.r.key) && ok(x));
+  const act = (prs, how) => prs.length === 0 ? null : claude ? { $: "Review", prs, how, claude: true } : { $: "Review", prs, how };
+  return {
+    picked: urls.map((u) => rows.find((x) => x.url === u).r),
+    review: act(urls.filter((u) => as(u, (x) => x.s === "reviews")), "review"),
+    fix: act(urls.filter((u) => as(u, (x) => x.s !== "reviews" && FIX.includes(x.r.pr.state))), "fix")
+  };
+}
 var TIMESHEET_ROUTINE = {
   name: "Timesheet drafts",
   task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
@@ -3145,6 +3156,18 @@ function bar_text(v) {
   const n = (...s) => v.crew.filter((c) => s.includes(c.status)).length;
   return needing(v) + " need you · " + n("working") + " working · " + n("waiting") + " ready · " + n("done", "stopped") + " done";
 }
+var CHORDS = {
+  h: "home",
+  i: "inbox",
+  m: "chat",
+  c: "crew",
+  r: "routines",
+  d: "digest",
+  t: "transcripts",
+  f: "files",
+  s: "timesheet",
+  p: "memory"
+};
 var PAGE_ITEMS = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
@@ -3155,7 +3178,7 @@ var PAGE_ITEMS = [
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
   { label: "Files", hint: "page · g f", go: { href: "#files" } },
   { label: "Timesheet", hint: "page · g s", go: { href: "#timesheet" } },
-  { label: "Memory", hint: "page · search, pins, the tree", go: { href: "#memory" } },
+  { label: "Memory", hint: "page · g p · search, pins, the tree", go: { href: "#memory" } },
   { label: "New agent…", hint: "command · /agent", go: { cmd: "new-agent" } },
   { label: "Refresh the inbox", hint: "command", go: { act: { $: "Fetch" } } },
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },
@@ -3198,7 +3221,6 @@ function act_html2(act) {
 function link_html(url, text = "↗") {
   return url === "" ? "" : `<a class="go" href="${esc2(url)}" target="_blank" rel="noopener noreferrer" title="open">${text}</a>`;
 }
-var FIXABLE = ["failing", "conflicts", "changes"];
 function row_acts(s, r) {
   if (r.pr === undefined) {
     return "";
@@ -3206,7 +3228,7 @@ function row_acts(s, r) {
   if (s === "reviews") {
     return `<button class="ra"${act_html2({ $: "Review", prs: [r.pr.url], how: "review" })} title="a Legion agent reviews it">Review</button>`;
   }
-  if ((s === "mine" || s === "alerts") && FIXABLE.includes(r.pr.state)) {
+  if ((s === "mine" || s === "alerts") && FIX.includes(r.pr.state)) {
     return `<button class="ra"${act_html2({ $: "Review", prs: [r.pr.url], how: "fix" })} title="a Legion agent fixes it">Fix</button>`;
   }
   return "";
@@ -3253,13 +3275,10 @@ function picks_html(sections, picks, claude) {
   if (picks.size === 0) {
     return "";
   }
-  const rows = sections.flatMap((s) => s.rows.filter((r) => picks.has(r.key) && r.pr !== undefined).map((r) => [s.id, r]));
-  const keys = [...new Set(rows.map(([, r]) => r.key))];
-  const reviews = keys.filter((k) => rows.some(([s, r]) => r.key === k && s === "reviews"));
-  const fixes = keys.filter((k) => rows.some(([s, r]) => r.key === k && s !== "reviews" && FIXABLE.includes(r.pr.state)));
-  const go = (label, prs, how) => prs.length === 0 ? "" : `<button class="pbtn"${act_html2(claude ? { $: "Review", prs, how, claude: true } : { $: "Review", prs, how })}>${label} ${prs.length}</button>`;
-  const list = keys.map((k) => `<li>${esc2(rows.find(([, r]) => r.key === k)[1].sub + " " + rows.find(([, r]) => r.key === k)[1].title)}</li>`).join("");
-  return `<aside class="picks"><b>${keys.length} picked</b><p class="meta">Each gets its own Legion agent.</p><ul>${list}</ul>` + `<label class="cc"><input type="checkbox" data-claude${claude ? " checked" : ""}> as Claude Code workers</label>` + `<div class="acts">${go("Review", reviews, "review")}${go("Fix", fixes, "fix")}<button class="pbtn" data-open-picks>Open</button><button class="pbtn" data-drop-picks>Drop picks</button></div></aside>`;
+  const { picked, review, fix } = picks_acts(sections, picks, claude);
+  const go = (label, act) => act === null || act.$ !== "Review" ? "" : `<button class="pbtn"${act_html2(act)}>${label} ${act.prs.length}</button>`;
+  const list = picked.map((r) => `<li>${esc2(r.sub + " " + r.title)}</li>`).join("");
+  return `<aside class="picks"><b>${picked.length} picked</b><p class="meta">Each gets its own Legion agent.</p><ul>${list}</ul>` + `<label class="cc"><input type="checkbox" data-claude${claude ? " checked" : ""}> as Claude Code workers</label>` + `<div class="acts">${go("Review", review)}${go("Fix", fix)}<button class="pbtn" data-open-picks>Open</button><button class="pbtn" data-drop-picks>Drop picks</button></div></aside>`;
 }
 function card_html(c) {
   const archive = !["working", "waiting", "asking"].includes(c.status);
@@ -4666,7 +4685,7 @@ function crew_keys(ev) {
   if (typing || ev.metaKey || ev.ctrlKey || ev.altKey) {
     return;
   }
-  const to = Date.now() - P.g < 1000 ? { c: "#crew", m: "#chat", h: "#home", i: "#inbox", r: "#routines", d: "#digest", t: "#transcripts", f: "#files", s: "#timesheet" }[ev.key] : undefined;
+  const to = Date.now() - P.g < 1000 && Object.hasOwn(CHORDS, ev.key) ? "#" + CHORDS[ev.key] : undefined;
   P.g = ev.key === "g" ? Date.now() : 0;
   if (to !== undefined) {
     location.hash = to;

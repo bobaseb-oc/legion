@@ -6,7 +6,7 @@
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
 import type { Given } from "./Routines.ts";
-import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Draft, type Mark, type View } from "./View.ts";
+import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -287,16 +287,24 @@ export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away |
 
 export const MARK: Record<Crew["status"], string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
 
-export function home_text(v: View, now: Date): string {
-  const stats = home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
-  const { working, done } = home_cards(v, now.getTime());
-  const card = (c: Card) => [MARK[c.status] + " " + c.name, c.title === c.name ? "" : c.title, c.repo, c.ticket, c.pr, c.cost, c.age, c.under === 0 ? "" : c.under + " under it"]
+// a card on one line, as the terminal shows it (/home, the deck's home)
+export function card_text(c: Card): string {
+  return [MARK[c.status] + " " + c.name, c.title === c.name ? "" : c.title, c.repo, c.ticket, c.pr, c.cost, c.age, c.under === 0 ? "" : c.under + " under it"]
     .filter((x) => x !== null && x !== "").join(" · ");
-  const group = (head: string, cards: Card[]) => cards.length === 0 ? [] : [head, ...cards.map(card)];
+}
+
+// the stat cards on one line
+export function stats_text(v: View): string {
+  return home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
+}
+
+export function home_text(v: View, now: Date): string {
+  const { working, done } = home_cards(v, now.getTime());
+  const group = (head: string, cards: Card[]) => cards.length === 0 ? [] : [head, ...cards.map(card_text)];
   const empty = working.length + done.length === 0 ? ["No agents yet: tell Legion what to do, or /agent <task>."] : [];
   return [
     home_greeting(now) + ". " + home_line(v),
-    stats,
+    stats_text(v),
     ...group("Working (" + working.length + "):", working),
     ...group("Done (" + done.length + "), /archive all takes them:", done),
     ...empty,
@@ -354,6 +362,22 @@ export function inbox_text(v: View, filter: string, now: number, changed: number
     ...(shown.length === 0 ? [filter.trim() === "" ? "Nothing in the inbox." : "No row holds “" + filter.trim() + "”."] : []),
     "/review <n…>, /fix <n…> (add claude: as Claude Code workers), /refresh; /inbox <words> filters.",
   ].join("\n");
+}
+
+// the picked rows' acts (the web's picked panel, the terminal deck's r
+// and f): each PR picked once (picks: rows' keys, in the order picked),
+// reviewed if picked as a review request, fixed if picked as the user's
+// to fix; always by the PR's own URL (an Alerts row's key is not one)
+export function picks_acts(sections: Section[], picks: Set<string>, claude: boolean): { picked: Row[]; review: Act | null; fix: Act | null } {
+  const rows = sections.flatMap((s) => s.rows.filter((r) => r.pr !== undefined).map((r) => ({ s: s.id, r, url: r.pr!.url })));
+  const urls = [...new Set([...picks].flatMap((k) => rows.filter((x) => x.r.key === k).map((x) => x.url)))];
+  const as = (u: string, ok: (x: (typeof rows)[number]) => boolean) => rows.some((x) => x.url === u && picks.has(x.r.key) && ok(x));
+  const act = (prs: string[], how: "review" | "fix"): Act | null => prs.length === 0 ? null : claude ? { $: "Review", prs, how, claude: true } : { $: "Review", prs, how };
+  return {
+    picked: urls.map((u) => rows.find((x) => x.url === u)!.r),
+    review: act(urls.filter((u) => as(u, (x) => x.s === "reviews")), "review"),
+    fix: act(urls.filter((u) => as(u, (x) => x.s !== "reviews" && FIX.includes(x.r.pr!.state))), "fix"),
+  };
 }
 
 // /review <n…> [claude], /fix <n…> [claude]: as the inbox's Review (a
@@ -527,6 +551,12 @@ export function bar_text(v: View): string {
 export type Go = { href: string } | { open: string } | { act: Act } | { cmd: "new-agent" | "focus" } | { space: string };
 export type Item = { label: string; hint: string; go: Go };
 
+// g and a letter: the page it goes to, on the web (main.ts) and in the
+// terminal's deck (Deck.ts)
+export const CHORDS: Record<string, "chat" | "crew" | Deck> = {
+  h: "home", i: "inbox", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory",
+};
+
 const PAGE_ITEMS: Item[] = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
   { label: "Inbox", hint: "page · g i", go: { href: "#inbox" } },
@@ -537,7 +567,7 @@ const PAGE_ITEMS: Item[] = [
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
   { label: "Files", hint: "page · g f", go: { href: "#files" } },
   { label: "Timesheet", hint: "page · g s", go: { href: "#timesheet" } },
-  { label: "Memory", hint: "page · search, pins, the tree", go: { href: "#memory" } },
+  { label: "Memory", hint: "page · g p · search, pins, the tree", go: { href: "#memory" } },
   { label: "New agent…", hint: "command · /agent", go: { cmd: "new-agent" } },
   { label: "Refresh the inbox", hint: "command", go: { act: { $: "Fetch" } } },
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },

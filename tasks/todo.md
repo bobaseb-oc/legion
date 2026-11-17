@@ -873,3 +873,56 @@ Proof: full suite 512 pass, 2 fail (the known log-staging pair); tsc on changed
 files: only no-bun-types noise, plus main.ts:545 (`code` possibly null, on main
 before this branch); 4 mutants (undo yes, paste take, review fit, edit error)
 each killed; web/app.js rebuilt. Not run by hand in a live terminal.
+
+## TUI elements that feel like the web UI (2026-11-17, feat/tui-elements, on main after #24)
+
+Intent: the terminal looks and moves like the web: a full-screen deck of pages
+(the web's #home, #inbox, #crew, questions pane, #memory, a file view) reached
+by the web's g-chords and a `/` menu, and a footer with the web's nav badges,
+bottom bar and toasts. Constraint: the chat stays inline scrollback (native
+scroll/select/copy); the deck is the alternate screen, as /crew full is now.
+Rendering and keys only: data from View.ts / Cockpit.ts, acts as they are, no
+server change. One slice per commit, red test first (pure: View -> lines, key
+-> state), tsc on changed files, full suite no new fails (2 known log-staging).
+#24 merged mid-way; the branch is on main, first commit a fix to #24 (notes printed squashed).
+
+Design: new Deck.ts (imports View, Cockpit, Paint, Hl): the deck's state
+`{ page, sel, top, ... }`, `deck_key(v, deck, key) -> { deck, acts, done, ... }`
+and `deck_lines(v, deck, w, h, now)`; crew stays View.view_full + Paint.crew_full,
+called from it. Term.ts swaps `t.full` for `t.deck`; on a pipe, commands print
+text as now.
+
+- [x] E1 Deck frame: Deck.ts, head line as the web's nav (Home · Inbox n · Chat ?n ·
+      Crew pill · mode), `g h/i/c/q/m` switch pages, Esc/q leave; /crew full is its crew page
+- [x] E2 Crew keys: u undo (asks View.undo_ask, y confirms), o handoff, A archive done
+- [x] E3 Home page: away card on top, stats, working/done cards, up next; j/k, Enter focus, A archive
+- [x] E4 Inbox page, the web's page_keys: j/k, space fold, Tab detail, Enter open, v pick,
+      / filter, r review / f fix the picks (claude with Shift), R refresh
+      -> checkpoint with the user here (diff ~300 lines)
+- [x] E5 Questions page: j/k, 1-9 an offered answer, Enter types `/answer n ` in the box, x drop; notes under
+- [x] E6 Memory page: pins and the last recall's hits; Enter seeks, p unpins, / types `/recall `
+- [x] E7 File page: the file shown, Hl-colored, numbered, scrolled (j/k, PgUp/PgDn, g/G),
+      / find in it, n/N, e edits; /look on a terminal opens it when the file comes
+- [x] E8 Footer: the nav badge line in place of the bare tabs line, Cockpit.bar_text on the
+      crew panel, toasts (a note gone after 7 s) for confirmations
+- [x] E9 Wide terminal (>= 120 cols): a home column beside the crew panel (needs you, inbox, up next)
+- [x] E10 `/` menu: input starting `/` shows matching commands and palette items (pages, agents,
+      PRs, spaces) above the box; Up/Down pick, Tab completes, Enter runs (Screen key hook)
+- [x] E11 Mouse in the deck (SGR 1006: click selects, wheel scrolls), a spinner on working agents
+
+Review (2026-11-17): E1-E11 done, a red test first per slice, no server change.
+Found on the way, fixed with tests: #24's multi-line notes printed squashed
+(View.note_rows); the web's picked panel sent an Alerts row's key
+("alert:<url>") as the PR to fix (Cockpit.picks_acts, now shared).
+Choices: page commands open the deck on a terminal, print on a pipe (asked:
+keep); from the chat the chord is Ctrl+G + letter (a bare g is typing); the
+mouse is reported only in the deck (the chat keeps native selection); /look
+opens the file page only for the path this terminal asked (the server tells
+every view what a device showed); a chord starts its page anew.
+Shared with the web now: Cockpit.CHORDS (web gains g p: memory),
+picks_acts, FIX (Pages' copy gone), card_text, stats_text.
+Proof: full suite 542 pass, 2 fail (the known log-staging pair); tsc on
+changed files: only no-bun/node-types noise; 4 mutants (picks by URL, keys
+hook, undo asks first, Esc drops picks) each killed. Not run by hand in a
+live terminal.
+Open: the terminal also prints looks another view asked for (since #24).
