@@ -324,6 +324,49 @@ test("/review and /fix: the rows' numbers, each a PR it fits; claude: as Claude 
   expect(Cockpit.review_cmd(v, "review", "", NOW)).toBe("Which? /review <n…>, as /inbox numbers them.");
 });
 
+test("the terminal's digest: merged by author (their themes once summarized), then open; none: how", () => {
+  const v = View.view_new();
+  expect(Cockpit.digest_text(v)).toMatch(/^No digest yet: /);
+  const p = (n: number, author: string) => ({ repo: "o/r", number: n, title: "PR " + n, url: "u" + n, author, at: "" });
+  v.inbox = inbox({ digest: { repos: ["o/r"], merged: [p(1, "ann"), p(2, "bo")], open: [p(3, "ann")] } });
+  v.themes = { bo: ["faster builds"] };
+  expect(Cockpit.digest_text(v)).toBe("o/r: last 7 days · 2 merged · 1 open\nMerged:\n  ann: PR 1 #1\n  bo: faster builds\nIn progress:\n  ann: PR 3 #3\n/themes summarizes by theme (one call to the compactor's model); /refresh reads it anew.");
+});
+
+test("the terminal's transcripts: numbered, newest as listed, summarized ones marked; /transcript n: its summary, else asked", () => {
+  const v = View.view_new();
+  expect(Cockpit.transcripts_text(v)).toBe("Google: run legion google-login on your device");
+  v.inbox = inbox({ google: { events: [], docs: [{ id: "d1", title: "Standup", at: "2026-11-12T09:00:00Z", url: "https://docs.google.com/x" }] } });
+  expect(Cockpit.transcripts_text(v)).toBe("Transcripts, last 14 days:\n  1. 2026-11-12 09:00 · Standup\n/transcript <n> summarizes one (its text goes to the compactor's model, once).");
+  expect(Cockpit.transcript_cmd(v, "1")).toEqual({ $: "Transcript", id: "d1" });
+  expect(Cockpit.transcript_cmd(v, "2")).toBe("No transcript 2: /transcripts lists them.");
+  v.summaries.set("d1", { title: "Standup", text: "- shipped", at: 0 });
+  expect(Cockpit.transcripts_text(v)).toContain("  1. 2026-11-12 09:00 · Standup · summarized");
+  expect(Cockpit.transcript_cmd(v, "1")).toBe("Standup:\n- shipped\nFull transcript: https://docs.google.com/x");
+});
+
+test("the terminal's timesheet: drafts by day, newest first; /timesheet submit sends the open ones, drop <n>, weekly adds the routine", () => {
+  const v = View.view_new();
+  const d = (n: number, date: string, state: View.Draft["state"]): View.Draft => ({ n, project_id: 1, task_id: 2, project: "P", task: "Dev", date, hours: 1.5, notes: "work " + n, why: "PR #" + n, by: "W", state });
+  expect(Cockpit.timesheet_text(v)).toMatch(/^No drafts yet\./);
+  v.drafts = [d(1, "2026-11-10", "sent"), d(2, "2026-11-11", "draft"), d(3, "2026-11-11", "failed")];
+  v.drafts[0].harvest = 77;
+  v.drafts[2].error = "403";
+  expect(Cockpit.timesheet_text(v)).toBe("Timesheet drafts (nothing is sent until you submit):\n2026-11-11 · 3 h\n  2. 1.5 h · P · Dev · work 2 · PR #2 · by W\n  3. 1.5 h · P · Dev · work 3 · PR #3 · by W · failed: 403\n2026-11-10 · 1.5 h\n  1. 1.5 h · P · Dev · work 1 · PR #1 · by W · Harvest #77\n/timesheet submit sends the 2 open to Harvest; drop <n>; weekly drafts every Friday.");
+  expect(Cockpit.timesheet_cmd(v, "submit")).toEqual({ $: "Timesheet", op: "submit", ns: [2, 3] });
+  expect(Cockpit.timesheet_cmd(v, "drop 2")).toEqual({ $: "Timesheet", op: "drop", ns: [2] });
+  expect(Cockpit.timesheet_cmd(v, "drop 1")).toBe("Draft 1 is sent: only open drafts drop.");
+  expect(Cockpit.timesheet_cmd(v, "weekly")).toEqual({ $: "Routine", op: "add", routine: Cockpit.TIMESHEET_ROUTINE });
+  v.routines = [{ id: 1, name: Cockpit.TIMESHEET_ROUTINE.name, task: "", when: { $: "review" }, tier: "worker", on: true, last: null, made: 0 }];
+  expect(Cockpit.timesheet_cmd(v, "weekly")).toBe("The weekly drafting routine is on already: /routines.");
+});
+
+test("the terminal's lane: an agent's timeline, a mark a line with its time", () => {
+  const marks: View.Mark[] = [{ k: 0, at: 0, kind: "told", label: "fix it", t: NOW }, { k: null, at: 1, kind: "stall", label: "quiet 5m", t: NOW + 300e3 }];
+  expect(Cockpit.lane_text("W", marks)).toBe(`W's timeline:\n  ${new Date(NOW).toTimeString().slice(0, 5)} told · fix it\n  ${new Date(NOW + 300e3).toTimeString().slice(0, 5)} stall · quiet 5m`);
+  expect(Cockpit.lane_text("W", [])).toBe("Nothing on W's timeline yet.");
+});
+
 test("/archive: a done agent named, or all done ones; one at work refused", () => {
   const v = View.view_new();
   v.crew = [agent("A", "working"), agent("B", "done"), agent("C", "failed")];

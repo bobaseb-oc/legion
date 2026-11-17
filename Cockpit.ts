@@ -5,7 +5,8 @@
 // filtered, and what changed since the user looked.
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
-import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type View } from "./View.ts";
+import type { Given } from "./Routines.ts";
+import { minute, view_needs, view_notes, view_questions, type Act, type Crew, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
 // a ticket's status), a tag and its tone, its age; what it is
@@ -380,6 +381,105 @@ export function review_cmd(v: View, how: "review" | "fix", arg: string, now: num
   }
   const unique = [...new Set(prs)];
   return claude ? { $: "Review", prs: unique, how, claude: true } : { $: "Review", prs: unique, how };
+}
+
+// /digest: the team's week, as the Digest page
+export function digest_text(v: View): string {
+  const d = v.inbox?.digest ?? null;
+  if (d === null) {
+    return "No digest yet: a device reads it from your spaces' GitHub repos (UNII_SPACES on the device, else its home repo). /refresh asks again.";
+  }
+  const pr = (p: DigestPr) => p.title + " #" + p.number;
+  const merged = digest_groups(d.merged).map((g) => "  " + g.author + ": " + ((v.themes?.[g.author] ?? []).length > 0 ? v.themes![g.author]!.join("; ") : g.prs.map(pr).join("; ")));
+  const open = digest_groups(d.open).map((g) => "  " + g.author + ": " + g.prs.map(pr).join("; "));
+  return [
+    d.repos.join(", ") + ": last 7 days · " + d.merged.length + " merged · " + d.open.length + " open",
+    "Merged:", ...(merged.length === 0 ? ["  Nothing merged this week."] : merged),
+    "In progress:", ...(open.length === 0 ? ["  Nothing open."] : open),
+    "/themes summarizes by theme (one call to the compactor's model); /refresh reads it anew.",
+  ].join("\n");
+}
+
+// /transcripts: the recorded calls of the last 14 days, numbered
+export function transcripts_text(v: View): string {
+  const g = v.inbox?.google ?? null;
+  if (g === null) {
+    return (v.inbox?.errors.find((e) => e.startsWith("google:")) ?? "google: run legion google-login on your device").replace(/^google: /, "Google: ");
+  }
+  if (g.docs.length === 0) {
+    return "No transcripts in the last 14 days.";
+  }
+  const doc = (d: (typeof g.docs)[number], k: number) => "  " + (k + 1) + ". " + minute(d.at) + " · " + d.title + (v.summaries.has(d.id) ? " · summarized" : "");
+  return ["Transcripts, last 14 days:", ...g.docs.map(doc), "/transcript <n> summarizes one (its text goes to the compactor's model, once)."].join("\n");
+}
+
+// /transcript <n>: its summary if made, else the act asking for it
+export function transcript_cmd(v: View, arg: string): Act | string {
+  const d = v.inbox?.google?.docs[Number(arg.trim()) - 1];
+  if (d === undefined || !/^\d+$/.test(arg.trim())) {
+    return "No transcript " + arg.trim() + ": /transcripts lists them.";
+  }
+  const s = v.summaries.get(d.id);
+  return s === undefined ? { $: "Transcript", id: d.id } : d.title + ":\n" + s.text + (d.url === "" ? "" : "\nFull transcript: " + d.url);
+}
+
+// the routine that drafts the timesheet on Friday mornings (the user's
+// rule, 2026-11-13; offered on the Timesheet page and by /timesheet
+// weekly): a native worker reads the week's harvest, calendar, PRs,
+// commits and tickets, and files drafts for Monday to Friday; only the
+// user submits them
+export const TIMESHEET_ROUTINE: Given = {
+  name: "Timesheet drafts",
+  task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
+  when: { $: "weekly", day: 5, at: "09:00" },
+  tier: "worker",
+};
+
+const draft_open = (d: Draft) => d.state === "draft" || d.state === "failed";
+
+// /timesheet: the drafts by day, newest first, as the Timesheet page
+export function timesheet_text(v: View): string {
+  const drafts = v.drafts ?? [];
+  if (drafts.length === 0) {
+    return "No drafts yet. Agents draft with the timesheet tool (they need legion harvest-login on your device): ask in the chat, or /timesheet weekly.";
+  }
+  const hours = (ds: Draft[]) => Math.round(ds.reduce((h, d) => h + d.hours, 0) * 100) / 100 + " h";
+  const state = (d: Draft) => d.state === "sent" ? " · Harvest #" + (d.harvest ?? "") : d.state === "failed" ? " · failed: " + (d.error ?? "") : d.state === "sending" ? " · sending" : "";
+  const row = (d: Draft) => "  " + d.n + ". " + d.hours + " h · " + d.project + " · " + d.task + " · " + d.notes + " · " + d.why + " · by " + d.by + state(d);
+  const days = [...new Set(drafts.map((d) => d.date))].sort().reverse();
+  const open = drafts.filter(draft_open).length;
+  return [
+    "Timesheet drafts (nothing is sent until you submit):",
+    ...days.flatMap((day) => [day + " · " + hours(drafts.filter((d) => d.date === day)), ...drafts.filter((d) => d.date === day).map(row)]),
+    (open === 0 ? "Nothing open to submit" : "/timesheet submit sends the " + open + " open to Harvest") + "; drop <n>; weekly drafts every Friday.",
+  ].join("\n");
+}
+
+// /timesheet submit | drop <n> | weekly: the page's Submit (exactly the
+// open drafts, as its button), ×, and its routine button
+export function timesheet_cmd(v: View, arg: string): Act | string {
+  const [verb, n] = arg.trim().split(/\s+/);
+  const drafts = v.drafts ?? [];
+  if (verb === "submit") {
+    const ns = drafts.filter(draft_open).map((d) => d.n);
+    return ns.length === 0 ? "No open drafts to submit." : { $: "Timesheet", op: "submit", ns };
+  }
+  if (verb === "drop") {
+    const d = drafts.find((x) => String(x.n) === n);
+    return d === undefined ? "No draft " + (n ?? "") + ": /timesheet lists them." : !draft_open(d) ? "Draft " + d.n + " is " + d.state + ": only open drafts drop." : { $: "Timesheet", op: "drop", ns: [d.n] };
+  }
+  if (verb === "weekly") {
+    return (v.routines ?? []).some((r) => r.name === TIMESHEET_ROUTINE.name) ? "The weekly drafting routine is on already: /routines." : { $: "Routine", op: "add", routine: TIMESHEET_ROUTINE };
+  }
+  return timesheet_text(v);
+}
+
+// /lane: the agent page's timeline (View.view_lane), a mark a line
+export function lane_text(name: string, marks: Mark[]): string {
+  if (marks.length === 0) {
+    return "Nothing on " + name + "'s timeline yet.";
+  }
+  return [name + "'s timeline:", ...marks.map((m) => "  " + new Date(m.t).toTimeString().slice(0, 5) + " " + m.kind + " · " + m.label)].join("\n");
 }
 
 export type SideAgent = { name: string; title: string; status: Crew["status"]; age: string; under: number };

@@ -268,6 +268,14 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/fix <n…> [claude]", "",                       "a Legion agent fixes each of your PRs failing, in conflict or with changes asked", (t, a) => term_answer(t, Cockpit.review_cmd(t.v, "fix", a, Date.now()))],
       ["/refresh",          "",                        "the devices read the inbox anew",               (t) => (term_act(t, { $: "Fetch" }), term_note(t, "Reading the inbox anew; /inbox in a moment."))],
     ]],
+    ["Pages", [
+      ["/digest",           "",                        "the team's week: merged by author, then in progress", (t) => term_note(t, Cockpit.digest_text(t.v))],
+      ["/themes",           "",                        "the digest summarized by theme (one call to the compactor's model)", (t) => (term_act(t, { $: "Themes" }), term_note(t, "Summarizing the digest by theme…"))],
+      ["/transcripts",      "",                        "recorded calls, the last 14 days",               (t) => term_note(t, Cockpit.transcripts_text(t.v))],
+      ["/transcript <n>",   "",                        "transcript n's summary (made once, by the compactor's model)", term_transcript],
+      ["/timesheet [act]",  "",                        "Harvest drafts by day; submit sends the open ones, drop <n>, weekly drafts every Friday", (t, a) => term_answer(t, Cockpit.timesheet_cmd(t.v, a))],
+      ["/lane",             "",                        "the timeline of the agent on this tab",          (t) => term_note(t, t.v.page === null ? "/lane shows an agent's timeline: /tab to one first." : Cockpit.lane_text(t.v.page.name, View.view_lane(t.v, Date.now())))],
+    ]],
     ["Routines", [
       ["/routines",         "",                        "your routines: tasks a Legion agent starts on by the clock or on new review requests", (t) => term_note(t, View.view_routines_note(t.v))],
       ["/routine <act>",    "",                        "add daily HH:MM | every Nh | on review, then name: task; or run, on, off, drop <n>", (t, a) => term_answer(t, View.view_routine_cmd(t.v, a))],
@@ -737,6 +745,17 @@ function term_edit_run(t: Term, file: { path: string; text: string }): void {
   }
 }
 
+// /transcript <n>: its summary, or asked for (printed when it comes)
+function term_transcript(t: Term, arg: string): void {
+  const r = Cockpit.transcript_cmd(t.v, arg);
+  if (typeof r !== "string") {
+    term_act(t, r);
+    term_note(t, "Reading and summarizing…");
+    return;
+  }
+  term_rows(t, View.entry_rows(null, "note", r), false);
+}
+
 // /ls [folder|roots]: asked anew each time (View keeps a folder's answer)
 function term_ls(t: Term, arg: string): void {
   const path = arg.trim() === "roots" ? "@roots" : View.path_from(process.cwd(), arg.trim() || ".", os.homedir());
@@ -1172,6 +1191,17 @@ function term_print(t: Term, msg: View.Server): void {
     }
     case "recalled": {
       term_note(t, View.view_recall_note(v));
+      return;
+    }
+    case "themes": {
+      term_note(t, Cockpit.digest_text(v));
+      return;
+    }
+    case "summary": {
+      const k = (v.inbox?.google?.docs ?? []).findIndex((d) => d.id === msg.id);
+      if (k >= 0) {
+        term_transcript(t, String(k + 1));
+      }
       return;
     }
   }

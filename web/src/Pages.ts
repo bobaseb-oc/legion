@@ -469,16 +469,8 @@ function shown_html(looked: View.Looked | null, source: boolean, at: number | nu
   return `<pre class="code git">${lines.map(line).join("\n")}</pre>`;
 }
 
-// the routine that drafts the timesheet on Friday mornings (the user's
-// rule, 2026-11-13; offered on the Timesheet page): a native worker reads
-// the week's harvest, calendar, PRs, commits and tickets, and files drafts
-// for Monday to Friday; only the user submits them
-export const TIMESHEET_ROUTINE: Routines.Given = {
-  name: "Timesheet drafts",
-  task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
-  when: { $: "weekly", day: 5, at: "09:00" },
-  tier: "worker",
-};
+// the Friday drafting routine (Cockpit.ts, the terminal offers it too)
+export const TIMESHEET_ROUTINE = Cockpit.TIMESHEET_ROUTINE;
 
 // the Timesheet page (K5, RED ZONE): the drafts by day, newest first, each
 // day's hours; each draft's project, task, hours, notes and why, a Drop
