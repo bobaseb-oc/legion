@@ -1,0 +1,40 @@
+Screen.ts
+  s_67beeddb9b1d84::t_4a597507c832e0 108-109
+Term.ts
+  s_67beeddb9b1d84::t_23f9063d9ecebc 585-589,594-597,599-603,605-606,611-620,622,630-632
+  s_67beeddb9b1d84::t_b523e14938a836 795
+  s_67beeddb9b1d84::t_32ae8f3dec05e7 277
+  s_67beeddb9b1d84::t_8a2893f36ac11f 584
+  s_67beeddb9b1d84::t_1423ac87dbc922 27,63,219,239,253,273,275,281,541-542,840,1339,1360-1361
+Deck.ts
+  s_67beeddb9b1d84::t_aa4870dc8884b1 101-105
+  s_67beeddb9b1d84::t_3c7e68c313c4b0 98-100
+  s_67beeddb9b1d84::t_670dc7ab01a5c0 106-108
+  s_67beeddb9b1d84::t_3e64ba84e18dac 1-97,109-171
+web/app.js
+  s_67beeddb9b1d84::t_a04677050af15a 3148-3159,3170,4681
+Cockpit.ts
+  s_67beeddb9b1d84::t_19d3da7725cd12 9,530-535,546
+Deck.test.ts
+  s_67beeddb9b1d84::t_b45613b649e537 1-97
+tasks/todo.md
+  s_67beeddb9b1d84::t_2d3ed067e5d0e7 876-911
+web/src/main.ts
+  s_67beeddb9b1d84::t_ec34c02c7509d1 1376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5dc5e93070c2ea499b4862daffc1dbdf4846f165",
+  "prompts": {},
+  "sessions": {
+    "s_67beeddb9b1d84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "301a66aa-ce4f-413e-be2f-92088b63fa53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
