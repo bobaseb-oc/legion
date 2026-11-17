@@ -65,6 +65,7 @@ type Term = {
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
   seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
   editing?: string; // /edit's file, asked of a device: its editor runs once it comes
+  looking?: string; // /look's file, asked of a device: the deck's file page shows it once it comes (a terminal)
   stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
@@ -255,7 +256,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
     ]],
     ["Files", [
-      ["/look <path[:line]>", "",                      "a file's lines, from that line (asked of a device; secrets refused)", (t, a) => term_answer(t, View.view_look_cmd(a, process.cwd(), os.homedir()))],
+      ["/look <path[:line]>", "",                      "a file's lines, from that line (asked of a device; secrets refused)", term_look],
       ["/ls [folder|roots]", "",                       "a folder's entries (here if none); roots: the work dir, home repo, spaces", term_ls],
       ["/find <name>",      "",                        "files by name in the workspace (this folder)",   (t, a) => term_find(t, "find", a)],
       ["/grep <text>",      "",                        "lines holding the text in the workspace",        (t, a) => term_find(t, "grep", a)],
@@ -631,6 +632,9 @@ function term_deck_key(t: Term, key: string): void {
     if (out.type !== undefined) {
       Screen.ed_type(t.scr.ed, out.type);
     }
+    if (out.run !== undefined) {
+      term_command(t, out.run);
+    }
   }
   term_draw(t);
 }
@@ -771,6 +775,16 @@ function term_transcript(t: Term, arg: string): void {
     return;
   }
   term_rows(t, View.entry_rows(null, "note", r), false);
+}
+
+// /look <path[:line]>: asked of a device; on a terminal, the deck's file
+// page shows it when it comes (else it prints)
+function term_look(t: Term, arg: string): void {
+  const act = View.view_look_cmd(arg, process.cwd(), os.homedir());
+  if (typeof act !== "string" && act.$ === "Look" && act.what.kind === "file" && t.scr.tty) {
+    t.looking = act.what.path;
+  }
+  term_answer(t, act);
 }
 
 // /ls [folder|roots]: asked anew each time (View keeps a folder's answer)
@@ -1202,6 +1216,12 @@ function term_print(t: Term, msg: View.Server): void {
         t.editing = undefined;
         const r = View.view_editable(v, msg.path);
         typeof r === "string" ? term_note(t, r) : r !== null && term_edit_run(t, r);
+        return;
+      }
+      if (msg.kind === "file" && msg.error === undefined && t.looking !== undefined && msg.path === t.looking) {
+        t.looking = undefined;
+        term_deck(t, "file");
+        t.deck = Deck.deck_file(v, Screen.screen_width(), process.stdout.rows || 24, Date.now());
         return;
       }
       const md = View.looked_md(v, msg);

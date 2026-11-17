@@ -31,13 +31,15 @@ export type Page = (typeof PAGES)[number];
 export type Deck = {
   page: Page; sel: string | null; top: number; g: boolean; ask: string | null; say: string | null; away?: Cockpit.Away;
   filter: string; typing: boolean; picks: string[]; shut: Cockpit.SectionId[]; detail: string | null; claude: boolean; changed?: number;
+  hit?: number | null; // the file's line found last (its search is the filter)
 };
 
 // a key's outcome: the deck next, the acts it asks (Term.ts runs them),
 // what it sent (the crew's keys send as they act: View.view_full),
 // whether the deck closes (focus: the agent whose page to show), a link
-// to open in the browser, text to type in the box (once the deck closes)
-export type Out = { deck: Deck; acts: View.Act[]; sends: View.Client[]; done: boolean; focus?: string; open?: string; type?: string };
+// to open in the browser, text to type in the box or a command to run
+// (once the deck closes)
+export type Out = { deck: Deck; acts: View.Act[]; sends: View.Client[]; done: boolean; focus?: string; open?: string; type?: string; run?: string };
 
 // Constants
 // =========
@@ -76,15 +78,17 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
     const undo = View.view_crew_op(v, "undo", was.ask + " yes");
     return key === "y" && typeof undo !== "string" ? out(d, { acts: [undo] }) : out(d);
   }
+  const room = Math.max(1, h - 1);
   if (d.typing) {
-    return out(deck_type(d, key));
+    const typed = deck_type(d, key);
+    return out(d.page === "file" && key === "Enter" ? file_find(typed, deck_body(v, typed, w, now).lines, room, 0) : typed);
   }
   if (d.g) {
     const to = Object.hasOwn(CHORDS, key) ? CHORDS[key] : undefined;
     if (to === "chat") {
       return out({ ...d, g: false }, { done: true });
     }
-    return out(to === undefined ? { ...d, g: false } : deck_new(to, d.filter));
+    return out(to === undefined ? { ...d, g: false } : deck_new(to));
   }
   if (key === "g") {
     return out({ ...d, g: true });
@@ -100,7 +104,12 @@ export function deck_key(v: View.View, was: Deck, key: string, w: number, h: num
     return out(d, { done: true });
   }
   const body = deck_body(v, d, w, now);
-  const room = Math.max(1, h - 1);
+  if (d.page === "file") {
+    const file = deck_file_key(v, d, key, body.lines, room);
+    if (file !== null) {
+      return file;
+    }
+  }
   const step = MOVES[key];
   if (body.items.length > 0 && step !== undefined) {
     const at = body.items.findIndex((it) => it.key === d.sel);
@@ -240,6 +249,49 @@ function deck_memory_key(_v: View.View, d: Deck, key: string, _now: number): Out
     return act_or_say(d, "Pick a message first: ↑↓.");
   }
   return key === "Enter" ? { deck: d, acts: [{ $: "Seek", id: i }], sends: [], done: true } : act_or_say(d, { $: "Pin", i });
+}
+
+// the file's keys, as a pager's: / finds (typed; Enter goes to the first
+// line found), n and N the next and the one before (round), G its end, e
+// edits it (/edit); the rest scroll
+function deck_file_key(v: View.View, d: Deck, key: string, lines: Paint.Line[], room: number): Out | null {
+  const go = (deck: Deck, more: Partial<Out> = {}): Out => ({ deck, acts: [], sends: [], done: false, ...more });
+  switch (key) {
+    case "/": return go({ ...d, typing: true, filter: "", hit: null });
+    case "n": return go(file_find(d, lines, room, 1));
+    case "N": return go(file_find(d, lines, room, -1));
+    case "G": return go({ ...d, top: deck_scroll(lines.length, room, d.top, "End") });
+    case "e": return v.looked?.kind === "file" && v.looked.path !== undefined ? go(d, { done: true, run: "/edit " + v.looked.path }) : act_or_say(d, "No file shown to edit.");
+  }
+  return null;
+}
+
+// the deck at the file shown, w by h, the line asked (path:line) in sight
+export function deck_file(v: View.View, w: number, h: number, now: number): Deck {
+  const d = deck_new("file");
+  const lines = deck_body(v, d, w, now).lines;
+  const mark = v.line === null ? -1 : lines.findIndex((l) => l.map((r) => r.x).join("").includes(v.line + "→ "));
+  return mark < 0 ? d : { ...d, top: Math.min(Math.max(0, lines.length - (h - 1)), Math.max(0, mark - FIND)) };
+}
+
+// a line holding the words: the first (by: 0), the one after the line
+// found last (1) or before it (-1), round; shown FIND lines below the top;
+// which of how many
+const FIND = 2;
+function file_find(d: Deck, lines: Paint.Line[], room: number, by: number): Deck {
+  const q = d.filter.trim().toLowerCase();
+  if (q === "") {
+    return { ...d, say: "Find what? / and the words." };
+  }
+  const hits = lines.flatMap((l, k) => (l.map((r) => r.x).join("").toLowerCase().includes(q) ? [k] : []));
+  if (hits.length === 0) {
+    return { ...d, hit: null, say: "No line has “" + d.filter.trim() + "”." };
+  }
+  const last = d.hit ?? -1;
+  const next = by === 0 ? 0 : by > 0 ? hits.findIndex((k) => k > last) : hits.findLastIndex((k) => k < last);
+  const at = next >= 0 ? next : by > 0 ? 0 : hits.length - 1;
+  const top = Math.min(Math.max(0, lines.length - room), Math.max(0, hits[at] - FIND));
+  return { ...d, top, hit: hits[at], say: "“" + d.filter.trim() + "”: " + (at + 1) + " of " + hits.length };
 }
 
 // the first line in sight that keeps line at in sight, room lines shown
@@ -461,7 +513,7 @@ function deck_text(v: View.View, d: Deck, now: number): string {
     case "inbox": return Cockpit.inbox_text(v, d.filter, now, 0);
     case "questions": return View.view_questions_note(v);
     case "memory": return [View.view_pins_note(v), ...(v.recall === null ? [] : [View.view_recall_note(v)])].join("\n\n");
-    case "file": return (v.looked === null ? null : View.looked_md(v, v.looked)) ?? "No file shown yet: /look <path>, then g f.";
+    case "file": return (v.looked === null ? null : View.looked_md(v, v.looked, Infinity)) ?? "No file shown yet: /look <path>, then g f.";
     case "routines": return View.view_routines_note(v);
     case "digest": return Cockpit.digest_text(v);
     case "transcripts": return Cockpit.transcripts_text(v);

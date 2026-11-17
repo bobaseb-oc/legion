@@ -240,6 +240,35 @@ test("memory, as the web's page: pins and the last recall's hits to pick; Enter 
   expect(key(v, d, "/")).toMatchObject({ done: true, type: "/recall " });
 });
 
+test("the file page: the whole file, numbered; / finds in it, n and N go between the lines found, G its end, e edits it", () => {
+  const v = team();
+  expect(Deck.deck_lines(v, Deck.deck_new("file"), W, H, 0).map(text).join("\n")).toContain("No file shown yet");
+  const body = Array.from({ length: 100 }, (_, k) => (k === 69 || k === 89 ? "needle " : "line ") + (k + 1)).join("\n");
+  View.view_hear(v, { $: "looked", id: "x", kind: "file", path: "/r/a.ts", text: body, hash: "h" });
+  const d = Deck.deck_new("file");
+  const sight = (x: Deck.Deck) => Deck.deck_lines(v, x, W, H, 0).map(text).join("\n");
+  expect(sight(d)).toMatch(/`?\/r\/a\.ts`?:/);
+  expect(sight(d)).toMatch(/ 1  line 1\b/);
+  expect(sight(key(v, d, "G").deck)).toContain("line 100");
+  expect(sight(key(v, d, "End").deck)).toContain("line 100");
+  const found = key(v, d, "/", "n", "e", "e", "d", "l", "e", "Enter").deck;
+  expect(found).toMatchObject({ typing: false, filter: "needle" });
+  expect(sight(found)).toContain("70  needle 70");
+  expect(found.say).toBe("“needle”: 1 of 2");
+  const next = key(v, found, "n").deck;
+  expect(sight(next)).toContain("90  needle 90");
+  expect(next.say).toBe("“needle”: 2 of 2");
+  expect(key(v, next, "n").deck.say).toBe("“needle”: 1 of 2");
+  expect(key(v, found, "N").deck.say).toBe("“needle”: 2 of 2");
+  expect(key(v, d, "/", "z", "z", "Enter").deck.say).toBe("No line has “zz”.");
+  expect(key(v, d, "e")).toMatchObject({ done: true, run: "/edit /r/a.ts" });
+  // /look path:70: the page opens with line 70 in sight
+  View.view_act(v, { $: "Look", what: { kind: "file", path: "/r/a.ts", line: 70 } });
+  View.view_hear(v, { $: "looked", id: "y", kind: "file", path: "/r/a.ts", text: body, hash: "h" });
+  expect(sight(Deck.deck_file(v, W, H, 0))).toContain("70→ needle 70");
+  expect(Deck.deck_file(v, W, H, 0).page).toBe("file");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });
