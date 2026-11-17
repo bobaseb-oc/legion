@@ -279,6 +279,58 @@ export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away |
 // =====================
 
 // a group of the sidebar's agents: their ticket (null: none), them
+// The terminal's home
+// ===================
+// Home and its away card as text, for Term.ts (/home, and on coming back
+// to the terminal): the same pieces as Pages.ts draws.
+
+export const MARK: Record<Crew["status"], string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+
+const n_of = (k: number, one: string, many = one + "s") => k + " " + (k === 1 ? one : many);
+
+export function home_text(v: View, now: Date): string {
+  const stats = home_stats(v).map((s) => s.label + " " + s.value + (s.sub === "" ? "" : " (" + s.sub + ")")).join(" · ");
+  const { working, done } = home_cards(v, now.getTime());
+  const card = (c: Card) => [MARK[c.status] + " " + c.name, c.title === c.name ? "" : c.title, c.repo, c.ticket, c.pr, c.cost, c.age, c.under === 0 ? "" : c.under + " under it"]
+    .filter((x) => x !== null && x !== "").join(" · ");
+  const group = (head: string, cards: Card[]) => cards.length === 0 ? [] : [head, ...cards.map(card)];
+  const empty = working.length + done.length === 0 ? ["No agents yet: tell Legion what to do, or /agent <task>."] : [];
+  return [
+    home_greeting(now) + ". " + home_line(v),
+    stats,
+    ...group("Working (" + working.length + "):", working),
+    ...group("Done (" + done.length + "), /archive all takes them:", done),
+    ...empty,
+  ].join("\n");
+}
+
+export function away_text(a: Away): string {
+  const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
+  const agent = (x: AwayAgent) => [MARK[x.status] + " " + x.name, x.title === x.name ? "" : x.title, x.why].filter((s) => s !== "").join(" · ");
+  const asked = [a.questions === 0 ? "" : n_of(a.questions, "new question"), a.notes === 0 ? "" : n_of(a.notes, "new note")].filter((x) => x !== "");
+  return [
+    "While you were away (" + [a.span, ...counts].join(" · ") + "):",
+    ...a.agents.map(agent),
+    ...(a.more === 0 ? [] : ["+" + a.more + " more: /crew"]),
+    ...(a.routines.length === 0 ? [] : ["Routines ran: " + a.routines.join(", ")]),
+    ...(asked.length === 0 ? [] : [asked.join(" · ") + ": /questions"]),
+    ...(a.inbox === 0 ? [] : [n_of(a.inbox, "inbox change") + ": /inbox"]),
+  ].join("\n");
+}
+
+// /archive [name|all]: home's done agents, as its Archive buttons
+export function archive_cmd(v: View, arg: string, now: number): Act | string {
+  const { working, done } = home_cards(v, now);
+  const name = arg.trim();
+  if (name === "" || name === "all") {
+    return done.length === 0 ? "Nothing done to archive." : { $: "Archive", names: done.map((c) => c.name) };
+  }
+  if (working.some((c) => c.name === name)) {
+    return name + " is at work: /stop " + name + " first, or wait till it is done.";
+  }
+  return done.some((c) => c.name === name) ? { $: "Archive", names: [name] } : "No agent " + name + " on home: /home lists them.";
+}
+
 export type SideAgent = { name: string; title: string; status: Crew["status"]; age: string; under: number };
 export type SideGroup = { ticket: string | null; agents: SideAgent[] };
 

@@ -280,3 +280,30 @@ test("away: routines run since, questions and notes counted only (never their te
   expect(Cockpit.away(v, { at, crew: {} }, NOW, 0)).toBeNull(); // nothing new since
   expect(Cockpit.away(v, { at, crew: {} }, NOW, 2)?.inbox).toBe(2); // the inbox alone is something
 });
+
+test("the terminal's home: greeting, who needs you, the stats, the cards working then done, how to archive", () => {
+  const v = View.view_new();
+  expect(Cockpit.home_text(v, new Date(NOW))).toMatch(/no agent needs you · 0 working\n[\s\S]*No agents yet: tell Legion what to do, or \/agent <task>\.$/);
+  v.crew = [agent("A", "working", { title: "review o/r#5 for AO-10852", repos: ["r"], spent: 2.437 }), agent("B", "done", { title: "fix the login" }), agent("D", "working", { parent: "A" })];
+  const text = Cockpit.home_text(v, new Date(NOW));
+  expect(text).toContain("Agents 3 (2 working · 1 done) · Reviews for you – · Your PRs – · Merged this week – · Agent spend –");
+  expect(text).toContain("Working (1):\n● A · review o/r#5 for AO-10852 · r · AO-10852 · #5 · ≈$2.44 · 2m · 1 under it");
+  expect(text).toContain("Done (1), /archive all takes them:\n✓ B · fix the login · 2m");
+});
+
+test("the terminal's away note: how long, the agents (a failed one's why), the routines, the counts, never question text", () => {
+  const a: Cockpit.Away = { span: "5h", agents: [{ name: "F", title: "fix ci", status: "failed", why: "tests red" }, { name: "D", title: "task D", status: "done", why: "" }], more: 2, done: 3, failed: 1, routines: ["nightly"], questions: 2, notes: 1, inbox: 0 };
+  expect(Cockpit.away_text(a)).toBe("While you were away (5h · 3 done · 1 failed):\n✗ F · fix ci · tests red\n✓ D · task D\n+2 more: /crew\nRoutines ran: nightly\n2 new questions · 1 new note: /questions");
+});
+
+test("/archive: a done agent named, or all done ones; one at work refused", () => {
+  const v = View.view_new();
+  v.crew = [agent("A", "working"), agent("B", "done"), agent("C", "failed")];
+  expect(Cockpit.archive_cmd(v, "all", NOW)).toEqual({ $: "Archive", names: ["B", "C"] });
+  expect(Cockpit.archive_cmd(v, "", NOW)).toEqual({ $: "Archive", names: ["B", "C"] });
+  expect(Cockpit.archive_cmd(v, "B", NOW)).toEqual({ $: "Archive", names: ["B"] });
+  expect(Cockpit.archive_cmd(v, "A", NOW)).toBe("A is at work: /stop A first, or wait till it is done.");
+  expect(Cockpit.archive_cmd(v, "Z", NOW)).toBe("No agent Z on home: /home lists them.");
+  v.crew = [agent("A", "working")];
+  expect(Cockpit.archive_cmd(v, "all", NOW)).toBe("Nothing done to archive.");
+});

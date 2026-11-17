@@ -195,7 +195,7 @@ function sheet_line(v: View.View): string {
 // the most spaces the sidebar lists (the rest: a count)
 export const SPACES = 12;
 
-const MARK: Record<string, string> = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+const MARK: Record<string, string> = Cockpit.MARK;
 
 // the sidebar: search or run (the palette), the pages (the one shown
 // marked; the inbox's count, the crew's pill), Unii's agents by ticket,

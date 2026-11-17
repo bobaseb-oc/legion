@@ -22,6 +22,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
+import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Device from "./Device.ts";
 import * as Import from "./Import.ts";
@@ -61,6 +62,7 @@ type Term = {
   full?   : { sel: string | null }; // /crew full shown: the agent selected
   away?   : boolean; // the terminal not in front (it told FocusOut): alerts notify
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
+  seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
   spend?  : Cost.Spend;    // today's LiteLLM spend (term_status)
@@ -231,6 +233,8 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/stop [name]",      "",                        "stop all work, agents too; or that agent and those under it", term_stop],
       ["/crew [full]",      "",                        "show or hide the crew: Legion and every agent under its starter; full: the whole screen (Esc goes back)", term_crew],
       ["/dismiss [name]",   "",                        "take a done agent out of the crew; all done ones with no name", term_dismiss],
+      ["/home",             "",                        "home: who needs you, the stats, Legion's agents working then done (back after 2h away, what happened shows by itself)", (t) => term_note(t, Cockpit.home_text(t.v, new Date()))],
+      ["/archive [name|all]", "",                      "take done agents off home and the crew; alone: all done ones", (t, a) => term_answer(t, Cockpit.archive_cmd(t.v, a, Date.now()))],
       ["/undo [name] [yes]", "",                       "put back the files that agent's last turn changed (on its tab: that one); yes confirms", (t, a) => term_answer(t, View.view_crew_op(t.v, "undo", a))],
       ["/handoff [name]",   "",                        "open that agent's work in Claude Code on its device, with its brief", (t, a) => term_answer(t, View.view_crew_op(t.v, "handoff", a))],
       ["/approve [name]",   "",                        "let a Claude Code worker asking to start run (auto mode, on its device)", (t, a) => term_approve(t, a, true)],
@@ -400,6 +404,16 @@ function term_status(t: Term, draw = true): void {
 function term_focus(t: Term, away: boolean): void {
   t.away = away;
   t.focused = true;
+  // the web's While you were away card, as a note on coming back
+  if (away && t.v.up) {
+    t.seen = Cockpit.away_seen(t.v, Date.now());
+  } else if (!away && t.seen !== undefined) {
+    const a = Cockpit.away(t.v, t.seen, Date.now());
+    t.seen = undefined;
+    if (a !== null) {
+      term_note(t, Cockpit.away_text(a));
+    }
+  }
   if (!away && t.goto !== undefined) {
     term_act(t, { $: "Goto", name: t.goto });
     t.goto = undefined;
