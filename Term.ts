@@ -1438,7 +1438,7 @@ function term_paint(t: Term): void {
   const iw    = term_inner();
   const room  = (process.stdout.rows || 24) - 1;
   const off   = !View.view_typing(t.v);
-  const crew  = t.v.crew.length > 0 && (t.crew ?? true) ? Paint.crew_lines(t.v, iw, Date.now(), CREW_ROWS) : [Paint.tabs_line(t.v, iw)];
+  const crew  = Deck.crew_foot(t.v, iw, Date.now(), CREW_ROWS, t.v.crew.length > 0 && (t.crew ?? true));
   const hint  = t.v.page === null ? View.HINT + " · /help" : "Tell " + t.v.page.name + " · Tab to go on";
   const toast = t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [];
   const foot  = [Deck.foot_line(t.v, iw)];

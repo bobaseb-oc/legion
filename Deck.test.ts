@@ -293,6 +293,25 @@ test("the footer's nav: the pages and their counts, the chat bold, the web's bot
   }
 });
 
+test("a wide terminal: home's column beside the crew panel, in its rows; narrow: the crew panel alone", () => {
+  const v = team();
+  const narrow = Deck.crew_foot(v, 100, 0, 8, true).map(text);
+  expect(narrow).toEqual(Paint.crew_lines(v, 100, 0, 8).map(text));
+  const wide = Deck.crew_foot(v, 140, 0, 8, true);
+  expect(wide).toHaveLength(Paint.crew_lines(v, 100, 0, 8).length);
+  const all = wide.map(text).join("\n");
+  expect(all).toContain("│");
+  expect(all).toContain("2 need you · 1 working");
+  expect(all).toContain("Ask asks to start");
+  for (const l of wide) {
+    expect(Paint.text_width(text(l))).toBeLessThanOrEqual(140);
+  }
+  // no crew panel: the tabs line, the column's first line beside it
+  const tabs = Deck.crew_foot(v, 140, 0, 8, false);
+  expect(tabs).toHaveLength(1);
+  expect(text(tabs[0])).toContain("2 need you · 1 working");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });

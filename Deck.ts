@@ -562,6 +562,38 @@ export function foot_line(v: View.View, w: number): Paint.Line {
   return deck_nav(v, "chat", w, [Paint.Run("· " + Cockpit.bar_text(v) + " · Ctrl+G + letter", Paint.DIM)]);
 }
 
+// the chat's crew panel (panel: else the tabs line), w wide; from WIDE
+// columns, home's column beside it, as the web's side column, in its rows
+// (the footer no taller)
+export const WIDE = 120;
+export function crew_foot(v: View.View, w: number, now: number, most: number, panel: boolean): Paint.Line[] {
+  const rw = Math.min(48, Math.floor(w * 0.35));
+  const lw = w < WIDE ? w : w - rw - 3;
+  const left = panel ? Paint.crew_lines(v, lw, now, most) : [Paint.tabs_line(v, lw)];
+  if (w < WIDE) {
+    return left;
+  }
+  const right = side_lines(v, now).slice(0, left.length).map((l) => line_cut(l, rw));
+  const width = (l: Paint.Line) => Paint.text_width(l.map((r) => r.x).join(""));
+  return left.map((l, k) => [...l, Paint.Run(" ".repeat(Math.max(0, lw - width(l))) + " │ ", Paint.DIM), ...(right[k] ?? [])]);
+}
+
+// home's column: who needs you and who works, those asking or failed, the
+// inbox, the questions and routines, what is up next
+function side_lines(v: View.View, now: number): Paint.Line[] {
+  const apps = Cockpit.home_apps(v);
+  const next = Cockpit.up_next(v, now)[0];
+  const need = View.view_needs(v).map((c): Paint.Line => [Paint.Run(Cockpit.MARK[c.status] + " " + c.name + (c.status === "asking" ? " asks to start" : " failed"), status_ink(c.status))]);
+  const badge = Cockpit.inbox_badge(v.inbox);
+  return [
+    [Paint.Run("Home · ", HEAD), Paint.Run(Cockpit.home_line(v), BOLD)],
+    ...need,
+    [Paint.Run("Inbox: " + (badge === 0 ? "" : badge + " for you · ") + apps.inbox, Paint.DIM)],
+    [Paint.Run("Questions: " + apps.questions + " · Routines: " + apps.routines, Paint.DIM)],
+    ...(next === undefined ? [] : [[Paint.Run("Next: " + next.day + " " + next.time + " · " + next.title, Paint.DIM)]]),
+  ];
+}
+
 // the page a chord's letter goes to (m: the chat), else null
 export function deck_chord(key: string): Page | "chat" | null {
   return Object.hasOwn(CHORDS, key) ? CHORDS[key] : null;
