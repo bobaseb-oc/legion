@@ -258,6 +258,24 @@ export function screen_suspend(scr: Screen): void {
   process.kill(0, "SIGTSTP");
 }
 
+// the terminal lent to a program run now (an editor: /edit), then taken
+// back: the screen erased, keys cooked, input paused, as at a suspend
+export function screen_lend(scr: Screen, run: () => void): void {
+  process.stdout.write(screen_erase(scr) + MODES_OFF);
+  scr.up   = 0;
+  scr.rows = 0;
+  process.stdin.setRawMode(false);
+  process.stdin.pause();
+  try {
+    run();
+  } finally {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdout.write(MODES_ON);
+    scr.on("");
+  }
+}
+
 // a paste, typed whole
 function screen_paste(scr: Screen, data: string): number {
   const end = data.indexOf(PASTE_OFF);

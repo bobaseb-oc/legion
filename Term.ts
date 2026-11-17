@@ -63,6 +63,7 @@ type Term = {
   away?   : boolean; // the terminal not in front (it told FocusOut): alerts notify
   focused?: boolean; // the terminal ever told its focus; one that never does is taken as away
   seen?   : Cockpit.Seen; // the look the user left at FocusOut: back AWAY later, what happened since
+  editing?: string; // /edit's file, asked of a device: its editor runs once it comes
   stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
   branch? : string | null; // the branch of the folder Unii works in (term_status)
@@ -258,6 +259,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/find <name>",      "",                        "files by name in the workspace (this folder)",   (t, a) => term_find(t, "find", a)],
       ["/grep <text>",      "",                        "lines holding the text in the workspace",        (t, a) => term_find(t, "grep", a)],
       ["/git <op> [repo]",  "",                        "status, log, diff, changes (the branch's work since main), branches, show <rev>", (t, a) => term_answer(t, View.view_git_cmd(a, process.cwd(), os.homedir()))],
+      ["/edit [path]",      "",                        "edit the file shown (or path) in your $EDITOR; saved on exit unless it changed meanwhile", term_edit],
       ["/editor <path>",    "",                        "open a file in your editor on the device",      (t, a) => a.trim() === "" ? term_note(t, "Which file? /editor <path>") : term_act(t, { $: "Look", what: { kind: "open", path: View.path_from(process.cwd(), a, os.homedir()) } })],
     ]],
     ["Inbox", [
@@ -691,6 +693,50 @@ function term_pasted(t: Term, text: string): boolean {
   return true;
 }
 
+// /edit [path]: the file shown (else asked for, edited once it comes) in
+// the user's $VISUAL or $EDITOR, then saved as the web's Save does: the
+// device refuses it if the file changed since it was shown (its hash)
+function term_edit(t: Term, arg: string): void {
+  const path = arg.trim() === "" ? null : View.path_from(process.cwd(), arg, os.homedir());
+  const r = View.view_editable(t.v, path);
+  if (r === null) {
+    t.editing = path!;
+    term_act(t, { $: "Look", what: { kind: "file", path: path! } });
+  } else if (typeof r === "string") {
+    term_note(t, r);
+  } else {
+    term_edit_run(t, r);
+  }
+}
+
+function term_edit_run(t: Term, file: { path: string; text: string }): void {
+  if (!t.scr.tty) {
+    term_note(t, "/edit needs a terminal to run your editor in.");
+    return;
+  }
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-edit-");
+  const copy = dir + "/" + (file.path.split("/").pop() || "file");
+  try {
+    fs.writeFileSync(copy, file.text, { mode: 0o600 });
+    const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+    let status: number | null = null;
+    Screen.screen_lend(t.scr, () => {
+      status = child.spawnSync("/bin/sh", ["-c", editor + ' "$1"', "sh", copy], { stdio: "inherit" }).status;
+    });
+    const text = fs.readFileSync(copy, "utf8");
+    if (status !== 0) {
+      term_note(t, "Your editor exited " + status + ": " + file.path + " not saved.");
+    } else if (text === file.text) {
+      term_note(t, "No change: " + file.path + " not saved.");
+    } else {
+      term_act(t, { $: "Save", text });
+      term_note(t, "Saving " + file.path + "…");
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // /ls [folder|roots]: asked anew each time (View keeps a folder's answer)
 function term_ls(t: Term, arg: string): void {
   const path = arg.trim() === "roots" ? "@roots" : View.path_from(process.cwd(), arg.trim() || ".", os.homedir());
@@ -1112,6 +1158,12 @@ function term_print(t: Term, msg: View.Server): void {
       return;
     }
     case "looked": {
+      if (msg.kind === "file" && t.editing !== undefined && msg.path === t.editing) {
+        t.editing = undefined;
+        const r = View.view_editable(v, msg.path);
+        typeof r === "string" ? term_note(t, r) : r !== null && term_edit_run(t, r);
+        return;
+      }
       const md = View.looked_md(v, msg);
       if (md !== null) {
         term_rows(t, View.entry_rows(null, "note", md), false);

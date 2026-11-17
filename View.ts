@@ -1563,6 +1563,19 @@ export function looked_md(v: View, msg: Looked): string | null {
   return head + "\n" + fence(ext, rows.join("\n"));
 }
 
+// /edit [path]: the file shown, if it is path's and came whole with its
+// hash (Save's base); null: not shown yet (ask for it, then edit); else why not
+export function view_editable(v: View, path: string | null): { path: string; text: string } | string | null {
+  const l = v.looked;
+  if (l?.kind !== "file" || l.path === undefined || (path !== null && l.path !== path)) {
+    return path === null ? "No file shown to edit: /edit <path>, or /look one first." : null;
+  }
+  if (l.error !== undefined || l.hash === undefined) {
+    return l.error ?? l.path + " can't be edited here.";
+  }
+  return { path: l.path, text: l.text ?? "" };
+}
+
 // a command's #id (or bare id) as its act; else why not
 export function view_id_cmd(cmd: string, arg: string, act: (id: number) => Act): Act | string {
   const m = /^#?(\d+)$/.exec(arg.trim());

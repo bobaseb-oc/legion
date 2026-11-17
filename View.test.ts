@@ -562,6 +562,19 @@ test("files in the terminal: what a device answered, as markdown: a file's lines
   expect(View.looked_md(v, { $: "looked", id: "6", kind: "git", path: "/w", op: "diff", text: "+a\n-b" })).toBe("`git diff` in `/w`:\n```diff\n+a\n-b\n```");
 });
 
+test("/edit in the terminal: only the file a device showed whole, as shown (its hash the save's base)", () => {
+  const v = View.view_new();
+  expect(View.view_editable(v, null)).toBe("No file shown to edit: /edit <path>, or /look one first.");
+  View.view_hear(v, { $: "looked", id: "1", kind: "file", path: "/w/a.ts", hash: "h1", text: "x" });
+  expect(View.view_editable(v, null)).toEqual({ path: "/w/a.ts", text: "x" });
+  expect(View.view_editable(v, "/w/a.ts")).toEqual({ path: "/w/a.ts", text: "x" });
+  expect(View.view_editable(v, "/w/b.ts")).toBeNull(); // not shown yet: asked first
+  View.view_hear(v, { $: "looked", id: "2", kind: "file", path: "/w/s.ts", error: "secrets: not shown" });
+  expect(View.view_editable(v, "/w/s.ts")).toBe("secrets: not shown");
+  View.view_hear(v, { $: "looked", id: "3", kind: "git", path: "/w", op: "log", text: "c1" });
+  expect(View.view_editable(v, null)).toBe("No file shown to edit: /edit <path>, or /look one first.");
+});
+
 test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
   const v = View.view_new();
   const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };
