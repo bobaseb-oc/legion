@@ -17,6 +17,7 @@
 
 import type { Kind } from "./AskAI.ts";
 import * as Call from "./Call.ts";
+import * as Hl from "./Hl.ts";
 import type * as Md from "./Md.ts";
 import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
@@ -309,7 +310,10 @@ function code_lines(label: string, text: string, w: number, ink: Ink, fill: bool
   const code = { ...INK, d: ink.d };
   const iw   = fill ? w - 2 : w - 4;
   const head = label === "" ? [] : [[Run(label, { ...ink, d: true })]];
-  const body = text.split("\n").flatMap((l) => runs_wrap([Run(text_clean(l), code)], iw, true));
+  const lang = Hl.hl_lang(label);
+  const hl   = (cls: Hl.Span[0]): Ink => cls === "" ? code : cls === "c" ? { ...code, d: true } : { ...code, c: Theme.HL[cls] };
+  const runs = lang === null ? text.split("\n").map((l) => [Run(text_clean(l), code)]) : Hl.hl_spans(text, lang).map((l) => l.map(([cls, s]) => Run(text_clean(s), hl(cls))));
+  const body = runs.flatMap((l) => runs_wrap(l.length === 0 ? [Run("", code)] : l, iw, true));
   return [...head, ...(fill ? fill_lines(body, iw) : frame_lines(body, iw, code, []))];
 }
 

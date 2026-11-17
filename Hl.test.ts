@@ -1,6 +1,15 @@
 // Hl: a file's lines colored (the files pane), escaped
 import { expect, test } from "bun:test";
-import { hl_lang, hl_lines } from "./Hl.ts";
+import { hl_lang, hl_lines, hl_spans } from "./Hl.ts";
+
+test("hl_spans: the same tokens unescaped, a line's pieces each with its class (\"\": plain), for the terminal", () => {
+  const ts = hl_lang("a.ts")!;
+  expect(hl_spans('const a = "<b>"; // hi\nreturn 42;', ts)).toEqual([
+    [["k", "const"], ["", " a = "], ["s", '"<b>"'], ["", "; "], ["c", "// hi"]],
+    [["k", "return"], ["", " "], ["n", "42"], ["", ";"]],
+  ]);
+  expect(hl_spans("/* a\nb */ x", ts)).toEqual([[["c", "/* a"]], [["c", "b */"], ["", " x"]]]);
+});
 
 test("hl_lang: by a file's extension or a fence's name; none: null", () => {
   expect(hl_lang("src/a.ts")).not.toBeNull();
