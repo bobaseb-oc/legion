@@ -563,7 +563,7 @@ function click(ev: MouseEvent): void {
   }
   // an undo changes the user's files: asked first
   const parsed: View.Act | undefined = a === undefined ? undefined : JSON.parse(a);
-  if (parsed?.$ === "Undo" && !confirm("Undo " + parsed.name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.")) {
+  if (parsed?.$ === "Undo" && !confirm(View.undo_ask(parsed.name))) {
     return;
   }
   if (parsed !== undefined) {

@@ -513,6 +513,20 @@ test("pins and recall in the terminal: /pin, /seek take #id; /pins and a search'
   expect(View.view_recall_note(v)).toBe(`“deploy”:\n#9 · 2026-11-16 10:20 · legion: the deploy went out\nThe newest ${View.FOUND} shown: search for more words to reach older ones.\n/seek #id shows one in the chat.`);
 });
 
+test("/undo and /handoff in the terminal: a crew member, idle for an undo, confirmed by yes; the page's agent by default", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Wkr", "Mgr", "worker", "working")] });
+  expect(View.view_crew_op(v, "undo", "Mgr")).toBe(View.undo_ask("Mgr") + " Sure? /undo Mgr yes");
+  expect(View.view_crew_op(v, "undo", "Mgr yes")).toEqual({ $: "Undo", name: "Mgr" });
+  expect(View.view_crew_op(v, "undo", "Wkr yes")).toBe("Wkr is at work: its last turn can be undone once it stops.");
+  expect(View.view_crew_op(v, "undo", "Nobody yes")).toBe("No agent Nobody: /tab lists them.");
+  expect(View.view_crew_op(v, "handoff", "Wkr")).toEqual({ $: "Handoff", name: "Wkr" });
+  expect(View.view_crew_op(v, "handoff", "")).toBe("Which agent? /handoff <name>, or on its tab.");
+  View.view_act(v, { $: "Goto", name: "Mgr" });
+  expect(View.view_crew_op(v, "handoff", "")).toEqual({ $: "Handoff", name: "Mgr" });
+  expect(View.view_crew_op(v, "undo", "yes")).toEqual({ $: "Undo", name: "Mgr" });
+});
+
 test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
   const v = View.view_new();
   const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };

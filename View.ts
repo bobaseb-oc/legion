@@ -1443,6 +1443,34 @@ export function view_drop(v: View, arg: string): Act | string {
   return q === undefined ? "No open question " + arg.trim() + ": /questions lists them." : { $: "Drop", q: q.id };
 }
 
+// what an undo does, asked before it (the web's confirm, the terminal's yes)
+export function undo_ask(name: string): string {
+  return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
+}
+
+// /undo [name] [yes], /handoff [name]: the agent named, else the page's;
+// an undo only of an agent not at work (the Crew view hides it then), and
+// only once yes confirms it
+export function view_crew_op(v: View, op: "undo" | "handoff", arg: string): Act | string {
+  const words = arg.trim().split(/\s+/).filter((w) => w !== "");
+  const yes   = words.at(-1) === "yes";
+  const name  = (yes ? words.slice(0, -1) : words).join(" ") || v.page?.name || "";
+  const c     = v.crew.find((x) => x.name === name);
+  if (name === "") {
+    return "Which agent? /" + op + " <name>, or on its tab.";
+  }
+  if (c === undefined) {
+    return "No agent " + name + ": /tab lists them.";
+  }
+  if (op === "handoff") {
+    return { $: "Handoff", name };
+  }
+  if (c.status === "working" || c.status === "waiting" || c.status === "asking") {
+    return name + " is at work: its last turn can be undone once it stops.";
+  }
+  return yes ? { $: "Undo", name } : undo_ask(name) + " Sure? /undo " + name + " yes";
+}
+
 // a command's #id (or bare id) as its act; else why not
 export function view_id_cmd(cmd: string, arg: string, act: (id: number) => Act): Act | string {
   const m = /^#?(\d+)$/.exec(arg.trim());
