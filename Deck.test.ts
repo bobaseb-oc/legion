@@ -382,6 +382,21 @@ test("the mouse in the deck: a click on the nav goes to that page (Chat: back), 
   expect(key(v, Deck.deck_new("crew"), "WheelDown").deck.sel).toBe("Mgr");
 });
 
+test("the Todo page, as the web's: each todo to pick, who and when; d ticks it done, x drops it; g o goes there, its count in the nav", () => {
+  const v = team();
+  View.view_hear(v, { $: "state", ...v, assigned: [{ n: 1, text: "Approve PR #352", by: "main", date: "2026-11-12T11:00:00Z" }, { n: 4, text: "Send Dan the draft", by: "Wkr", date: "2026-11-12T11:30:00Z" }] });
+  const d = Deck.deck_new("todo");
+  const lines = Deck.deck_lines(v, d, W, H, 0).map(text);
+  expect(lines[0]).toContain("o Todo 2");
+  expect(lines.join("\n")).toMatch(/Approve PR #352 · by Legion[\s\S]*Send Dan the draft · by Wkr/);
+  expect(key(v, d, "j", "j").deck.sel).toBe("4");
+  expect(key(v, d, "j", "d").acts).toEqual([{ $: "Assignment", n: 1, done: true }]);
+  expect(key(v, d, "j", "j", "x").acts).toEqual([{ $: "Assignment", n: 4, done: false }]);
+  expect(key(v, d, "d").deck.say).toContain("Pick");
+  expect(key(v, Deck.deck_new("home"), "g", "o").deck.page).toBe("todo");
+  expect(Deck.deck_lines(View.view_new(), d, W, H, 0).map(text).join("\n")).toContain("Nothing to do");
+});
+
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });
