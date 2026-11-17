@@ -496,6 +496,23 @@ test("a file attached in the terminal: an image by its bytes, a text file fenced
   expect(View.attach_kind("b.bin", new Uint8Array([1, 0, 2]))).toBeNull();
 });
 
+test("pins and recall in the terminal: /pin, /seek take #id; /pins and a search's hits as notes", () => {
+  const v = View.view_new();
+  expect(View.view_id_cmd("/pin", "#7", (i) => ({ $: "Pin", i }))).toEqual({ $: "Pin", i: 7 });
+  expect(View.view_id_cmd("/seek", "12", (id) => ({ $: "Seek", id }))).toEqual({ $: "Seek", id: 12 });
+  expect(View.view_id_cmd("/pin", "x", (i) => ({ $: "Pin", i }))).toBe("Which message? /pin #id, as each block shows it.");
+  expect(View.view_pins_note(v)).toMatch(/^Nothing pinned\./);
+  v.pins = [{ i: 3, kind: "user", date: "2026-11-17T09:05:00Z", text: "keep this", size: 1500 }];
+  expect(View.view_pins_note(v)).toBe(`Pinned, 1 of ${View.PINS} · 1.5 of ${View.PINNED / 1000} KB:\n#3 · 2026-11-17 09:05 · user: keep this\n/pin #id again unpins it.`);
+  expect(View.view_recall_note(v)).toBe("");
+  View.view_act(v, { $: "Search", q: "deploy" });
+  expect(View.view_recall_note(v)).toBe("Searching for “deploy”…");
+  View.view_hear(v, { $: "recalled", q: "deploy", hits: [], more: false });
+  expect(View.view_recall_note(v)).toBe("No message has “deploy”.");
+  View.view_hear(v, { $: "recalled", q: "deploy", hits: [{ i: 9, kind: "legion", date: "2026-11-16T10:20:00Z", text: "the deploy went out" }], more: true });
+  expect(View.view_recall_note(v)).toBe(`“deploy”:\n#9 · 2026-11-16 10:20 · legion: the deploy went out\nThe newest ${View.FOUND} shown: search for more words to reach older ones.\n/seek #id shows one in the chat.`);
+});
+
 test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
   const v = View.view_new();
   const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };

@@ -11,7 +11,7 @@ import * as Cockpit from "../../Cockpit.ts";
 import type { Inbox } from "../../Inbox.ts";
 import * as Routines from "../../Routines.ts";
 import type * as View from "../../View.ts";
-import { FIND, FOUND, PINNED, PINS, SHOWN } from "../../View.ts";
+import { FIND, FOUND, minute, PINNED, PINS, SHOWN } from "../../View.ts";
 import { block_html, esc } from "./Html.ts";
 import { md_parse } from "../../Md.ts";
 import { hl_lang, hl_lines } from "../../Hl.ts";
@@ -518,11 +518,6 @@ export function memory_html(v: View.View): string[] {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
   return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
-}
-
-// an ISO date as the page shows it (UTC, to the minute)
-function minute(date: string): string {
-  return date.slice(0, 16).replace("T", " ");
 }
 
 // a text escaped, the first match of q in it marked

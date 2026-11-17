@@ -205,10 +205,16 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
       ["/export",           "",                        "save memory and account as ./unii-memory.json",  term_export],
-      ["/tree",             "",                        "the whole memory, in the browser (its link prints too)", (t) => term_browse(t, "The memory tree", t.url + "/tree")],
       ["",                  "Ctrl+Z",                  "suspend; fg brings it back",                     (t) => Screen.screen_suspend(t.scr)],
       ["/quit",             "",                        "leave: the chat goes on without this terminal",  term_quit],
       ["/help",             "",                        "this list",                                      term_help],
+    ]],
+    ["Memory", [
+      ["/pin #id",          "",                        "pin a message (again: unpin): every call then sees it whole, however old", term_pin],
+      ["/pins",             "",                        "the messages pinned",                           (t) => term_note(t, View.view_pins_note(t.v))],
+      ["/recall <words>",   "",                        "search the whole chat for the words",           (t, a) => term_act(t, { $: "Search", q: a }).length === 0 && term_note(t, "Recall what? /recall <words>")],
+      ["/seek #id",         "",                        "show message #id in the chat, its blocks opened", (t, a) => term_answer(t, View.view_id_cmd("/seek", a, (id) => ({ $: "Seek", id })))],
+      ["/tree",             "",                        "the whole memory, in the browser (its link prints too)", (t) => term_browse(t, "The memory tree", t.url + "/tree")],
     ]],
     ["Pick", [
       ["",                  "Shift+Left, Shift+Right", "the model before, the next",                     (t, k) => term_move(t, ARROWS[k])],
@@ -654,6 +660,18 @@ function term_pasted(t: Term, text: string): boolean {
   return true;
 }
 
+// pins message #id, or unpins it if pinned (the server says no past PINS)
+function term_pin(t: Term, arg: string): void {
+  const act = View.view_id_cmd("/pin", arg, (i) => ({ $: "Pin", i }));
+  if (typeof act === "string" || act.$ !== "Pin") {
+    term_answer(t, act);
+    return;
+  }
+  const on = !(t.v.pins ?? []).some((p) => p.i === act.i);
+  term_act(t, act);
+  term_note(t, (on ? "Pinning #" : "Unpinning #") + act.i + "; /pins lists them.");
+}
+
 // stops all that runs, or the agent named
 // an answer or a dismissal (/answer, /drop) sent; else why not, a note
 function term_answer(t: Term, act: View.Act | string): void {
@@ -1027,6 +1045,10 @@ function term_print(t: Term, msg: View.Server): void {
       if (main) {
         term_shown(t, msg.id, msg.n, true);
       }
+      return;
+    }
+    case "recalled": {
+      term_note(t, View.view_recall_note(v));
       return;
     }
   }

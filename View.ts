@@ -1443,6 +1443,47 @@ export function view_drop(v: View, arg: string): Act | string {
   return q === undefined ? "No open question " + arg.trim() + ": /questions lists them." : { $: "Drop", q: q.id };
 }
 
+// a command's #id (or bare id) as its act; else why not
+export function view_id_cmd(cmd: string, arg: string, act: (id: number) => Act): Act | string {
+  const m = /^#?(\d+)$/.exec(arg.trim());
+  return m === null ? "Which message? " + cmd + " #id, as each block shows it." : act(Number(m[1]));
+}
+
+// an ISO date as both clients show it (UTC, to the minute): 2026-11-17 09:05
+export function minute(date: string): string {
+  return date.slice(0, 16).replace("T", " ");
+}
+
+function hit_text(h: Hit): string {
+  return "#" + h.i + " · " + minute(h.date) + " · " + h.kind + ": " + h.text;
+}
+
+// /pins: the user's pins, as the Memory page lists them
+export function view_pins_note(v: View): string {
+  const pins = v.pins ?? [];
+  if (pins.length === 0) {
+    return "Nothing pinned. /pin #id pins a message: every call then sees it whole, however old.";
+  }
+  const kb = (pins.reduce((t, p) => t + p.size, 0) / 1000).toFixed(1);
+  return ["Pinned, " + pins.length + " of " + PINS + " · " + kb + " of " + PINNED / 1000 + " KB:", ...pins.map(hit_text), "/pin #id again unpins it."].join("\n");
+}
+
+// the last search's hits (/recall), as the Memory page shows them
+export function view_recall_note(v: View): string {
+  const r = v.recall;
+  if (r === null) {
+    return "";
+  }
+  if (r.hits === null) {
+    return "Searching for “" + r.q + "”…";
+  }
+  if (r.hits.length === 0) {
+    return "No message has “" + r.q + "”.";
+  }
+  const more = r.more ? ["The newest " + FOUND + " shown: search for more words to reach older ones."] : [];
+  return ["“" + r.q + "”:", ...r.hits.map(hit_text), ...more, "/seek #id shows one in the chat."].join("\n");
+}
+
 // a path named in the chat (an inline code's text), its :line dropped, for
 // the files pane (K4); null: not a path
 const PATH_EXT = /\.(ts|tsx|js|jsx|mjs|py|md|json|jsonl|sh|css|html|yml|yaml|toml|sql|go|rs|txt|ipynb|cfg|ini|lock|csv)$/i;
