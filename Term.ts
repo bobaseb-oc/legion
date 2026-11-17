@@ -1158,7 +1158,7 @@ function term_paint(t: Term): void {
   const crew  = t.v.crew.length > 0 && (t.crew ?? true) ? Paint.crew_lines(t.v, iw, Date.now(), CREW_ROWS) : [Paint.tabs_line(t.v, iw)];
   const hint  = t.v.page === null ? View.HINT + " · /help" : "Tell " + t.v.page.name + " · Tab to go on";
   const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length, off ? OFF : hint, off);
-  const status = { up: t.v.up, dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, model: t.v.pick?.model ?? "?", working: t.v.agents.length, spend: t.spend ?? { spend: null, stale: true, due: true }, questions: View.view_questions(t.v).length, mode: t.v.mode, waiting: View.view_waiting(t.v) };
+  const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
   const own   = term_inset([Paint.rule_line(t.v, iw), ...input.lines, under, ...crew]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));

@@ -804,3 +804,27 @@ Review of 8facfc1..main (PRs #9–#20). Red test first for each, then the fix.
 - Open (user's design call): a terminal and an agent's shell share one device identity, so consent/plan/approve/routine can't be refused to devices without breaking `legion`.
 - Review: 8 fixes, red test first for each; 9/9 mutants (each fix reverted alone) killed; suite 490 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
 - Left as Low follow-ups: fetch metadata before the re-resolve, dids cap, gateway text to users, view.json rough/pins checks, search cost, <pinned> escaping, key-helper owner check, key in env's argv, okf-wiki caps, undo deleting a re-unignored file, mcp.extra.json personal paths.
+
+## TUI parity with the web UI (2026-11-17, feat/tui-parity)
+
+Intent: the terminal (Term.ts + Paint.ts) can do what the web UI does, by reusing
+View.ts / Cockpit.ts helpers and the existing acts. No new server acts, no logic
+copied out of web/src. Constraints: one slice per commit, a red test first in
+Paint.test.ts / View.test.ts style (pure View -> lines), tsc clean, full suite
+shows no new failures (3 known baseline fails).
+
+- [ ] T1 Status line shows gateway budget + busy: Term builds StatusLine without
+      budget/busy (Term.ts:1161); share one builder with view_status (View.ts:1293)
+- [ ] T2 `/attach <path>`: image -> drop_image path, text -> drop_text fenced block
+      in the box; a bracketed paste that is one existing path does the same
+- [ ] T3 Pins + recall: pin key on a message, `/pins`, `/recall <words>` showing
+      `recalled` hits, Seek jumps to the hit
+- [ ] T4 `/undo <agent>` (typed y/N confirm) and `/handoff <agent>` via the
+      existing Undo/Handoff acts; show the device's `did` answer
+- [ ] T5 `/home`: cockpit cards + "While you were away" card + Archive (Cockpit.home_cards, away)
+- [ ] T6 `/inbox`: inbox_sections, Review / Fetch acts, badge in the status line
+- [ ] T7 Files, read-only: `/look <path[:line]>`, `/ls [dir]`, `/find`, `/grep`, git view
+- [ ] T8 Files, writes: edit + save (separate slice; same server guards as the web)
+- [ ] T9 Code highlighting in the terminal: split Hl.ts into tokens + HTML renderer, add ANSI renderer
+- [ ] T10 `/digest`, `/transcripts`, `/timesheet` pages; agent timeline lane on agent pages
+- Out of scope: voice/mic, HTML preview iframe (show source instead), Ctrl+K palette (`/help` stays)

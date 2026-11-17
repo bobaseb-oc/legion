@@ -1295,8 +1295,13 @@ export function view_status(v: View): string {
   if (s === undefined || s === null) {
     return "";
   }
-  const spend = { spend: s.spend, stale: s.stale };
-  return s.device + ": " + status_text({ up: v.up, dir: s.dir, branch: s.branch, model: v.pick?.model ?? "?", working: v.agents.length, spend, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, Date.now()) });
+  return s.device + ": " + status_text(view_status_line(v, { dir: s.dir, branch: s.branch, spend: { spend: s.spend, stale: s.stale } }, Date.now()));
+}
+
+// the status line both clients show: where (dir, branch, spend: the device's
+// report on the web, the terminal's own) plus what the view knows
+export function view_status_line(v: View, here: Pick<StatusLine, "dir" | "branch" | "spend">, now: number): StatusLine {
+  return { up: v.up, ...here, model: v.pick?.model ?? "?", working: v.agents.length, questions: view_questions(v).length, mode: v.mode, waiting: view_waiting(v), budget: v.gateway?.budget ?? null, busy: view_busy(v, now) };
 }
 
 // whether the AI service answered busy lately (the server's gateway report)

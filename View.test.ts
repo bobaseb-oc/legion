@@ -482,3 +482,14 @@ test("dropped files: images attach, text files inline, binaries refused", () => 
   expect(out.length).toBeLessThan(View.DROPPED);
   expect(out.includes("�")).toBe(false);
 });
+
+test("one status line for both clients: the gateway's budget and a busy AI service show in the terminal too", () => {
+  const v = View.view_new();
+  const here = { dir: "repo", branch: null, spend: { spend: null, stale: false } };
+  View.view_hear(v, { $: "gateway", budget: { spend: 312.4, max: 800 }, busy: Date.now() });
+  const line = View.status_text(View.view_status_line(v, here, Date.now()));
+  expect(line).toContain("gateway $312/$800");
+  expect(line).toContain("⚠ AI service busy");
+  View.view_hear(v, { $: "gateway", budget: null, busy: 0 });
+  expect(View.status_text(View.view_status_line(v, here, Date.now()))).not.toMatch(/gateway|busy/);
+});
