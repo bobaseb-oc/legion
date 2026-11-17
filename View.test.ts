@@ -585,3 +585,11 @@ test("one status line for both clients: the gateway's budget and a busy AI servi
   View.view_hear(v, { $: "gateway", budget: null, busy: 0 });
   expect(View.status_text(View.view_status_line(v, here, Date.now()))).not.toMatch(/gateway|busy/);
 });
+
+// a note the terminal prints (/home, /inbox, /questions...) keeps its
+// lines: a Cap row is one line (Paint flattens its newlines), so a note
+// is a Cap per line, its indents kept
+test("a note's rows: a Cap per line, as written", () => {
+  expect(View.note_rows("Home\n  - one\n\n- two")).toEqual([View.Cap("Home"), View.Cap("  - one"), View.Cap(""), View.Cap("- two")]);
+  expect(View.note_rows("one line")).toEqual([View.Cap("one line")]);
+});

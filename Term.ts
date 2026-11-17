@@ -1306,7 +1306,7 @@ function piece_trim(text: string): string {
 function term_rows(t: Term, rows: View.Row[], wipe: boolean): void {
   t.out  = wipe ? [] : t.out;
   t.wipe = t.wipe || wipe;
-  t.out  = t.out.concat(term_lines(t.v.notes.splice(0).map(View.Cap)), term_lines(rows));
+  t.out  = t.out.concat(term_lines(t.v.notes.splice(0).flatMap(View.note_rows)), term_lines(rows));
   term_draw(t);
 }
 
@@ -1351,7 +1351,7 @@ function term_paint(t: Term): void {
   if (t.full !== undefined) {
     return term_full_paint(t);
   }
-  t.out = t.out.concat(term_lines(t.v.notes.splice(0).map(View.Cap)));
+  t.out = t.out.concat(term_lines(t.v.notes.splice(0).flatMap(View.note_rows)));
   term_flow(t);
   const w     = Screen.screen_width();
   const iw    = term_inner();

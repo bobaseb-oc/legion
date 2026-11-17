@@ -526,6 +526,11 @@ export function Cap(text: string): Row {
   return { $: "Cap", text };
 }
 
+// a note as the terminal prints it: a Cap per line (a Cap is one line)
+export function note_rows(text: string): Row[] {
+  return text.split("\n").map(Cap);
+}
+
 // View
 // ====
 
