@@ -2176,8 +2176,12 @@ const LIKES = 30;
 
   // the page written again, if due (Explain.explain_due) and the credit
   // pays: nothing going on, no cards and no call; failed, why, the cards
-  // kept and tried again an EVERY on
+  // kept and tried again an EVERY on. Only while a view shows it (a socket
+  // with no device): the call is billed, and no device reads the page
   export async function observe(chat: Chat, now: number): Promise<void> {
+    if (![...chat.socks].some((s) => s.data.host === null)) {
+      return;
+    }
     const ex = chat.mem.explain;
     const text = Chat.snapshot(chat);
     const hash = Explain.explain_hash(text);
