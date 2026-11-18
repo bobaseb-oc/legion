@@ -79,6 +79,14 @@ How it works
   inbox row starts a native Legion agent per PR (Claude Code workers if
   you tick it); nothing is posted to GitHub or Jira. Routines start an
   agent daily, every N hours, or on each new review request.
+- **Agents wait and set timers.** Any agent can `wait` up to 10 minutes
+  within a call, or set a `timer` (1 minute to a day) and end its turn:
+  it is woken with a `[Timer n]` message, Unii by a turn of its own.
+  Timers are kept across restarts and checked once a minute. Unii can
+  also propose a routine: it is added off, marked "proposed by Unii"
+  with its reason, and runs only once you turn it on (web Routines page
+  or `/routine on <n>`). Routines change only from a view, never from a
+  device's socket.
 - **Every window is a view.** The server owns the chat. A browser tab
   or `legion` in a terminal shows it live, and any of them can send a
   message, stop the work or change the model.

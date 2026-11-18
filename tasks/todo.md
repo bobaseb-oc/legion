@@ -1131,3 +1131,24 @@ Full suite 573 pass, 2 fail (the known log-staging pair). tsc (strict, no bun/no
 changed lines: only the timer's .unref on `number` (as the tick's line beside it).
 Also: Chat.free still lets a chat with no view or device go (the bridge's timer with it):
 keep `legion device` running while away.
+
+## Agents wait, set timers, propose routines (feat/agent-timers, user's ask 2026-11-18)
+Intent: agents wait for time, not only for reports. Constraints: reuse Routines.ts, Chat.ticked,
+Machine.nap; no new UI beyond a label. Success: tests green, full suite at baseline.
+- [x] wait({seconds}) 1..600, everyone (OWN): Machine.nap on the call's signal; a stop cuts it
+- [x] timer({minutes, note} | {close}) 1..1440 min, 5 each, 20 a chat; Memory timers/timered (view.json)
+- [x] Chat.ticked -> Chat.rang: Unii's timer a turn (as Chat.report), an agent's via Tools.tell
+- [x] Chat.free / Chat.wake keep or open a chat with a pending timer (Routines.timed)
+- [x] Tools.stop drops a stopped agent's timers
+- [x] routine({name, task, when, why, tier}) Unii only, by the clock only: added off, by/why, a note
+- [ ] RED ZONE (DRAFT, needs the user's sign-off): an agent-written routine runs only after the
+      user's own Turn on; Chat.routine (add, toggle, drop, run) refuses a device's socket (an
+      agent's shell can reach it), as Chat.assignment does. Was unguarded before this branch.
+- [x] Labels: web Routines "Proposed by Unii: why. Turn it on to approve."; /routines the same
+- [ ] Live check: a 1-min timer for Unii fires as a turn; a proposal shows off; Turn on runs it
+
+Review: Timer.test.ts (spawned server) + 6 Routines tests. Mutation check, each mutant 0/1 on a 1/1
+baseline: proposal on:true, no Unii-only, no device guard, stop keeps timers, close another's,
+Unii's timer no turn. Full suite 581 pass, 2 fail (the known log-staging pair). tsc (strict, 6.0.3
+from another repo's node_modules, no install) on changed lines: only environment noise after
+adding View State.timers. Timer granularity is the 60 s tick.

@@ -142,3 +142,57 @@ test("timed: a routine on, by the clock, keeps its chat open; off or on review, 
   expect(Routines.timed([routine({ $: "review" })])).toBe(false);
   expect(Routines.timed([])).toBe(false);
 });
+
+// agents' timers (the timer tool, user's ask 2026-11-18): a note that
+// wakes whoever set it, 1 minute to a day on; kept with the chat, so a
+// pending one keeps it open as a routine on by the clock does
+const timer = (over: Partial<Routines.Timer> = {}): Routines.Timer => ({ id: 1, who: "main", at: at(9), note: "check CI", made: at(8), ...over });
+
+test("a timer's check: whole minutes, 1 to a day; a note, trimmed and cut; bad ones refused", () => {
+  expect(Routines.timer_check({ minutes: 5, note: "  check  CI \n now " })).toEqual({ minutes: 5, note: "check CI now" });
+  expect((Routines.timer_check({ minutes: 1, note: "n".repeat(9000) }) as any).note.length).toBe(Routines.TIMER_NOTE);
+  expect(Routines.timer_check({ minutes: Routines.TIMER_MINUTES, note: "x" })).toMatchObject({ minutes: Routines.TIMER_MINUTES });
+  for (const bad of [{ minutes: 0, note: "x" }, { minutes: Routines.TIMER_MINUTES + 1, note: "x" }, { minutes: 1.5, note: "x" }, { minutes: "5", note: "x" }, { minutes: 5, note: "  " }, { minutes: 5 }, null]) {
+    expect(typeof Routines.timer_check(bad)).toBe("string");
+  }
+});
+
+test("timers due: those whose time came, in order", () => {
+  const list = [timer({ id: 2, at: at(10) }), timer({ id: 1, at: at(9) }), timer({ id: 3, at: at(11) })];
+  expect(Routines.timers_due(list, at(8)).map((t) => t.id)).toEqual([]);
+  expect(Routines.timers_due(list, at(10)).map((t) => t.id)).toEqual([1, 2]);
+});
+
+test("timed: a pending timer keeps its chat open, with no routine on", () => {
+  expect(Routines.timed([], [timer()])).toBe(true);
+  expect(Routines.timed([routine({ $: "review" })], [])).toBe(false);
+});
+
+// a routine an agent proposes (the routine tool, RED ZONE): added off,
+// marked whose, so only the user's own Turn on starts it
+test("a proposal: by the clock only, its why trimmed and cut", () => {
+  expect(Routines.proposal_check({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, why: "  you asked  daily " })).toEqual({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, tier: "worker", why: "you asked daily" });
+  expect((Routines.proposal_check({ name: "n", task: "t", when: { $: "every", hours: 2 }, why: "w".repeat(5000) }) as any).why.length).toBe(Routines.WHY);
+  expect(typeof Routines.proposal_check({ name: "n", task: "t", when: { $: "review" }, why: "w" })).toBe("string");
+  expect(typeof Routines.proposal_check({ name: "n", task: "t", when: { $: "daily", at: "09:00" }, why: " " })).toBe("string");
+  expect(typeof Routines.proposal_check({ name: "", task: "t", when: { $: "daily", at: "09:00" }, why: "w" })).toBe("string");
+});
+
+test("pending: a proposal never turned on; one the user turned on, or the user's own, is not", () => {
+  expect(Routines.pending(routine({ $: "daily", at: "09:00" }, { on: false, by: "main", why: "w" }))).toBe(true);
+  expect(Routines.pending(routine({ $: "daily", at: "09:00" }, { on: false, by: "main", why: "w", last: at(9) }))).toBe(false);
+  expect(Routines.pending(routine({ $: "daily", at: "09:00" }, { on: true, by: "main", why: "w" }))).toBe(false);
+  expect(Routines.pending(routine({ $: "daily", at: "09:00" }, { on: false }))).toBe(false);
+});
+
+test("views: a proposal reads as proposed, its why shown (escaped), till the user turns it on", async () => {
+  const View = await import("./View.ts");
+  const Pages = await import("./web/src/Pages.ts");
+  const v = View.view_new();
+  v.routines = [routine({ $: "daily", at: "09:00" }, { id: 5, name: "Standup", on: false, by: "main", why: "you <asked>" }), routine({ $: "daily", at: "09:00" }, { id: 6, name: "Mine", on: false })];
+  expect(View.view_routines_note(v)).toContain("5. Standup · daily at 09:00 · worker · off · proposed by Unii (you <asked>): /routine on 5 to approve");
+  expect(View.view_routines_note(v)).not.toContain("6. Mine · daily at 09:00 · worker · off · proposed");
+  const html = Pages.routines_html(v, at(9)).join("");
+  expect(html).toContain("Proposed by Unii: you &lt;asked&gt;. Turn it on to approve.");
+  expect(html.match(/Proposed by/g)?.length).toBe(1);
+});

@@ -14,7 +14,7 @@ import { Modes, ASK_KINDS, type AskKind, type Mode as Perm, type Tally } from ".
 import { topup } from "./Import.ts";
 import * as Call from "./Call.ts";
 import type { Inbox } from "./Inbox.ts";
-import { routine_parse, when_text, type Given, type Routine } from "./Routines.ts";
+import { pending, routine_parse, when_text, type Given, type Routine, type Timer } from "./Routines.ts";
 import * as Md from "./Md.ts";
 import { LABELS, type Move, Pick } from "./Pick.ts";
 import { Price } from "./Price.ts";
@@ -80,6 +80,7 @@ export type State = {
   plan?     : { text: string; date: string } | null; // the orchestrator's plan waiting for the user's yes
   trouble?  : string | null; // why the last summary failed and asks again (Memory's trouble)
   routines? : Routine[];     // the user's (Routines.ts)
+  timers?   : Timer[];       // the agents' pending timers (Routines.ts)
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
   pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
@@ -1482,13 +1483,15 @@ function view_open_note(v: View): string {
   return ["Your questions:", ...qs.map(item), ...(notes.length === 0 ? [] : ["Notes:", ...notes]), "Answer one: /answer <n> <text> (or the answer's number); dismiss: /drop <n>."].join("\n");
 }
 
-// the terminal's /routines: each with its number, when, tier, on or off
+// the terminal's /routines: each with its number, when, tier, on or off,
+// and one an agent proposed, by whom and why
+const PROPOSER = (by: string) => (by === "main" ? "Unii" : by);
 export function view_routines_note(v: View): string {
   const rs = v.routines ?? [];
   if (rs.length === 0) {
     return "No routines. Add one: /routine add daily 09:00 Name: task (or every 4h, or on review).";
   }
-  return ["Your routines:", ...rs.map((r) => r.id + ". " + r.name + " · " + when_text(r.when) + " · " + r.tier + " · " + (r.on ? "on" : "off")),
+  return ["Your routines:", ...rs.map((r) => r.id + ". " + r.name + " · " + when_text(r.when) + " · " + r.tier + " · " + (r.on ? "on" : "off") + (pending(r) ? " · proposed by " + PROPOSER(r.by!) + " (" + r.why + "): /routine on " + r.id + " to approve" : "")),
     "/routine run|on|off|drop <n>; /routine add daily 09:00 | every 4h | on review, then name: task."].join("\n");
 }
 
