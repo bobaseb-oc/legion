@@ -34,7 +34,7 @@ import type { Out } from "./Agent.ts";
 import { report_text } from "./Call.ts";
 import { clip_page } from "./Clip.ts";
 import * as config from "./Config.ts";
-import { COMPUTER, INT, STR, TOOLS, spec, type Job, type Spec } from "./Machine.ts";
+import { COMPUTER, INT, Machine, STR, TOOLS, spec, type Job, type Spec } from "./Machine.ts";
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
 import { Memory, type Seen } from "./Memory.ts";
@@ -42,6 +42,7 @@ import { ABOUT, ASK_KINDS, Modes, type AskKind } from "./Modes.ts";
 import PROMPT from "./prompt.txt" with { type: "text" };
 import { EFFORTS, LABELS, Pick } from "./Pick.ts";
 import { Price } from "./Price.ts";
+import * as Routines from "./Routines.ts";
 import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
@@ -352,11 +353,24 @@ const CODE: Spec[] = Object.keys(LSP.langs).length === 0 ? [] : [
   spec("lsp", "Ask a language server about code (" + Object.keys(LSP.langs).join(", ") + "): a symbol's definition, references or hover type, a file's symbols, the workspace's symbols by name (query), or a file's diagnostics (type errors). It reads files on " + os.hostname() + " only, the computer unii's server runs on, not other devices; the file is an absolute path there, its project the nearest folder up with .git, pyproject.toml, package.json or tsconfig.json. Positions are 1-based, as an editor shows them. Answers come as path:line:col, with the source line.", { operation: { type: "string", enum: OPS }, file: STR, line: INT, character: INT, query: { type: "string", description: "The name to look for, for workspaceSymbol." } }, ["operation", "file"]),
 ];
 
+// a pause and a timer, everyone's (user's ask 2026-11-18): wait holds the
+// call, at most WAIT s; a timer lets the turn end and wakes it (Routines.ts)
+const WAIT = 600;
+const PAUSE = spec("wait", "Pause for some seconds (1 to " + WAIT + ") and go on: to let a build, a deploy or a rate limit settle before checking again. A stop cuts it. To wait for an agent's report, end your turn instead: the report wakes you. For longer than a few minutes, use timer.", { seconds: INT }, ["seconds"]);
+const TIMER = spec("timer", "Set a timer that wakes you in some minutes (1 to " + Routines.TIMER_MINUTES + ", a day) with a message \"[Timer n] <note>\", so you can end your turn meanwhile: to check CI, a deploy or a reply later, or retry after a while. note: what to do then, said in full (you read it later). close: the number of a timer of yours no longer needed. Kept across restarts; checked once a minute.", { minutes: INT, note: STR, close: INT }, []);
+// Unii's proposals of routines (RED ZONE): added off, the user turns one on
+const ROUTINE = spec("routine", "Propose a routine to the user: a task an agent is started on by the clock, daily or weekly at HH:MM (the server's local time) or every N hours, unattended. It is added off; only the user turns it on, on their Routines page, so propose only what they asked for or clearly want. when: {$: \"daily\", at: \"09:00\"}, {$: \"weekly\", day: 0-6 (Sunday 0), at}, or {$: \"every\", hours: 1-168}. task: all the agent needs, said in full. why: what the user gets from it, in a sentence. tier: worker (the default) or manager.", {
+  name: STR, task: STR, why: STR, tier: { type: "string", enum: ["worker", "manager"] },
+  when: { type: "object", properties: { $: { type: "string", enum: ["daily", "weekly", "every"] }, at: STR, day: INT, hours: INT }, required: ["$"] },
+}, ["name", "task", "when", "why"]);
+
 const LABEL = "Set the label the user sees for an agent: title, its goal in a few words (\"Fix flaky login tests\"); repos, the repos its work touches. With no name, your own; else one under you. Keep it true as the work changes: a title \"\" clears it.";
 const OWN: Spec[] = [
   spec("label", LABEL, { name: STR, title: STR, repos: { type: "array", items: STR } }, []),
   spec("zoom", "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole. With an agent's name as id, give that agent's whole chat; Name:id opens a line of that agent's chat; ^id, one of the chat of whoever started you. A long text comes in pages from character at, saying where to go on.", { id: { type: ["integer", "string"] }, n: INT, at: INT }, ["id"]),
   spec("date", "The date and time of message id.", { id: { type: ["integer", "string"] } }, ["id"]),
+  PAUSE,
+  TIMER,
   ...SEARCH,
   ...FETCH,
 ];
@@ -567,7 +581,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ...BOSS, ...kit(who), HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -784,6 +798,20 @@ export namespace Tools {
       }
       case "todo": {
         return Tools.todo(tools, who, args.items);
+      }
+      case "wait": {
+        const seconds = args.seconds;
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds > WAIT) {
+          return { text: "wait takes whole seconds, 1 to " + WAIT + "; for longer, set a timer and end your turn.", fail: true };
+        }
+        await Machine.nap(seconds * 1000, signal);
+        return signal.aborted ? { text: "Stopped.", fail: true } : { text: "Waited " + seconds + " s.", fail: false };
+      }
+      case "timer": {
+        return Tools.timer(tools, who, args);
+      }
+      case "routine": {
+        return Tools.propose(tools, who, args);
       }
       case "label": {
         return Tools.label(tools, who, args.name === undefined ? who : String(args.name), args.title, args.repos);
@@ -1393,6 +1421,60 @@ export namespace Tools {
     return { text: "Put on the user's Todo page as todo " + a.n + "; you'll hear when it is done.", fail: false };
   }
 
+  // a timer of `who`'s set (Routines.timer_check; at most TIMERS_EACH of
+  // its own, TIMERS a chat), or one of its own closed; it fires on the
+  // chat's tick (Server.ts Chat.ticked)
+  export function timer(tools: Tools, who: string, args: any): Out {
+    const mem = tools.mem;
+    if (args?.close !== undefined) {
+      const t = mem.timers.find((x) => x.id === Number(args.close));
+      if (t === undefined || t.who !== who) {
+        return { text: t === undefined ? "No timer " + args.close + "." : "Timer " + t.id + " is " + t.who + "'s: close only your own.", fail: true };
+      }
+      mem.timers = mem.timers.filter((x) => x !== t);
+      Memory.save(mem);
+      tools.hooks.change();
+      return { text: "Closed timer " + t.id + ".", fail: false };
+    }
+    const given = Routines.timer_check(args);
+    if (typeof given === "string") {
+      return { text: given, fail: true };
+    }
+    if (mem.timers.filter((x) => x.who === who).length >= Routines.TIMERS_EACH || mem.timers.length >= Routines.TIMERS) {
+      return { text: "Too many timers open (" + Routines.TIMERS_EACH + " each, " + Routines.TIMERS + " in all): close one of yours first.", fail: true };
+    }
+    const now = Date.now();
+    const t: Routines.Timer = { id: (mem.timered += 1), who, at: now + given.minutes * 60e3, note: given.note, made: now };
+    mem.timers.push(t);
+    Memory.save(mem);
+    tools.hooks.change();
+    const at = new Date(t.at).toTimeString().slice(0, 5);
+    return { text: "Timer " + t.id + " set for " + at + " (in " + given.minutes + " min): it wakes you with its note. You may end your turn.", fail: false };
+  }
+
+  // a routine Unii proposes (RED ZONE: who may start unattended work):
+  // added off, whose and why kept, the user told by a note; only their
+  // own Turn on, from a view (Server.ts Chat.routine), starts it. At most
+  // Routines.PROPOSALS pending, Routines.MOST in all
+  export function propose(tools: Tools, who: string, args: any): Out {
+    const mem = tools.mem;
+    if (who !== "main") {
+      return { text: "Only Unii proposes routines: ask Unii, in your report or a reply.", fail: true };
+    }
+    const given = Routines.proposal_check(args);
+    if (typeof given === "string") {
+      return { text: given, fail: true };
+    }
+    if (mem.routines.filter(Routines.pending).length >= Routines.PROPOSALS || mem.routines.length >= Routines.MOST) {
+      return { text: "Too many routines proposed or kept: wait for the user to turn some on or drop them.", fail: true };
+    }
+    const r: Routines.Routine = { id: (mem.routined += 1), ...given, on: false, last: null, made: Date.now(), by: who };
+    mem.routines.push(r);
+    const note = "Unii proposes routine " + r.id + " " + JSON.stringify(r.name) + " (" + Routines.when_text(r.when) + "): " + r.task.slice(0, 300) + (r.task.length > 300 ? "…" : "") + " Why: " + given.why + " It is off: Turn it on in Routines to approve, or drop it.";
+    Tools.notify(tools, "main", { text: note });
+    return { text: "Proposed routine " + r.id + ", off: it runs only once the user turns it on in Routines.", fail: false };
+  }
+
   // an agent's own checklist set whole, cleaned: each item one line, at
   // most TODO_TEXT, at most TODOS, a status not known pending; none, unset
   export function todo(tools: Tools, who: string, items: unknown): Out {
@@ -1737,6 +1819,11 @@ export namespace Tools {
   export function stop(tools: Tools, name: string | null): void {
     const named = name === null ? [] : [tools.agents.get(name)].filter((a) => a !== undefined);
     const all = name === null ? Tools.working(tools) : [...named, ...Tools.below(tools, name)];
+    const gone = new Set(all.map((a) => a.name));
+    if (tools.mem?.timers?.some((t) => gone.has(t.who))) {
+      tools.mem.timers = tools.mem.timers.filter((t) => !gone.has(t.who));
+      Memory.save(tools.mem);
+    }
     for (const agent of all) {
       agent.stop = true;
       agent.call?.stop();

@@ -14,9 +14,11 @@ export type When = { $: "daily"; at: string } | { $: "weekly"; day: number; at: 
 
 // a routine: its number, name, task, when, the agent's tier, whether on,
 // when it last ran and was made (ms), the review requests it has seen
+// by, why: the agent that proposed it (the routine tool) and its reason;
+// none, the user's own
 export type Routine = {
   id: number; name: string; task: string; when: When; tier: "manager" | "worker"; on: boolean;
-  last: number | null; made: number; seen?: string[];
+  last: number | null; made: number; seen?: string[]; by?: string; why?: string;
 };
 
 // what the user gives for one
@@ -99,11 +101,70 @@ export function routine_due(r: Routine, now: number): boolean {
   return r.on && next !== null && next <= now;
 }
 
-// whether a chat must stay open with no view for its routines (Server.ts
-// Chat.free, Chat.wake): one is on and by the clock (a review routine
-// runs on an inbox, which only a connected device sends)
-export function timed(routines: Routine[]): boolean {
-  return routines.some((r) => r.on && r.when.$ !== "review");
+// whether a chat must stay open with no view for its routines and timers
+// (Server.ts Chat.free, Chat.wake): a routine on and by the clock (a
+// review routine runs on an inbox, which only a connected device sends),
+// or a timer pending
+export function timed(routines: Routine[], timers: Timer[] = []): boolean {
+  return timers.length > 0 || routines.some((r) => r.on && r.when.$ !== "review");
+}
+
+// Proposals
+// ---------
+// A routine an agent proposes (Tools.ts routine, RED ZONE: who may start
+// unattended work): added off, marked by whom and why; only the user's
+// own Turn on, from a view (Server.ts Chat.routine), starts it. By the
+// clock only: a review routine reads PRs that may be an attacker's.
+
+// a proposal's why, at most; the most proposals pending at once
+export const WHY = 1000;
+export const PROPOSALS = 3;
+
+export function proposal_check(x: any): (Given & { why: string }) | string {
+  const given = routine_check(x);
+  if (typeof given === "string") {
+    return given;
+  }
+  if (given.when.$ === "review") {
+    return "A proposed routine runs by the clock: daily, weekly or every N hours.";
+  }
+  const why = typeof x.why === "string" ? x.why.trim().replace(/\s+/g, " ").slice(0, WHY) : "";
+  return why === "" ? "A proposed routine needs a why: what the user gets from it." : { ...given, why };
+}
+
+// a proposal the user never turned on
+export function pending(r: Routine): boolean {
+  return r.by !== undefined && !r.on && r.last === null;
+}
+
+// Timers
+// ------
+// An agent's timer (Tools.ts timer): a note that wakes whoever set it,
+// as a message "[Timer n] note", once its time comes (Server.ts
+// Chat.ticked, every minute). Kept with the chat (view.json), so it
+// survives a restart, and keeps the chat open with no view (timed).
+
+export type Timer = { id: number; who: string; at: number; note: string; made: number };
+
+// the most minutes ahead (a day); a note's most characters; the most
+// timers a chat, and one agent, keeps
+export const TIMER_MINUTES = 1440;
+export const TIMER_NOTE = 500;
+export const TIMERS = 20;
+export const TIMERS_EACH = 5;
+
+export function timer_check(x: any): { minutes: number; note: string } | string {
+  const minutes = x?.minutes;
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > TIMER_MINUTES) {
+    return "A timer is whole minutes ahead, 1 to " + TIMER_MINUTES + " (a day).";
+  }
+  const note = typeof x.note === "string" ? x.note.trim().replace(/\s+/g, " ").slice(0, TIMER_NOTE) : "";
+  return note === "" ? "A timer needs a note: what to do when it wakes you." : { minutes, note };
+}
+
+// the timers whose time came, soonest first
+export function timers_due(timers: Timer[], now: number): Timer[] {
+  return timers.filter((t) => t.at <= now).sort((a, b) => a.at - b.at);
 }
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

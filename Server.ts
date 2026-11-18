@@ -406,7 +406,7 @@ export namespace Chat {
       return;
     }
     Chat.cloud.billing.settle(acct.user);
-    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines)) {
+    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines, chat.mem.timers)) {
       clearInterval(chat.tick);
       Chat.unbridge(chat, Date.now());
       Tools.close(chat.tools);
@@ -1027,7 +1027,7 @@ export namespace Chat {
     for (const id of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
       const user = Main.shard(id) === Main.index ? Cloud.user(Chat.cloud, id) : null;
       const saved = user === null ? null : Memory.saved(dir + id);
-      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? []))) {
+      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? [], saved?.timers ?? []))) {
         Main.event("waking the chat of user " + id, () => Chat.open(user));
       }
     }
@@ -1160,7 +1160,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1428,7 +1428,7 @@ export namespace Chat {
         return Chat.review(chat, id, msg);
       }
       case "routine": {
-        return Chat.routine(chat, id, msg);
+        return Chat.routine(chat, id, msg, device);
       }
       case "themes": {
         return Chat.themes(chat);
@@ -2336,15 +2336,50 @@ const LIKES = 30;
     Chat.note(chat, "Routine " + JSON.stringify(r.name) + " started " + name + ".");
   }
 
-  // the routines due now run; how many
+  // the routines due now run, and the timers due fire; how many routines
   export function ticked(chat: Chat, now: number): number {
     const due = chat.mem.routines.filter((r) => Routines.routine_due(r, now));
     due.forEach((r) => Chat.run_routine(chat, r, now));
-    if (due.length > 0) {
+    const rung = Chat.rang(chat, now);
+    if (due.length > 0 || rung) {
       Memory.save(chat.mem);
       Chat.change(chat);
     }
     return due.length;
+  }
+
+  // the agents' timers due (Routines.ts), gone from the list, each a
+  // message "[Timer n] note" to whoever set it: Unii's a turn of its own,
+  // as a report is (Chat.report); an agent's, told it (Tools.tell: it
+  // reads it between calls, or an idle one goes on). Whether any fired
+  export function rang(chat: Chat, now: number): boolean {
+    const due = Routines.timers_due(chat.mem.timers, now);
+    if (due.length === 0) {
+      return false;
+    }
+    chat.mem.timers = chat.mem.timers.filter((t) => !due.includes(t));
+    for (const t of due) {
+      const text = "[Timer " + t.id + "] " + t.note;
+      if (t.who !== "main") {
+        void Tools.tell(chat.tools, "main", t.who, text).then((out) => {
+          if (out.fail) {
+            console.error("chat " + chat.acct.user + ": timer " + t.id + " of " + t.who + ": " + out.text);
+          }
+        });
+        continue;
+      }
+      Chat.hold(chat, () => {
+        chat.posts += 1;
+        const msg = Chat.chats.get(chat.acct.user) !== chat ? null : Chat.push(chat, null, "work", text);
+        if (msg !== null && Chat.cloud.billing.refuse(chat.acct.user, 0) === null) {
+          Chat.take(chat, msg);
+        }
+        chat.posts -= 1;
+        Chat.change(chat);
+        Chat.free(chat);
+      });
+    }
+    return true;
   }
 
   // review routines on an inbox: each new review request of the user's
@@ -2374,7 +2409,12 @@ const LIKES = 30;
 
   // the user's routine acts: add one (checked; at most Routines.MOST),
   // turn one on or off, drop one, run one now
-  export async function routine(chat: Chat, id: string, msg: any): Promise<Answer> {
+  // A view's only (RED ZONE): a device's socket is within an agent's reach
+  // (its shell), and an agent may only propose one, off (Tools.propose)
+  export async function routine(chat: Chat, id: string, msg: any, device: string): Promise<Answer> {
+    if (device !== "") {
+      return { error: "Routines are the user's: add or change them in a view (the web's Routines page, or the terminal's /routine)." };
+    }
     const list = chat.mem.routines;
     if (msg.op === "add") {
       const given = Routines.routine_check(msg.routine);
