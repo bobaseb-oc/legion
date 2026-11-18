@@ -957,3 +957,57 @@ on a throwaway server in headless Chrome over CDP: #todo lists both seeded todos
 when, the sidebar and top bar show 2, a real click on × drops one (page and view.json), g o
 from Home goes to #todo, no page errors.
 RED ZONE open: the view-only guard in Chat.assignment awaits the user's sign-off.
+
+## Explain tab: what the crew is building, for a manager (after super auto, feat/explain-tab)
+Why: the user wants one page saying, at a manager's level, what new behavior is being built
+right now and why, kept current, and a place to ask about it without interrupting the
+orchestrator.
+Promise: an #explain page (web) and deck page (terminal). An observer (config `observer`,
+default Haiku 5.5, like `compactor`) rewrites it when the crew, the plan or open PRs change
+(debounced, at most once per 5 min, and only after a change): one card per workstream with
+what, why, status and what to watch, in plain words with no code detail. A box on the page
+asks the observer. Its answer shows on the page only: no chat message, no main turn, no tools
+(it reads the snapshot it is given), budget checked as for any call (Chat.afford).
+- [x] Red tests: summary refresh (debounce, only on change, kept in view.json); Q&A never
+      reaches main's chat or queue; the observer gets no tools; page + nav + chord (g x)
+- [x] Implement; prompt for manager-level summaries (agent output treated as data)
+- [x] Proof: full suite, tsc, end to end (a real load of #explain, one question answered)
+
+Plan (2026-11-18, feat/explain-tab from origin/main):
+Edit scope: new Explain.ts (pure: snapshot text, hash, due, cards parse, Q&A kept, prompts,
+"updated N min ago") + Explain.test.ts; Config.ts OBSERVER; Memory.ts (mem.explain in
+view.json); Server.ts (Chat.snapshot, Chat.observe on the routines' tick, Chat.explain the
+view-only ask act, Chat.explained tells views an "explain" message, sent on join too; RED
+ZONE guard); View.ts ("explain" page, route, message, act); Cockpit.ts (g x, palette,
+/explain text and cmd); Deck.ts + Term.ts (deck page, "/" types /explain, /explain [q]);
+web Pages.ts/Html.ts/main.ts/style.css (page, sidebar, top bar, Home app, ask box); README.
+1. Red: Explain.test.ts (pure + server subprocess, AskAI.ask stubbed) → verify: fails for
+   the missing module/functions, not syntax
+2. Red: Pages/Html/Cockpit/Deck/View tests → verify: only the new tests fail
+3. Implement Explain.ts, Config, Memory, Server → verify: Explain.test.ts green
+4. Implement View, Cockpit, Deck, Term, web → verify: those suites green
+5. Proof: full suite (2 known log-staging fails only), tsc strict on changed files, mutants
+   (Q&A into chat, no debounce, no device guard, observer with tools), bun run web, e2e
+
+Review (2026-11-18): shipped as planned. Explain.ts is pure (snapshot text with no times, FNV
+hash, explain_due, cards parsed and cut, Q&A kept, "updated N min ago"); Server.ts adds
+Chat.snapshot, Chat.observe (on the routines' 60 s tick: due only on a changed snapshot and 5
+min after the last try; nothing going on: no call), Chat.explain (the ask) and Chat.explained
+(an "explain" message to views, sent on join). The observer's calls go through AskAI.ask with
+searches 0 and server "" (no tools), bill "explain", 90 s cap. Deck's nav lists Explain last
+so the 100-column nav keeps Questions; its old "g x is no chord" tests now use z.
+Proof: red first (missing module/functions); Explain.test.ts 5/5 (pure + server subprocess with
+AskAI.ask stubbed: no tools, snapshot in <snapshot>, debounce, device refused, one ask at a
+time, answer on the page, main's chat count/wait/sent/turns unchanged, kept in view.json);
+full suite 557 pass, 2 fail (the known log-staging ones); each commit's tree green on the
+touched suites. Mutants (work-tasks/mutate.sh, baseline 5/0 first): Q&A noted in the chat,
+no debounce, no device guard, observer with web searches: each 4 pass 1 fail (no debounce:
+3/2); the debounce and device mutants fail the server test by its 5 s timeout. tsc strict on
+the 11 changed files: per-file counts as HEAD's but Server.ts +1, a setTimeout(...).unref on
+`number` (no @types/node noise, as themes' identical line). End to end (work-tasks/
+explain-e2e.ts: Server.ts on 9555, temp UNII_DIR, AskAI.ask stubbed, headless Chrome over
+CDP): #explain shows the card and "updated just now", top bar and sidebar link it, a real
+click and typed question is answered in the page's thread and kept in view.json, the chat
+page doesn't show it, g x from Home goes to #explain, no page errors; the observer asked
+twice (OBSERVE, ASK) with searches 0 and no server.
+RED ZONE open: the view-only guard in Chat.explain awaits the user's sign-off.
