@@ -14,9 +14,12 @@
 //   secret, sent as Google asks.
 // - Scopes: calendar.events.readonly, drive.readonly, and (K3, user's ask
 //   2026-11-13, gmail.readonly chosen by them) gmail.readonly,
-//   chat.spaces.readonly, chat.messages.readonly. Nothing is written.
-//   A grant from before K3 keeps working for calendar and Drive; Gmail
-//   and Chat answer 403, which says to sign in again.
+//   chat.spaces.readonly, chat.messages.readonly; and openid (the user's
+//   ask 2026-11-18): who is signed in, for the GChat bridge's sender
+//   check (Google.me), no data. Nothing is written. A grant from before
+//   K3 keeps working for calendar and Drive; Gmail and Chat answer 403,
+//   which says to sign in again; one from before openid reads as before,
+//   but the bridge acts on no reply until a sign-in again.
 // - Keys: the client and the grant in the Keychain only, never a file,
 //   an argument, the environment, a log, an error, the server or a model.
 //   RED ZONE (security review U2, DRAFT awaiting the user's sign-off;
@@ -58,7 +61,7 @@ export type Client = { client_id: string; client_secret: string };
 type Grant = { access_token: string; refresh_token?: string; expires_at: number };
 
 // where Google is (tests: a fake on 127.0.0.1, with insecure)
-export type Ends = { auth: string; token: string; revoke: string; api: string; chat: string };
+export type Ends = { auth: string; token: string; revoke: string; api: string; chat: string; who: string };
 export type Opts = { insecure?: boolean; ends?: Ends; wait?: number };
 
 // an event as the cockpit shows it, and a transcript Doc
@@ -84,6 +87,7 @@ export const ENDS: Ends = {
   revoke : "https://oauth2.googleapis.com/revoke",
   api    : "https://www.googleapis.com",
   chat   : "https://chat.googleapis.com",
+  who    : "https://openidconnect.googleapis.com/v1/userinfo",
 };
 
 export const SCOPES = [
@@ -92,6 +96,7 @@ export const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/chat.spaces.readonly",
   "https://www.googleapis.com/auth/chat.messages.readonly",
+  "openid",
 ];
 
 // the Keychain's names
@@ -290,7 +295,7 @@ export namespace Google {
       const tok = await Auth.ask(new URL(e.token), "token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form });
       const granted = String(tok.scope ?? "").split(" ");
       if (!SCOPES.every((s) => granted.includes(s))) {
-        throw new Error("sign-in failed: Google granted less than calendar, Drive, Gmail and Chat reading; sign in again and allow them all.");
+        throw new Error("sign-in failed: Google granted less than calendar, Drive, Gmail and Chat reading and who you are; sign in again and allow them all.");
       }
       await store.set(CLIENT, JSON.stringify(client));
       await store.set(GRANT, JSON.stringify(Google.grant(tok, undefined)));
@@ -504,10 +509,16 @@ export namespace Google {
     }));
   }
 
-  // the signed-in user as Chat names them (users/<id>: the account's id,
-  // tokeninfo's sub, the token in a header, never a URL); unknown: throws
+  // RED ZONE (the GChat bridge's sender check, signed off by the user
+  // 2026-11-18): the signed-in user as Chat names them (users/<id>: the
+  // account's id, OpenID userinfo's sub, given by the openid scope; the
+  // token in a header, never a URL). A grant from before openid (refused):
+  // sign in again; anything else unknown: throws, so no reply counts
   export async function me(token: string, o: Opts = {}): Promise<string> {
-    const res = await fetch(new URL(ends(o).token).origin + "/tokeninfo", { method: "POST", headers: { authorization: "Bearer " + token }, redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
+    const res = await fetch(ends(o).who, { headers: { authorization: "Bearer " + token }, redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
+    if (res?.status === 401 || res?.status === 403) {
+      throw new Error("Google: who is signed in is unknown (HTTP " + res.status + "): sign in again: legion google-login (the openid scope is new).");
+    }
     const sub = res?.ok ? String((await res.json().catch(() => null))?.sub ?? "") : "";
     if (!/^\d{1,40}$/.test(sub)) {
       throw new Error("Google: who is signed in is unknown" + (res === null ? " (not reachable)" : res.ok ? "" : " (HTTP " + res.status + ")") + ".");
