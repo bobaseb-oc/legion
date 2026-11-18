@@ -130,10 +130,11 @@ logs_make() {
 # the terminal: its /import reads only the redacted copy of Claude Code's
 # logs (local/prime/redact.ts), never ~/.claude or ~/.codex themselves.
 # RED ZONE (security review SB, DRAFT awaiting the user's sign-off) M2:
-# it runs the agents' jobs, so it gets no gateway, vendor, mail or push
-# key (the status line's spend reads LiteLLM's key from the Keychain)
+# it runs the agents' jobs, so it gets no gateway, vendor, mail, push or
+# GChat webhook key (the status line's spend reads LiteLLM's key from the
+# Keychain)
 term_exec() {
-  exec env -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u OPENAI_API_KEY -u RESEND_API_KEY -u APNS_KEY \
+  exec env -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u OPENAI_API_KEY -u RESEND_API_KEY -u APNS_KEY -u GCHAT_WEBHOOK_URL \
     UNII_IMPORT_DIRS="${UNII_IMPORT_DIRS:-$HOME/.unii-prime/claude/projects}" UNII_IMPORT_ASK="${UNII_IMPORT_ASK:-}" bun "$ROOT/Term.ts" "$@"
 }
 
