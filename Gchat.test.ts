@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { gchat_act, gchat_chunks, gchat_new, gchat_on, gchat_post, gchat_replies, type Item } from "./Gchat.ts";
+import { gchat_act, gchat_chunks, gchat_items, gchat_new, gchat_on, gchat_post, gchat_replies, type Item } from "./Gchat.ts";
 import type { Message } from "./Google.ts";
 
 const SPACE = "spaces/TESTSPACE";
@@ -59,6 +59,39 @@ test("a post sets the thread key and fallback, and says a failure without the UR
   expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("key")!);
   expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("token")!);
   expect(JSON.stringify(echo)).not.toContain("\n");
+});
+
+// security review L5: Google may echo the key or token percent-encoded,
+// or the URL as the server was given it (no threadKey): cut too
+test("a refused post's reason never has the key or token, encoded or not, nor the URL given", async () => {
+  const hook = "https://chat.googleapis.com/v1/" + SPACE + "/messages?key=FAKE%2bKEY&token=FAKE-tok%3D%3D";
+  const why = (msg: string) => (async () => Response.json({ error: { code: 400, message: msg } }, { status: 400 })) as any;
+  const echo = await gchat_post(hook, "k", "hi", why("given " + hook + " token FAKE-tok%3D%3D key FAKE%2BKEY or FAKE-tok== FAKE+KEY"));
+  const text = JSON.stringify(echo);
+  for (const leak of ["FAKE-tok%3D%3D", "FAKE-tok==", "FAKE%2BKEY", "FAKE%2bKEY", "FAKE+KEY", "FAKE"]) {
+    expect([leak, text.includes(leak)]).toEqual([leak, false]);
+  }
+  expect(text).toContain("<redacted>");
+});
+
+// security review L4: an agent's text may hold a secret; a post is
+// scrubbed with the repo's secret shapes (local/prime/redact.ts)
+test("the items posted are scrubbed of secret-shaped strings", () => {
+  const gh = "ghp_" + "A1b2C3d4".repeat(5);
+  const ant = "sk-ant-" + "x".repeat(30);
+  const items = gchat_items({
+    questions: [{ id: 1, text: "use " + gh + "?", options: ["yes " + ant, "no"], at: 0, date: "" }, { id: 2, text: "note " + gh, at: 0, date: "", fyi: true }],
+    assigned: [{ n: 3, text: "rotate " + gh, by: "Unii", date: "" }],
+    decided: [{ id: 4, kind: "other", question: "push " + gh + "?", answer: ant, date: new Date().toISOString() }],
+  }, Date.now());
+  expect(items.map((x) => x.key)).toEqual(["q1", "n2", "t3", "d4"]);
+  for (const x of items) {
+    expect([x.key, x.text.includes(gh) || x.text.includes(ant)]).toEqual([x.key, false]);
+    expect(x.text).toContain("[REDACTED:");
+  }
+  expect(items[0]!.text).toContain("Question 1: use [REDACTED:github]?");
+  // the options themselves kept: an answer by number is the option's text
+  expect(items[0]!.options).toEqual(["yes " + ant, "no"]);
 });
 
 // RED ZONE: who may answer
@@ -220,7 +253,7 @@ process.exit(0);
 
 async function run(dir: string, step: string, env: Record<string, string>): Promise<{ out: any; all: string }> {
   fs.writeFileSync(dir + "/gchat.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, UNII_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", UNII_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, UNII_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", UNII_GCHAT_KEYCHAIN: "", UNII_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
   const [o, e] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), all: o + e };
 }

@@ -9,9 +9,11 @@
 // read with the user's read-only Google grant (Google.replies), routed by
 // the server (Server.ts Chat.bridge) as a view's acts. Pure but the post;
 // the webhook's URL is a key: never logged, never in an error, a message
-// or view.json.
+// or view.json. What agents wrote is posted scrubbed of secret-shaped
+// strings (local/prime/redact.ts), as the space is outside this computer.
 
 import type { Message } from "./Google.ts";
+import { redact } from "./local/prime/redact.ts";
 import type { Assignment, Decided, Question } from "./View.ts";
 import { DECIDED_MS } from "./View.ts";
 
@@ -65,7 +67,9 @@ export function gchat_on(space: string, url: string): boolean {
 }
 
 // the pane's open items, oldest first: questions and notes, todos, the
-// decisions still undoable (DECIDED_MS)
+// decisions still undoable (DECIDED_MS); each text as posted scrubbed of
+// secret-shaped strings (redact's shapes: [REDACTED:<name>]), its
+// options kept as they are (an answer by number is one)
 export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]; decided: Decided[] }, now: number): Item[] {
   const qs = mem.questions.map((q): Item => {
     const kind = q.fyi ? "note" : "question";
@@ -79,7 +83,7 @@ export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]
     key: "d" + d.id, kind: "decision", n: d.id,
     text: "Decided for you " + d.id + " (" + d.kind + "): " + d.question + "\nTaken: " + d.answer + "\n\nReply undo (and what instead) to reverse it, or keep.",
   }));
-  return [...qs, ...ts, ...ds];
+  return [...qs, ...ts, ...ds].map((x) => ({ ...x, text: redact(x.text, []).text }));
 }
 
 // text in chunks of at most most characters, cut at a blank line, else a
@@ -112,7 +116,7 @@ export async function gchat_post(url: string, tk: string, text: string, f: typeo
   for (const chunk of gchat_chunks(text)) {
     const res = await f(u.href, { method: "POST", headers: { "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ text: chunk }), redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
     if (res === null || !res.ok) {
-      return { error: "GChat: " + (res === null ? "not reachable." : "HTTP " + res.status + (await gchat_why(res, u))) };
+      return { error: "GChat: " + (res === null ? "not reachable." : "HTTP " + res.status + (await gchat_why(res, url, u))) };
     }
     const json: any = await res.json().catch(() => null);
     const at = Date.parse(String(json?.createTime ?? ""));
@@ -122,13 +126,16 @@ export async function gchat_post(url: string, tk: string, text: string, f: typeo
 }
 
 // Google's reason for a refused post (": <message>", else "."): one line,
-// at most 200 chars, the URL and its key and token cut from it, as it may
-// echo the request
-async function gchat_why(res: Response, u: URL): Promise<string> {
+// at most 200 chars, the URL (as given, and as posted) and its key and
+// token (decoded and percent-encoded) cut from it, as it
+// may echo the request
+async function gchat_why(res: Response, url: string, u: URL): Promise<string> {
   const json: any = await res.json().catch(() => null);
   let why = String(json?.error?.message ?? "").replace(/\s+/g, " ").trim();
-  for (const secret of [u.href, u.searchParams.get("key"), u.searchParams.get("token")]) {
-    why = secret ? why.split(secret).join("<redacted>") : why;
+  const parts = [u.searchParams.get("key") ?? "", u.searchParams.get("token") ?? ""];
+  const secrets = [u.href, url, ...parts, ...parts.map(encodeURIComponent)].filter((s) => s !== "");
+  for (const secret of secrets) {
+    why = why.split(secret).join("<redacted>");
   }
   return why === "" ? "." : ": " + why.slice(0, 200);
 }
