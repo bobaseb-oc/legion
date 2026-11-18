@@ -60,7 +60,8 @@ test("view.json's mode, routines, timers and tallies: entries not well formed dr
       money: { n: 30, took: 30, est: "yes" },
     },
   });
-  expect(mem.mode).toBe("super");
+  // a view.json without a mode fails closed (R5: Modes.read falls back to auto)
+  expect(mem.mode).toBe("auto");
   expect(mem.routines.map((r) => r.id)).toEqual([1, 2]);
   expect(mem.routines[1]).toMatchObject({ by: "main", why: "standup", on: false, seen: ["a#1"] });
   expect(mem.timers.map((t) => t.id)).toEqual([1]);
