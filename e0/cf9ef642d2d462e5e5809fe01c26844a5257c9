@@ -1,0 +1,31 @@
+local/skills.test.ts
+  s_f8a3876c16f731::t_bc26eb75858fa9 31-36,42,50-52,68-71
+local/skills.ts
+  s_f8a3876c16f731::t_c7b90fc8183344 10-14,18,23-24
+  s_f8a3876c16f731::t_e835793fb11bcc 30-32,40-41,87-98,108-112,118
+tasks/todo.md
+  s_f8a3876c16f731::t_f28919795a8407 1155-1167
+  s_f8a3876c16f731::t_c039ccdc5664e6 1168-1169
+local/rules.md
+  s_f8a3876c16f731::t_eaa751ff0c5a83 28-39
+Hooks.test.ts
+  s_f8a3876c16f731::t_59fed718f67d3a 131,190,199,204-276
+Hooks.ts
+  s_f8a3876c16f731::t_ff2d33edda8223 5-6,27-29,38,52-58,90,94-112,263,293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0cf9ef642d2d462e5e5809fe01c26844a5257c9",
+  "prompts": {},
+  "sessions": {
+    "s_f8a3876c16f731": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "06b14246-3563-40fe-832c-0acee61f2355",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
