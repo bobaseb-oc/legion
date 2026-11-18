@@ -1,0 +1,34 @@
+Memory.ts
+  s_cdd5d842042d77::t_6bc8e1798fd6e9 173
+  s_cdd5d842042d77::t_4dca916fd7f80a 77
+  s_cdd5d842042d77::t_5cefb921df9f0b 303
+  s_cdd5d842042d77::t_cdbcd04d02b53f 285
+  s_cdd5d842042d77::t_af4b4029a156d8 129
+  s_cdd5d842042d77::t_fb28d2ee323bd4 371
+Gchat.ts
+  s_cdd5d842042d77::t_434f270c96b731 34-35
+  s_cdd5d842042d77::t_897edd3ad0be88 14
+  s_cdd5d842042d77::t_7b591450651c47 1-13,15-33,36-174
+Google.ts
+  s_cdd5d842042d77::t_344e13e835ea64 494
+  s_cdd5d842042d77::t_2cacd2a3b20fa6 492-493,495-517
+  s_cdd5d842042d77::t_81692e2fd3fb1a 74-77
+Config.ts
+  s_cdd5d842042d77::t_8b8671883c6d1c 95,97-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "030ba183e45cc356ffbae7bd1768743b85253872",
+  "prompts": {},
+  "sessions": {
+    "s_cdd5d842042d77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "930fce44-20a0-4a3c-813e-a0a8de61ac14",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
