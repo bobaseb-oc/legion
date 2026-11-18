@@ -1065,3 +1065,32 @@ click and typed question is answered in the page's thread and kept in view.json,
 page doesn't show it, g x from Home goes to #explain, no page errors; the observer asked
 twice (OBSERVE, ASK) with searches 0 and no server.
 RED ZONE signed off by the user 2026-11-18: the view-only guard in Chat.explain.
+
+## GChat bridge: reach Legion while AFK (feat/gchat-bridge)
+Why: the user is AFK often; Tailscale is against policy; the web UI is loopback-only.
+gchat_daemon (skunkworks) proved the Chat loop but posts as the user (no notification) and
+scrapes a terminal. Legion already has structured questions, notes and todos.
+Promise: one private Chat space (config `gchat_space`, e.g. spaces/AAQAN3re3K8) is a second
+view of the questions pane.
+- Out: each new question, note, todo and super-auto decision is posted once, through the
+  space's incoming webhook (key `GCHAT_WEBHOOK_URL`, read like the other keys in Config.VARS,
+  never logged), as a bot message, so the user's phone pings. One thread per item; text
+  capped like gchat_daemon's chunking (4000 chars).
+- In: Legion polls the space (every 15 s, while there is an open item) with the existing
+  read-only grant (chat.messages.readonly); a reply in an item's thread goes to the same
+  path as the web UI: a question -> Chat.reply; a decision -> Chat.decision (undo); a todo
+  -> done / drop; a note -> a user message. Nothing else is read.
+- Off unless both `gchat_space` and the key are set. No new OAuth scope, no public endpoint.
+RED ZONE (who may answer: access control, DRAFT for the user's sign-off): a reply counts only
+if its sender is the signed-in Google user (users/<id> from the token), in that one space, in
+the thread of an item still open, and newer than the item. Bot, webhook and anyone else's
+messages are ignored (deny by default); a reply is acted on once (message name kept).
+Answers that Chat.reply refuses (credit, device-only acts) are refused here too.
+- [ ] Red tests: post once per item (no repost on restart); text cap; sender check
+      (other user, bot, webhook, wrong space, closed item, older than item: ignored);
+      replay once; reply -> Chat.reply / Chat.decision / todo; off when unset; key not logged
+- [ ] Implement (Gchat.ts: post, poll, route; Server.ts tick wiring); mutation check
+      on the sender, space and once rules
+- [ ] Proof: full suite, tsc on changed lines, end to end against the real space
+      (user runs it: one question answered from the phone)
+Open: rotate the webhook (its URL was pasted into a chat session 2026-11-18) before use.
