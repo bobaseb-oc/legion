@@ -1086,11 +1086,41 @@ if its sender is the signed-in Google user (users/<id> from the token), in that 
 the thread of an item still open, and newer than the item. Bot, webhook and anyone else's
 messages are ignored (deny by default); a reply is acted on once (message name kept).
 Answers that Chat.reply refuses (credit, device-only acts) are refused here too.
-- [ ] Red tests: post once per item (no repost on restart); text cap; sender check
+- [x] Red tests: post once per item (no repost on restart); text cap; sender check
       (other user, bot, webhook, wrong space, closed item, older than item: ignored);
       replay once; reply -> Chat.reply / Chat.decision / todo; off when unset; key not logged
-- [ ] Implement (Gchat.ts: post, poll, route; Server.ts tick wiring); mutation check
+- [x] Implement (Gchat.ts: post, poll, route; Server.ts tick wiring); mutation check
       on the sender, space and once rules
-- [ ] Proof: full suite, tsc on changed lines, end to end against the real space
+- [ ] Proof: full suite, tsc on changed lines (done); end to end against the real space
       (user runs it: one question answered from the phone)
+- [ ] RED ZONE open question: the poll's token. The grant lives only on devices
+      (Google.ts U2: "never ... the server"), and a device's socket is within an agent's
+      reach (why Chat.assignment / Chat.decision refuse it), so relaying replies from a
+      device would let an agent forge them. Recommended: the server reads the grant itself
+      (one Keychain prompt per server start). Until the user decides, Chat.gchat_token is
+      null: the bridge posts, and polls nothing.
 Open: rotate the webhook (its URL was pasted into a chat session 2026-11-18) before use.
+
+Review (2026-11-18, feat/gchat-bridge). Gchat.ts is pure but its post: gchat_items (open
+questions q<id>, notes n<id>, todos t<n>, decisions d<id> within DECIDED_MS), gchat_chunks
+(4000 with a "[i/n]" label, cut at a blank line, a line, else hard), gchat_post (threadKey +
+REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD; a failure says its HTTP status or "not reachable", never
+the URL), gchat_replies (RED ZONE: sender == users/<sub> and HUMAN, name and thread in the space,
+the thread of an item posted and still open, createTime after the post's createTime, not in
+acted), gchat_act (a reply as the view's act). Google.replies lists the space's messages since
+the oldest open post (chat.messages.readonly); Google.me is tokeninfo's sub (POST, the token in a
+header). Server.ts Chat.bridge (a 15 s timer next to the tick, only when on): posts new items
+(10 a pass, a failed one next pass), forgets closed ones, then Chat.bridged keeps each reply's
+name as acted before sending it through Chat.act(..., device "") so Chat.reply's, assignment's
+and decision's own checks (open item, credit) apply; a refusal or a reply not understood is
+posted back into the thread. State in view.json (gchat: posted, acted, the last 500).
+Proof: Gchat.test.ts 7 pass (pure: on/off, chunks, post, the reply rules, the act mapping;
+server in its own process with fetch stubbed: 5 items posted, a failed post retried, none
+again after a restart, the 4 replies routed to Chat.reply x2 / todo done / decision undo,
+none acted on twice, other user / bot / older ignored, off with either config unset, the key
+in no output nor view.json). Mutation check (work-tasks/mutate.ts, baseline 7/0): sender,
+HUMAN, open item, time -> 5/2; space, acted filter, acted kept, unknown signed-in user -> 6/1.
+Full suite 573 pass, 2 fail (the known log-staging pair). tsc (strict, no bun/node types) on
+changed lines: only the timer's .unref on `number` (as the tick's line beside it).
+Also: Chat.free still lets a chat with no view or device go (the bridge's timer with it):
+keep `legion device` running while away.
