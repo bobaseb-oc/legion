@@ -133,6 +133,10 @@ Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
 const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 const asks = [];
+// a device kept connected (as legion device is while the user is away),
+// so the chat stays open until the test lets it go
+const device = { send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } };
+chat.socks.add(device);
 AskAI.ask = (ask, on) => {
   const [call] = AskAI.tie(on, ask.bill, () => {}, () => {});
   asks.push(ask);
@@ -145,7 +149,7 @@ const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.messa
 // a pass of the bridge's timer, on the chat kept open (no view is
 // connected here, so Chat.free would let it go)
 const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
-const out = {};
+const out = { dflt: Chat.gchat_token !== null };
 if (process.env.STEP === "post" || process.env.STEP === "off") {
   await tool("main", "ask", { question: "Ship it?", options: ["Hold", "Push it"] }, "t1");
   await tool("main", "notify", { text: "Build is green." }, "t2");
@@ -160,6 +164,13 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   out.posts = posts.map((p) => ({ path: p.path, tk: p.tk, reply: p.reply, len: p.text.length }));
   out.keys = chat.mem.gchat.posted.map((p) => p.key);
   out.lists = lists.length;
+  const before = posts.length;
+  chat.socks.delete(device);
+  Chat.chats.set("u1", chat);
+  Chat.free(chat);
+  await Bun.sleep(100);
+  out.freed = !Chat.chats.has("u1");
+  out.bye = posts.slice(before).map((p) => ({ tk: p.tk, text: p.text }));
 } else {
   const saved = Memory.load(chat.mem.dir, () => null).gchat;
   out.saved = saved.posted.map((p) => p.key);
@@ -213,6 +224,14 @@ test("the server: each item posted once, not again after a restart; replies acte
   expect(a.out.posts.every((p: any) => p.path === "/v1/" + SPACE + "/messages" && p.reply === "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" && p.tk.startsWith("legion-") && p.len <= 4000)).toBe(true);
   expect(new Set(a.out.keys)).toEqual(new Set(["q1", "n2", "t1", "d3", "q4"]));
   expect(a.all).not.toContain("FAKETOKEN");
+  // on: the server reads the Google grant for the poll (RED ZONE U2, A)
+  expect(a.out.dflt).toBe(true);
+  // the chat let go (no view or device left): the space told, once, in a
+  // thread of its own, so the user away knows replies aren't read
+  expect(a.out.freed).toBe(true);
+  expect(a.out.bye.length).toBe(1);
+  expect(a.out.bye[0].text).toContain("stopped listening");
+  expect(a.out.bye[0].tk.startsWith("legion-")).toBe(true);
   const b = await run(dir, "reply", env);
   expect(b.out.saved.length).toBe(5);
   expect(b.out.posted).toBe(0);
@@ -236,6 +255,8 @@ test("the server: off when the space or the key is unset", async () => {
     const { out, all } = await run(dir, "off", env);
     expect(out.first).toBe(0);
     expect(out.lists).toBe(0);
+    expect(out.dflt).toBe(false);
+    expect(out.bye).toEqual([]);
     expect(all).not.toContain("FAKETOKEN");
   }
 }, 30_000);

@@ -408,7 +408,7 @@ export namespace Chat {
     Chat.cloud.billing.settle(acct.user);
     if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines)) {
       clearInterval(chat.tick);
-      clearInterval(chat.bridging?.timer);
+      Chat.unbridge(chat, Date.now());
       Tools.close(chat.tools);
       Memory.stop(chat.mem);
       Chat.chats.delete(acct.user);
@@ -2228,10 +2228,28 @@ const LIKES = 30;
   // posted ones closed since forgotten; then, while one is open and
   // there is a token (gchat_token), the space's replies read and acted on.
 
-  // the user's Google access token for the poll (Google.token's); null:
-  // no poll, the bridge posts only. Open question for the user: the
-  // grant is read by devices only (Google.ts U2), so none is set here yet
-  export let gchat_token: (() => Promise<string>) | null = null;
+  // RED ZONE (security review U2, widened: signed off by the user
+  // 2026-11-18, option A): the user's Google access token for the poll,
+  // with the bridge on, read by this server from the guarded grant as a
+  // device reads it (Google.store: one prompt a process, held in memory;
+  // a refused read held, so the bridge posts but reads no reply until a
+  // restart); off, null: no poll, never a read
+  export let gchat_token: (() => Promise<string>) | null = Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "") ? () => Google.token(Google.store()) : null;
+
+  // the chat let go with the bridge on: the space told, in a thread of its
+  // own, that replies aren't read until a view or device opens it again
+  export function unbridge(chat: Chat, now: number): void {
+    clearInterval(chat.bridging?.timer);
+    const url = config.KEYS.gchat ?? "";
+    if (chat.bridging === undefined || !Gchat.gchat_on(config.GCHAT_SPACE, url)) {
+      return;
+    }
+    void Gchat.gchat_post(url, "legion-bye-" + now, "Legion stopped listening: no view or device is open, so replies here aren't read. Start `legion device` to resume.").then((sent) => {
+      if ("error" in sent) {
+        console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
+      }
+    });
+  }
 
   export async function bridge(chat: Chat, now: number): Promise<void> {
     const g = chat.mem.gchat;
@@ -2268,8 +2286,8 @@ const LIKES = 30;
     }
   }
 
-  // RED ZONE (access control: who may answer; DRAFT awaiting the user's
-  // sign-off): the space's replies since the oldest open item, those
+  // RED ZONE (access control: who may answer; signed off by the user
+  // 2026-11-18): the space's replies since the oldest open item, those
   // Gchat.gchat_replies lets through (the signed-in user's, in an open
   // item's thread, newer than it, not acted on), each kept as acted on
   // before it acts (once, even if it fails), then sent as a view's act
@@ -3069,6 +3087,9 @@ export namespace Main {
       }
     });
     console.log("unii: " + config.SITE + ", users in " + config.DIR + "/users, worker " + Main.index + " of " + Main.count + " on 127.0.0.1:" + port);
+    // the bridge on: the grant read now, while the user who started this
+    // is here for its one prompt, not first when they're away
+    Chat.gchat_token?.().catch((err: any) => console.error("gchat: replies won't be read: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200)));
     send?.({ $: "ready" });
     Main.back?.send({ $: "go", tools: Tools.base() });
     Main.listen(hand);

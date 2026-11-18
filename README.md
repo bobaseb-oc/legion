@@ -48,8 +48,10 @@ How it works
   `gchat_space` (`spaces/...`) and the webhook's URL in the environment,
   a key like the others (never logged), set where the server starts, e.g.
   `export GCHAT_WEBHOOK_URL=$(security find-generic-password -s GCHAT_WEBHOOK_URL -w)`.
-  Reading replies uses your Google sign-in (`legion google-login`); until
-  the server is given it, the bridge only posts.
+  Reading replies uses your Google sign-in (`legion google-login`): the
+  server reads it once at start (one Keychain prompt; deny it and the
+  bridge only posts). Keep `legion device` running while away: if no view
+  or device is left, the space is told "Legion stopped listening".
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings (so the

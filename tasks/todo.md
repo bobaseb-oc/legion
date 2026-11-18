@@ -1081,7 +1081,7 @@ view of the questions pane.
   path as the web UI: a question -> Chat.reply; a decision -> Chat.decision (undo); a todo
   -> done / drop; a note -> a user message. Nothing else is read.
 - Off unless both `gchat_space` and the key are set. No new OAuth scope, no public endpoint.
-RED ZONE (who may answer: access control, DRAFT for the user's sign-off): a reply counts only
+RED ZONE (who may answer: access control; signed off by the user 2026-11-18): a reply counts only
 if its sender is the signed-in Google user (users/<id> from the token), in that one space, in
 the thread of an item still open, and newer than the item. Bot, webhook and anyone else's
 messages are ignored (deny by default); a reply is acted on once (message name kept).
@@ -1093,13 +1093,14 @@ Answers that Chat.reply refuses (credit, device-only acts) are refused here too.
       on the sender, space and once rules
 - [ ] Proof: full suite, tsc on changed lines (done); end to end against the real space
       (user runs it: one question answered from the phone)
-- [ ] RED ZONE open question: the poll's token. The grant lives only on devices
-      (Google.ts U2: "never ... the server"), and a device's socket is within an agent's
-      reach (why Chat.assignment / Chat.decision refuse it), so relaying replies from a
-      device would let an agent forge them. Recommended: the server reads the grant itself
-      (one Keychain prompt per server start). Until the user decides, Chat.gchat_token is
-      null: the bridge posts, and polls nothing.
-Open: rotate the webhook (its URL was pasted into a chat session 2026-11-18) before use.
+- [x] RED ZONE signed off by the user 2026-11-18 (option A): the server reads the guarded
+      Google grant itself when the bridge is on (Chat.gchat_token; U2 widened to the server),
+      read once at start so its one Keychain prompt comes while the user is there; a refused
+      read leaves the bridge posting only. Not B: a device relay would let an agent forge
+      replies. The user keeps `legion device` running while away; when the chat is let go
+      (no view or device) Chat.unbridge posts "Legion stopped listening" to the space, once.
+      Proof: Gchat.test.ts 7 pass; mutants (no goodbye on free, no token source) killed.
+Done: the webhook rotated 2026-11-18 (the pasted URL dead); the new one in the Keychain.
 
 Review (2026-11-18, feat/gchat-bridge). Gchat.ts is pure but its post: gchat_items (open
 questions q<id>, notes n<id>, todos t<n>, decisions d<id> within DECIDED_MS), gchat_chunks

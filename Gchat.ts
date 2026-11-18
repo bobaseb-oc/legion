@@ -124,8 +124,8 @@ export async function gchat_post(url: string, tk: string, text: string, f: typeo
   return first!;
 }
 
-// RED ZONE (access control: who may answer; DRAFT awaiting the user's
-// sign-off): the messages that count as the user's replies, deny by
+// RED ZONE (access control: who may answer; signed off by the user
+// 2026-11-18): the messages that count as the user's replies, deny by
 // default. Only one whose sender is me (the signed-in Google user's
 // users/<id>; none known: none counts) and HUMAN, in the space, in the
 // thread of an item posted and still open, made after it was posted, and
