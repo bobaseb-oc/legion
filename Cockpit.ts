@@ -6,6 +6,7 @@
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
 import type { Given } from "./Routines.ts";
+import { explain_ago } from "./Explain.ts";
 import { MAIN, minute, view_needs, view_notes, view_questions, type Act, type Assignment, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
@@ -494,6 +495,36 @@ export function todo_cmd(v: View, arg: string): Act | string {
   return a === undefined ? "No todo " + n + ": /todos lists them." : { $: "Assignment", n: a.n, done: verb === "done" };
 }
 
+// Explain
+// =======
+// What the crew is building, for a manager (Explain.ts): /explain and the
+// deck's Explain page show the observer's cards and the questions asked
+
+export const EXPLAIN_NONE = "Nothing being built right now: once the crew works, an observer writes here what it builds and why.";
+
+// /explain: when written, each card, then the questions and answers
+export function explain_text(v: View, now: number): string {
+  const ex = v.explain;
+  if (ex === null || ex.at === null && !ex.writing) {
+    return "Explain · not written yet: an observer writes here what the crew builds and why, once it works.\n/explain <question> asks about it (answered here, not in the chat).";
+  }
+  const cards = ex.cards.flatMap((c) => [c.title, "  What: " + c.what, "  Why: " + c.why, "  Status: " + c.status, "  Watch: " + c.watch, ""]);
+  const qa = ex.qa.flatMap((x) => ["You: " + x.q, "  " + x.a, ""]);
+  return [
+    "Explain · " + explain_ago(ex, now) + (ex.error ? " · " + ex.error : ""), "",
+    ...(cards.length === 0 ? [EXPLAIN_NONE, ""] : cards),
+    ...(qa.length === 0 && ex.asking === null ? [] : ["Asked:", ...qa]),
+    ...(ex.asking === null ? [] : ["You: " + ex.asking, "  answering…", ""]),
+    "/explain <question> asks about it (answered here, not in the chat).",
+  ].join("\n");
+}
+
+// /explain <question>: the page's box
+export function explain_cmd(_v: View, arg: string): Act | string {
+  const q = arg.trim();
+  return q === "" ? "/explain <question>: ask about what the crew is building (answered on the Explain page, not in the chat)." : { $: "Explain", q };
+}
+
 // /timesheet: the drafts by day, newest first, as the Timesheet page
 export function timesheet_text(v: View): string {
   const drafts = v.drafts ?? [];
@@ -589,7 +620,7 @@ export type Item = { label: string; hint: string; go: Go };
 // g and a letter: the page it goes to, on the web (main.ts) and in the
 // terminal's deck (Deck.ts)
 export const CHORDS: Record<string, "chat" | "crew" | Deck> = {
-  h: "home", i: "inbox", o: "todo", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory",
+  h: "home", i: "inbox", o: "todo", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory", x: "explain",
 };
 
 const PAGE_ITEMS: Item[] = [
@@ -598,6 +629,7 @@ const PAGE_ITEMS: Item[] = [
   { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
+  { label: "Explain", hint: "page · g x", go: { href: "#explain" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },
   { label: "Digest", hint: "page · g d", go: { href: "#digest" } },
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },

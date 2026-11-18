@@ -211,7 +211,7 @@ test("the palette: pages, commands, agents and inbox PRs; the words typed filter
   v.crew = [agent("Mgr", "working", { title: "Fix flaky login" })];
   v.inbox = inbox({ reviews: [pr({ number: 5, title: "Add custodians" })] });
   const all = Cockpit.palette(v, "");
-  expect(all.slice(0, 8).map((i) => i.label)).toEqual(["Home", "Inbox", "Todo", "Chat", "Crew", "Routines", "Digest", "Transcripts"]);
+  expect(all.slice(0, 9).map((i) => i.label)).toEqual(["Home", "Inbox", "Todo", "Chat", "Crew", "Explain", "Routines", "Digest", "Transcripts"]);
   expect(all.some((i) => i.label === "New agent…")).toBe(true);
   expect(all.find((i) => i.label === "Fix flaky login")!.go).toEqual({ href: "#crew/Mgr" });
   expect(all.find((i) => i.label === "Add custodians")!.go).toEqual({ open: "https://github.com/o/r/pull/5" });
@@ -410,4 +410,21 @@ test("todos: g o, the palette's Todo; /todos lists them; done and drop n are the
   expect(Cockpit.todo_cmd(v, "drop 1")).toEqual({ $: "Assignment", n: 1, done: false });
   expect(Cockpit.todo_cmd(v, "done 9")).toMatch(/No todo 9/);
   expect(Cockpit.todo_cmd(v, "finish 1")).toMatch(/done <n>/);
+});
+
+// the Explain page's chord and palette item; /explain (the terminal): the
+// cards as text, when written, the thread; /explain <q> asks
+test("explain: g x, the palette's Explain; /explain shows the cards and the thread; /explain <q> asks", () => {
+  expect(Cockpit.CHORDS.x).toBe("explain");
+  const v = View.view_new();
+  expect(Cockpit.palette(v, "explain")[0]).toMatchObject({ label: "Explain", hint: "page · g x", go: { href: "#explain" } });
+  const now = Date.parse("2026-11-18T12:00:00Z");
+  expect(Cockpit.explain_text(v, now)).toContain("not written yet");
+  v.explain = { cards: [{ title: "Explain tab", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: now - 3 * 60_000, hash: "h", tried: null, qa: [{ q: "Is it cheap?", a: "Yes, Haiku.", at: now }], writing: false, asking: "And fast?" };
+  const text = Cockpit.explain_text(v, now);
+  expect(text).toMatch(/updated 3 min ago[\s\S]*Explain tab[\s\S]*What: A page for managers[\s\S]*Why: To follow the work[\s\S]*Status: Half done[\s\S]*Watch: Cost/);
+  expect(text).toMatch(/Is it cheap\?[\s\S]*Yes, Haiku\.[\s\S]*And fast\?[\s\S]*answering/);
+  expect(text).toContain("/explain <question>");
+  expect(Cockpit.explain_cmd(v, "  is it done? ")).toEqual({ $: "Explain", q: "is it done?" });
+  expect(Cockpit.explain_cmd(v, " ")).toMatch(/\/explain <question>/);
 });

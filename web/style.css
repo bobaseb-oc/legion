@@ -744,6 +744,14 @@ pre.code .sha { font: inherit; color: var(--accent); padding: 0; text-decoration
 .trow.todo .n, .trow.todo .why { grid-column: 1; }
 .trow.todo .go { grid-column: 2; grid-row: 1 / span 2; }
 .trow.todo > :last-child { grid-column: 3; grid-row: 1 / span 2; }
+/* the Explain page (Pages.explain_html): a card per workstream, the thread and its box */
+.xcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.xcard { padding: 8px 12px; border-radius: 8px; background: var(--block); }
+.xcard h3 { margin: 2px 0 6px; }
+.xcard p { margin: 4px 0; }
+.xqa .xq { font-weight: 600; margin-top: 8px; }
+.xqa .xa { margin: 2px 0 6px; white-space: pre-wrap; }
+.xask input { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; margin-top: 8px; }
 .trow .tag.ok { color: #2da44e; }
 .trow .tag.bad { color: #cf222e; }
 .fsh { margin-bottom: 8px; }

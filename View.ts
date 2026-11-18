@@ -19,6 +19,7 @@ import * as Md from "./Md.ts";
 import { LABELS, type Move, Pick } from "./Pick.ts";
 import { Price } from "./Price.ts";
 import { GLYPH, WHO } from "./Theme.ts";
+import { Q as EXPLAIN_Q, type Explain } from "./Explain.ts";
 
 // Types
 // =====
@@ -159,7 +160,7 @@ export type TreeRow = CrewRow & { kids: number; rollup: string; open: boolean };
 export type Mode = "chat" | "crew" | Deck;
 // the cockpit's pages (Cockpit.ts, web/src/Pages.ts): #home, #inbox, ...
 // (not "Page": an agent's page is)
-export const PAGES = ["home", "inbox", "todo", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
+export const PAGES = ["home", "inbox", "todo", "explain", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
 export type Deck = (typeof PAGES)[number];
 
 // a tile of the Crew grid: an agent Unii started, a dot per agent under
@@ -190,6 +191,7 @@ export type View = State & {
   inbox : Inbox | null; // the cockpit's inbox, as a device last read it (Inbox.ts)
   themes : Record<string, string[]> | null; // the digest's themes by author (Chat.themes)
   summaries : Map<string, Summary>; // meeting transcripts' summaries, by Doc id
+  explain   : Explain | null; // the Explain page, as the server last told it (Explain.ts)
   looked    : Looked | null; // what a device showed last (the files pane, K4)
   source    : boolean; // the file shown drawn as its lines, not rendered (Markdown, HTML)
   dirs      : Map<string, Listing>; // the explorer's folders asked of a device, by path (@roots: the roots)
@@ -235,6 +237,7 @@ export type Server =
   | { $: "themes"; themes: { key: string; by: Record<string, string[]> } } // the digest's themes (Chat.themes)
   | { $: "read"; id: string }             // to devices: read that transcript Doc (Device.device_transcript)
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
+  | { $: "explain"; explain: Explain } // the Explain page (Chat.observe, Chat.explain)
   | { $: "look"; id: string; what: Look }  // to devices: show a file or a repo's git (Device.device_look)
   | ({ $: "gateway" } & Gateway)            // to views: the gateway's budget (Gateway.ts) and when the AI service was last busy
   | { $: "harvest"; id: string; entries: unknown[] } // to one device: post the user's submitted timesheet entries (Device.device_harvest)
@@ -313,6 +316,7 @@ export type Client =
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
+  | { $: "explain"; q: string } // a view: a question about the Explain page (the user's only: Chat.explain), answered there
   | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
 
 // an act not answered: with its id, the socket it went by, what its
@@ -379,6 +383,7 @@ export type Act =
   | { $: "Map"; id: number; n: number }         // a map line opened into its two (asked once), or folded
   | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
   | { $: "Search"; q: string }                  // the chat searched (the Memory page's box)
+  | { $: "Explain"; q: string }                 // a question about the Explain page (its box, /explain)
 
 // what a page draws, top to bottom
 export type Row =
@@ -578,6 +583,7 @@ export function view_new(): View {
     inbox     : null,
     themes    : null,
     summaries : new Map(),
+    explain   : null,
     looked    : null,
     source    : false,
     dirs      : new Map(),
@@ -655,6 +661,10 @@ export function view_hear(v: View, msg: Server): Client[] {
     }
     case "look":
     case "harvest": {
+      return [];
+    }
+    case "explain": {
+      v.explain = msg.explain;
       return [];
     }
     case "summary": {
@@ -922,6 +932,10 @@ export function view_act(v: View, act: Act): Client[] {
         out.push(...(n > 1 ? [{ $: "zoom" as const, part: [id, n] as Part }] : []));
       }
       return out;
+    }
+    case "Explain": {
+      const q = act.q.replace(/\s+/g, " ").trim().slice(0, EXPLAIN_Q);
+      return q === "" ? [] : [{ $: "explain", q }];
     }
     case "Search": {
       const q = act.q.trim().slice(0, FIND);
@@ -1656,7 +1670,7 @@ export function view_line(text: string): number | null {
 
 // the web's route by its hash, and back
 export function view_route(hash: string): Route {
-  const m = /^#(chat|crew|home|inbox|todo|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }

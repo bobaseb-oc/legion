@@ -46,7 +46,7 @@ test("g and a letter go to that page; g m (the chat), Esc or q leave; any other 
   expect(key(v, home, "g", "m").done).toBe(true);
   expect(key(v, home, "Esc").done).toBe(true);
   expect(key(v, home, "q").done).toBe(true);
-  const odd = key(v, home, "g", "x");
+  const odd = key(v, home, "g", "z");
   expect(odd.deck.page).toBe("home");
   expect(odd.deck.g).toBe(false);
   expect(odd.done).toBe(false);
@@ -274,7 +274,8 @@ test("from the chat, Ctrl+G and a letter: the chord's page", () => {
   expect(Deck.deck_chord("q")).toBe("questions");
   expect(Deck.deck_chord("f")).toBe("file");
   expect(Deck.deck_chord("m")).toBe("chat");
-  expect(Deck.deck_chord("x")).toBeNull();
+  expect(Deck.deck_chord("x")).toBe("explain");
+  expect(Deck.deck_chord("z")).toBeNull();
   expect(Deck.deck_chord("constructor")).toBeNull();
 });
 

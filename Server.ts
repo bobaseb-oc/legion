@@ -50,6 +50,7 @@ import { OpenAI, TRANSCRIBER } from "./OpenAI.ts";
 import { Pick } from "./Pick.ts";
 import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
+import * as Explain from "./Explain.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
 import { email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
@@ -353,7 +354,7 @@ export namespace Chat {
     chat.eye = Chat.eye(mem, Memory.turn(mem));
     mem.made = (l, i) => Chat.made(chat, l, i);
     mem.troubled = () => Chat.all(chat, Chat.state(chat));
-    chat.tick = setInterval(() => Chat.ticked(chat, Date.now()), Chat.TICKS);
+    chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
     mem.wait.add(() => Chat.progress(chat));
     mem.wait.add(() => Chat.free(chat));
@@ -1194,6 +1195,7 @@ export namespace Chat {
     for (const [id, summary] of Object.entries(chat.mem.summaries)) {
       Chat.send(sock, { $: "summary", id, summary });
     }
+    Chat.send(sock, { $: "explain", explain: chat.mem.explain });
     Chat.show(chat, sock);
     Chat.send(sock, { $: "live", live: chat.live });
     if (host === null) {
@@ -1503,6 +1505,9 @@ export namespace Chat {
       }
       case "assignment": {
         return Chat.assignment(chat, id, device, msg);
+      }
+      case "explain": {
+        return Chat.explain(chat, device, msg);
       }
     }
     return { error: "No act " + msg.$ + "." };
@@ -2004,6 +2009,118 @@ const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
     chat.mem.summaries = Object.fromEntries(kept);
     Memory.save(chat.mem);
     Chat.all(chat, { $: "summary", id: doc.id, summary });
+  }
+
+  // Explain
+  // -------
+  // The Explain page (Explain.ts): the observer (config.OBSERVER) writes
+  // it from the chat's snapshot on the routines' tick, again only once
+  // that changed and at most once an Explain.EVERY; the user's questions
+  // are answered on the page. Neither ever reaches the chat: no message,
+  // no turn, no agent told; the observer gets no tools (no server, no web
+  // search: it reads only what it is given). Told every view
+
+  // how long an observer's call may take
+  const OBSERVE_MS = 90_000;
+
+  // what the observer reads: the goal and plan, the crew with each one's
+  // last words, the questions and todos open, the routines on, the
+  // user's open PRs
+  export function snapshot(chat: Chat): string {
+    const agents = chat.tools.agents;
+    return Explain.explain_snapshot({
+      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy,
+      crew: Tools.crew(chat.tools).map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
+      questions: chat.mem.questions.map((q) => q.text), todos: chat.mem.assigned.map((a) => a.text),
+      routines: chat.mem.routines.filter((r) => r.on).map((r) => r.name), prs: chat.inbox?.mine ?? [],
+    });
+  }
+
+  // one observer call, with no tools: its end, or null (it threw, or took
+  // past OBSERVE_MS: stopped)
+  async function observer(chat: Chat, system: string, text: string): Promise<End | null> {
+    try {
+      const call = AskAI.ask({ ...Pick.ask(config.OBSERVER), system, blocks: [{ text, mark: false }], searches: 0, server: "", bill: chat.mem.pay?.("chat", "explain") }, () => {});
+      const late = new Promise<null>((done) => setTimeout(() => done(null), OBSERVE_MS).unref?.());
+      const end = await Promise.race([call.done.catch(() => null), late]);
+      if (end === null) {
+        call.stop();
+      }
+      return end;
+    } catch {
+      return null;
+    }
+  }
+
+  export function explained(chat: Chat): void {
+    Chat.all(chat, { $: "explain", explain: chat.mem.explain });
+  }
+
+  // the page written again, if due (Explain.explain_due) and the credit
+  // pays: nothing going on, no cards and no call; failed, why, the cards
+  // kept and tried again an EVERY on
+  export async function observe(chat: Chat, now: number): Promise<void> {
+    const ex = chat.mem.explain;
+    const text = Chat.snapshot(chat);
+    const hash = Explain.explain_hash(text);
+    if (!Explain.explain_due(ex, hash, now)) {
+      return;
+    }
+    if (text === "") {
+      Object.assign(ex, { cards: [], hash, at: now, error: null });
+      Memory.save(chat.mem);
+      Chat.explained(chat);
+      return;
+    }
+    ex.tried = now;
+    if (await Chat.afford(chat) !== null) {
+      return;
+    }
+    ex.writing = true;
+    Chat.explained(chat);
+    const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
+    const cards = end?.ok ? Explain.explain_cards(end.text) : null;
+    ex.writing = false;
+    Object.assign(ex, cards === null ? { error: "The page couldn't be written" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." } : { cards, hash, at: Date.now(), error: null });
+    Memory.save(chat.mem);
+    Chat.explained(chat);
+  }
+
+  // RED ZONE (access control, DRAFT awaiting the user's sign-off): the
+  // user's question about the Explain page, a view's act only (a device's
+  // socket is within an agent's reach: an agent must not spend the
+  // user's credit on it nor write in their thread). One at a time, the
+  // credit checked; its answer goes on the page only (Explain.explain_asked):
+  // no chat message, no turn, no agent told
+  export async function explain(chat: Chat, device: string, msg: any): Promise<Answer> {
+    if (device !== "") {
+      return { error: "Ask about the Explain page in a view (the web, or the terminal's /explain)." };
+    }
+    const q = typeof msg.q === "string" ? msg.q.replace(/\s+/g, " ").trim().slice(0, Explain.Q) : "";
+    if (q === "") {
+      return { error: "Ask a question." };
+    }
+    const ex = chat.mem.explain;
+    if (ex.asking !== null) {
+      return { error: "Still answering your last question." };
+    }
+    const refused = await Chat.afford(chat);
+    if (refused !== null) {
+      return refused;
+    }
+    ex.asking = q;
+    Chat.explained(chat);
+    const end = await observer(chat, Explain.ASK, Explain.explain_question(ex, Chat.snapshot(chat), q));
+    ex.asking = null;
+    const a = end?.ok ? end.text.trim().slice(0, Explain.A) : "";
+    if (a === "") {
+      Chat.explained(chat);
+      return { error: "No answer came" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." };
+    }
+    Explain.explain_asked(ex, q, a, Date.now());
+    Memory.save(chat.mem);
+    Chat.explained(chat);
+    return {};
   }
 
   // Routines
