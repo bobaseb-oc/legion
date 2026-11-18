@@ -348,6 +348,7 @@ export namespace Chat {
       pick   : () => chat.pick,
       halt   : () => chat.halt.signal,
       note   : (text) => Chat.note(chat, text),
+      viewed : () => Chat.viewed(chat),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -481,8 +482,10 @@ export namespace Chat {
   }
 
   // a body's text from byte `at`, logged as the user's message, a read
-  // at a time, the last with the images and the act's record
+  // at a time, the last with the images and the act's record (the user
+  // is here: timers may be set again, Tools.timer)
   export async function text(chat: Chat, body: Body, at: number, images: string[], act: string): Promise<Msg> {
+    chat.tools.rung = false;
     const id = chat.mem.count;
     for await (const [pages, more] of Chat.pieces(body, at, clip_pages)) {
       Chat.push(chat, null, "user", pages.join(""), more ? [] : images, more, more ? undefined : act);
@@ -1369,6 +1372,15 @@ export namespace Chat {
         const what = Chat.running(chat).filter((w) => name === null || w === name);
         const why = "Stopped by the user: " + what.join(", ") + ".";
         const turn = what.includes(TURN);
+        // the user's Stop of all work: every timer goes too, Unii's and
+        // an agent's not at work (R4, RED ZONE: DRAFT awaiting the user's
+        // sign-off); one agent's Stop drops its own (Tools.stop)
+        if (name === null && chat.mem.timers.length > 0) {
+          Chat.note(chat, "Stopped by the user: timers " + chat.mem.timers.map((t) => t.id).join(", ") + " closed.");
+          chat.mem.timers = [];
+          Memory.save(chat.mem);
+          Chat.change(chat);
+        }
         if (what.length === 0) {
           return {};
         }
@@ -1451,6 +1463,9 @@ export namespace Chat {
       }
       case "routine": {
         return Chat.routine(chat, id, msg, device);
+      }
+      case "timer": {
+        return Chat.untimed(chat, device, msg);
       }
       case "themes": {
         return Chat.themes(chat);
@@ -1769,8 +1784,10 @@ export namespace Chat {
     return {};
   }
 
-  // a message logged as the user's, which Unii answers in a turn
+  // a message logged as the user's, which Unii answers in a turn (the
+  // user is here: timers may be set again, Tools.timer)
   export function said(chat: Chat, id: string, text: string): Promise<void> {
+    chat.tools.rung = false;
     return Chat.writing(chat, async () => {
       const at = chat.mem.count;
       Chat.push(chat, null, "user", text, [], false, id);
@@ -2384,22 +2401,27 @@ const LIKES = 30;
 
   // the agents' timers due (Routines.ts), gone from the list, each a
   // message "[Timer n] note" to whoever set it: Unii's a turn of its own,
-  // as a report is (Chat.report); an agent's, told it (Tools.tell: it
-  // reads it between calls, or an idle one goes on). Whether any fired
+  // as a report is (Chat.report); an agent's, its own reminder (Tools.remind:
+  // a note, read between calls, or an idle one goes on). Whether any fired.
+  // RED ZONE (who may start unattended work; security review R4): DRAFT
+  // awaiting the user's sign-off. One fired with no view open marks the
+  // chat (tools.rung): no new timer till a view is open or the user speaks
   export function rang(chat: Chat, now: number): boolean {
     const due = Routines.timers_due(chat.mem.timers, now);
     if (due.length === 0) {
       return false;
     }
     chat.mem.timers = chat.mem.timers.filter((t) => !due.includes(t));
+    if (!Chat.viewed(chat)) {
+      chat.tools.rung = true;
+    }
     for (const t of due) {
       const text = "[Timer " + t.id + "] " + t.note;
       if (t.who !== "main") {
-        void Tools.tell(chat.tools, "main", t.who, text).then((out) => {
-          if (out.fail) {
-            console.error("chat " + chat.acct.user + ": timer " + t.id + " of " + t.who + ": " + out.text);
-          }
-        });
+        const out = Tools.remind(chat.tools, t.who, text);
+        if (out.fail) {
+          console.error("chat " + chat.acct.user + ": timer " + t.id + " of " + t.who + ": " + out.text);
+        }
         continue;
       }
       Chat.hold(chat, () => {
@@ -2483,6 +2505,31 @@ const LIKES = 30;
     Memory.save(chat.mem);
     Chat.change(chat);
     return {};
+  }
+
+  // the user's close of an agent's pending timer (any agent's), told in a
+  // note. RED ZONE (who may start unattended work; security review R4):
+  // DRAFT awaiting the user's sign-off. A view's only, as Chat.routine: a
+  // device's socket is within an agent's reach (its shell)
+  export function untimed(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Timers are the user's to close: close one in a view (the web's Routines page), or Stop all work." };
+    }
+    const t = chat.mem.timers.find((x) => x.id === msg.n);
+    if (t === undefined) {
+      return { error: "No timer " + String(msg.n).slice(0, 20) + "." };
+    }
+    chat.mem.timers = chat.mem.timers.filter((x) => x !== t);
+    Memory.save(chat.mem);
+    Chat.note(chat, "The user closed timer " + t.id + " (" + (t.who === "main" ? "Unii" : t.who) + "'s: " + t.note.slice(0, 200) + ").");
+    Chat.change(chat);
+    return {};
+  }
+
+  // whether a view of the user's (the web) is open: a socket naming no
+  // device (a terminal's and `legion device`'s do: Chat.join)
+  export function viewed(chat: Chat): boolean {
+    return [...chat.socks].some((sock) => sock.data.device === null);
   }
 
   // the most inbox PRs one Review starts agents for

@@ -264,6 +264,23 @@ export function routines_html(v: View.View, now: number): string[] {
   return [head, ...(rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows), form];
 }
 
+// the agents' pending timers, under the routines (security review R4: the
+// user sees what will wake unattended): each its number, whose, when, its
+// note, and Close; none: nothing
+export function timers_html(v: View.View): string[] {
+  const ts = v.timers ?? [];
+  if (ts.length === 0) {
+    return [];
+  }
+  const time = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const rows = ts.map((t) => {
+    const who = t.who === "main" ? "Unii" : esc(t.who);
+    const close = `<button class="pbtn"${act_html({ $: "Timer", n: t.id })}>Close</button>`;
+    return `<div class="routine"><div class="rh"><b>${t.id}. ${who}</b><span class="meta">at ${esc(time(t.at))}</span></div><p class="rtask">${esc(t.note)}</p><div class="acts">${close}</div></div>`;
+  });
+  return [`<div class="phead"><h3>Timers</h3><p class="meta">Each wakes the agent that set it with its note. Stop (all) clears them all.</p></div>`, ...rows];
+}
+
 // Digest
 // ======
 

@@ -56,6 +56,15 @@ const REC = /\(rec(?:ommended)?\)/i;
 const MARK = /my pick|\(rec(?:ommended)?\)|recommended/i;
 const LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
 
+// the floor's words (Modes.guess; security review R5): red zone (a
+// migration, prod data, permissions, data deleted), money (a payment, an
+// amount, a budget), outward (sent, posted or published to someone).
+// Broad on purpose: a word too many only asks.
+// RED ZONE (who decides): DRAFT awaiting the user's sign-off
+const REDZONE = /\bred[- ]?zone|\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\bprod(uction)?\b[^.?!]{0,30}\b(db|database|data|table)s?\b|\b(db|database)\b[^.?!]{0,30}\bprod(uction)?\b|\bpermission|\b(delet|drop|truncat|wip|purg|eras)\w*\b[^.?!]{0,40}\b(data|table|tables|database|db|rows|records|bucket|backups?)\b/i;
+const MONEY = /\bpay(s|ing|ment|ments)?\b|\bpaid\b|\binvoic|\bpurchas|\bcharg(e|es|ed|ing)\b|\brefund|\bbilling\b|\bsubscri(be|ption)|\bbudget|\bspend(s|ing)?\b|[$€£]\s?\d|\d\s?(usd|eur|gbp|dollars?|euros?)\b/i;
+const OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpublish|\btweet|\bannounce|\bmessage\s+(him|her|them|someone|the (client|customer|team|channel))|\bDM\b|\bslack\b|\bshare\s+(it\s+|the\s+\w+\s+)?with|\bexternal|\breply to (the )?(client|customer|thread|email)/i;
+
 // what an agent refused in plan mode does instead
 const AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 
@@ -127,9 +136,11 @@ const FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-
 
 export namespace Modes {
 
-  // a saved or sent mode, or super (the default)
+  // a saved or sent mode; one unread or unknown, auto (fail closed: super
+  // answers for the user, security review R5). A new chat's is super, set
+  // as such (Memory.load)
   export function read(x: unknown): Mode {
-    return MODES.includes(x as Mode) ? (x as Mode) : "super";
+    return MODES.includes(x as Mode) ? (x as Mode) : "auto";
   }
 
   // the mode after it (Shift+Tab)
@@ -211,14 +222,17 @@ export namespace Modes {
 
   // whether super auto answers a question with its pick: super mode, a
   // pick among its options, its kind unlocked; a merge only if marked
-  // not to touch prod (prod: false; unset asks); never one worded as
-  // access (guess), whatever kind it says
+  // not to touch prod (prod: false; unset asks); never a floor kind (no
+  // floor kind unlocks), nor one whose text or an option is worded as one
+  // (guess), whatever kind it says: the model's label is not trusted
+  // (security review R5; RED ZONE: DRAFT awaiting the user's sign-off)
   export function decides(mode: Mode, q: { kind?: unknown; pick?: unknown; options?: string[]; prod?: unknown; text?: string }, tallies: Partial<Record<AskKind, Tally>>): boolean {
     const n = q.options?.length ?? 0;
     if (mode !== "super" || !Number.isInteger(q.pick) || (q.pick as number) < 0 || (q.pick as number) >= n) {
       return false;
     }
-    if ((q.kind === "merge" && q.prod !== false) || Modes.guess(q.text ?? "") === "access") {
+    const worded = [q.text ?? "", ...(q.options ?? [])].some((x) => FLOOR.includes(Modes.guess(x)));
+    if ((q.kind === "merge" && q.prod !== false) || worded) {
       return false;
     }
     return Object.hasOwn(tallies, q.kind as string) && Modes.unlocked(q.kind, tallies[q.kind as AskKind]);
@@ -265,11 +279,14 @@ export namespace Modes {
     return (t.auto ?? []).slice(-LAST).filter((a) => a.undone).length >= RELOCK;
   }
 
-  // a question's kind guessed from its words, access first (a merge of
-  // a credentials PR asks: the floor) (the bootstrap: past
-  // questions had none)
+  // a question's kind guessed from its words, the floor first (a merge of
+  // a credentials or migration PR asks) (the bootstrap: past questions had
+  // none; Modes.decides: the model's own kind is not trusted)
   export function guess(question: string): AskKind {
     return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access"
+      : REDZONE.test(question) ? "redzone"
+      : MONEY.test(question) ? "money"
+      : OUTWARD.test(question) ? "outward"
       : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge"
       : /\bpush|\bbranch|\brebase/i.test(question) ? "push"
       : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry"
@@ -281,7 +298,8 @@ export namespace Modes {
   // logs them), each question once, counted per guessed kind where the
   // pick is readable: a (rec) in the answer (taken), else the option
   // letter before "my pick", "(rec)" or "recommended" in the question,
-  // matched by the answer's letter. Estimated: the counts say so
+  // matched by the answer's letter; one guessed as a floor kind dropped.
+  // Estimated: the counts say so
   export function imported(texts: string[]): Partial<Record<AskKind, Tally>> {
     const out: Partial<Record<AskKind, Tally>> = {};
     const seen = new Set<string>();
@@ -299,8 +317,9 @@ export namespace Modes {
         const said = Modes.letter(answer);
         took = pick === undefined || said === null ? null : said === pick.charCodeAt(0) - 65;
       }
-      if (took !== null) {
-        const kind = Modes.guess(question);
+      const kind = Modes.guess(question);
+      // worded as the floor: never counted, toward its kind or another (R5)
+      if (took !== null && !FLOOR.includes(kind)) {
         out[kind] = { ...Modes.counted(out[kind], took), est: true };
       }
     }

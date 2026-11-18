@@ -327,6 +327,7 @@ export type Client =
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "explain"; q: string } // a view: a question about the Explain page (the user's only: Chat.explain), answered there
   | { $: "decision"; n: number; undo: boolean; text?: string } // a view: super auto's decision n undone (text: the user's answer) or dismissed (the user's only: Chat.decision)
+  | { $: "timer"; n: number } // a view: an agent's pending timer n closed (the user's only: Chat.untimed)
   | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
 
 // an act not answered: with its id, the socket it went by, what its
@@ -375,6 +376,7 @@ export type Act =
   | { $: "Fetch" }                              // the inbox read anew (its Refresh)
   | { $: "Archive"; names: string[] }           // agents out of the crew (Home's Archive, Archive all)
   | ({ $: "Routine" } & RoutineOp)              // a routine added, on or off, dropped, run now (Routines.ts)
+  | { $: "Timer"; n: number }                   // an agent's pending timer closed (the Routines page)
   | { $: "Themes" }                             // the digest summarized by theme
   | { $: "Transcript"; id: string }             // a meeting transcript summarized
   | { $: "Look"; what: Look }                    // a file or a repo's git shown (the files pane)
@@ -1007,6 +1009,9 @@ export function view_act(v: View, act: Act): Client[] {
       const { $, ...op } = act;
       return [{ $: "routine", ...op }];
     }
+    case "Timer": {
+      return (v.timers ?? []).some((t) => t.id === act.n) ? [{ $: "timer", n: act.n }] : [];
+    }
     case "Expand": {
       if (!v.expanded.delete(act.name)) {
         v.expanded.add(act.name);
@@ -1522,6 +1527,19 @@ export function view_routine_cmd(v: View, arg: string): Act | string {
     return "Use /routine add, run, on, off or drop: /routines lists them.";
   }
   return r === undefined ? "No routine " + (rest[0] ?? "") + ": /routines lists them." : ops[verb!](r.id);
+}
+
+// the agents' pending timers (security review R4: the user sees what will
+// wake unattended): each its number, whose, when (HH:MM), its note; where
+// to close them. None: "" (the terminal's Routines page shows it after
+// the routines)
+export function view_timers_note(v: View): string {
+  const ts = v.timers ?? [];
+  if (ts.length === 0) {
+    return "";
+  }
+  const line = (t: Timer) => t.id + ". " + (t.who === "main" ? "Unii" : t.who) + " · at " + new Date(t.at).toTimeString().slice(0, 5) + " · " + t.note;
+  return ["Timers pending (each wakes its agent):", ...ts.map(line), "Close one on the web's Routines page; Stop (all) clears them all."].join("\n");
 }
 
 // /answer's argument, "<n> <text>", as an Answer: a text that is just the
