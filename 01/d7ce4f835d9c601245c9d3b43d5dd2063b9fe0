@@ -1,0 +1,102 @@
+Super.test.ts
+  s_f610e34a306ba7::t_a323bd4c2e024c 73
+  s_f610e34a306ba7::t_67313208f3c370 64
+  s_f610e34a306ba7::t_9cbc74095bc1f6 136
+  s_f610e34a306ba7::t_479973bd886041 1-39,42-43,45-63,65-66,68-72,74-80,82-89,91-121,123-129,131-135,137-140
+  s_f610e34a306ba7::t_692adfb77b3d03 41
+  s_f610e34a306ba7::t_fe7e2a65e2bb5c 90
+  s_f610e34a306ba7::t_4a64bfac08932b 40
+  s_f610e34a306ba7::t_6efed7519dfeeb 81
+  s_f610e34a306ba7::t_fc450477c560d7 44,67,122,130
+Memory.ts
+  s_f610e34a306ba7::t_a27085b243e87a 333-351
+  s_f610e34a306ba7::t_eb5ce6fdbec470 365
+  s_f610e34a306ba7::t_834f5a5952a7dc 127
+  s_f610e34a306ba7::t_b2ecbec3cec3cb 298-301
+  s_f610e34a306ba7::t_2c0e15dba2f8d3 72-73
+  s_f610e34a306ba7::t_cdd5344d7700ce 281
+  s_f610e34a306ba7::t_b0fc8d06f797d4 170-172
+Modes.test.ts
+  s_f610e34a306ba7::t_de90100aa7baa9 461-462
+  s_f610e34a306ba7::t_f5e8b8eb00f827 132-133,135-142,408,419,425,455
+  s_f610e34a306ba7::t_cbbc4aad18147a 405-407
+  s_f610e34a306ba7::t_6ce9224f27f1cf 409-411,416-418
+  s_f610e34a306ba7::t_2b7eede1443372 420-424
+  s_f610e34a306ba7::t_5ebf1eef7fb411 426-428,452-454
+  s_f610e34a306ba7::t_7f1dc2b71bd35c 456-460
+  s_f610e34a306ba7::t_464a7f95d65e85 463-465
+  s_84bdb1ff93ccb4::t_b79d225e432555 391-404,412-415,429-451,466-497
+Server.ts
+  s_f610e34a306ba7::t_d0006b41b30408 55
+  s_f610e34a306ba7::t_051ea4c6ad7424 1663,1668-1733,1735
+  s_f610e34a306ba7::t_c7d96d82e03153 48
+  s_f610e34a306ba7::t_64487b826b4278 1508-1510
+  s_f610e34a306ba7::t_83234a9cfc8590 327
+  s_f610e34a306ba7::t_14460bafd4bb73 2034-2035
+  s_f610e34a306ba7::t_4fc22ddacd4b92 601,1154,1734,1736
+agents.test.ts
+  s_f610e34a306ba7::t_8e09d5a1d4b983 605
+Modes.ts
+  s_f610e34a306ba7::t_552cf18a64c279 20-28,33-35,41,45-47,49-57
+  s_f610e34a306ba7::t_310e851aeffffc 194-208,210-251,253-307
+  s_f610e34a306ba7::t_a6df61edadd0f8 175
+  s_f610e34a306ba7::t_5f8ece4dbd9c87 130,132
+  s_f610e34a306ba7::t_b0cfb6e411c17f 48
+  s_f610e34a306ba7::t_e7a070a023357c 209
+  s_f610e34a306ba7::t_4875c36b7f8d77 252
+  s_5f112139eaee75::t_23688e7990e3ae 58
+Tools.ts
+  s_f610e34a306ba7::t_74369df34e1b95 1305-1306,1308
+  s_f610e34a306ba7::t_d3f8f51c9ceb9e 397-398
+  s_f610e34a306ba7::t_95232daf728fd7 399,401
+  s_f610e34a306ba7::t_0c8c041b15203f 128-129,137
+  s_f610e34a306ba7::t_09a07f935c332a 1275-1282,1289-1304,1307,1309
+  s_f610e34a306ba7::t_66ae502750dc7d 41,49,1310
+View.ts
+  s_f610e34a306ba7::t_a6a1c90c1bc488 365
+  s_f610e34a306ba7::t_0726efba834a5c 1416-1451,1454-1457
+  s_f610e34a306ba7::t_1a79aac5300009 862-865
+  s_f610e34a306ba7::t_d5edfe5b6c52eb 13
+  s_f610e34a306ba7::t_1ff0cd5b146722 85-86,89-93
+  s_f610e34a306ba7::t_ac15c9babbfc66 1377
+  s_f610e34a306ba7::t_b7da373dc3a025 140
+  s_f610e34a306ba7::t_1e7f36cd7a8c7e 324
+  s_f610e34a306ba7::t_efc7f936b03171 1516-1517,1520-1521
+  s_f610e34a306ba7::t_237e3e0c32430a 94
+Server.test.ts
+  s_f610e34a306ba7::t_5848cfa03cb431 974
+View.test.ts
+  s_f610e34a306ba7::t_e84f097113a1be 425,442
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "01d7ce4f835d9c601245c9d3b43d5dd2063b9fe0",
+  "prompts": {},
+  "sessions": {
+    "s_5f112139eaee75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "NobleNoodle",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_84bdb1ff93ccb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ac181949cc5160198",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_f610e34a306ba7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b4fcd35-e705-4b53-b4c5-e8443bde3971",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
