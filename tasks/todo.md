@@ -956,7 +956,7 @@ diagnostic on a changed line (Server.ts's are old: Agent, BodyInit, ImportMeta);
 on a throwaway server in headless Chrome over CDP: #todo lists both seeded todos with who and
 when, the sidebar and top bar show 2, a real click on × drops one (page and view.json), g o
 from Home goes to #todo, no page errors.
-RED ZONE open: the view-only guard in Chat.assignment awaits the user's sign-off.
+RED ZONE signed off by the user 2026-11-18: the view-only guard in Chat.assignment.
 
 ## Explain tab: what the crew is building, for a manager (after super auto, feat/explain-tab)
 Why: the user wants one page saying, at a manager's level, what new behavior is being built
