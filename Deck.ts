@@ -595,7 +595,7 @@ function home_parts(v: View.View, d: Deck, now: number): Part[] {
 // a text page's text, as its command prints it (the crew draws its own)
 function deck_text(v: View.View, page: Page): string {
   switch (page) {
-    case "routines": return View.view_routines_note(v);
+    case "routines": return [View.view_routines_note(v), View.view_timers_note(v)].filter((x) => x !== "").join("\n\n");
     case "digest": return Cockpit.digest_text(v);
     case "transcripts": return Cockpit.transcripts_text(v);
     case "timesheet": return Cockpit.timesheet_text(v);
