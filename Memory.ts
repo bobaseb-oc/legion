@@ -69,9 +69,10 @@ import * as fs from "node:fs";
 import { Agent } from "./Agent.ts";
 import { AskAI, type Ask, type Bill, type Block, type Call, type End as Ended, type Img, type Kind, type Pay, type Say, type Served } from "./AskAI.ts";
 import { clip_page, clip_pages } from "./Clip.ts";
-import { type AskKind, type Mode, Modes, type Tally } from "./Modes.ts";
+import { ASK_KINDS, type AskKind, type Mode, Modes, type Tally } from "./Modes.ts";
 import type { Assignment, Decided, Draft, Hit, Pin, Question, Summary } from "./View.ts";
 import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
+import * as Routines from "./Routines.ts";
 import type { Routine, Timer } from "./Routines.ts";
 import { explain_new, type Explain } from "./Explain.ts";
 import { gchat_new, type Gchat } from "./Gchat.ts";
@@ -297,9 +298,9 @@ export namespace Memory {
     mem.asked = Number(saved?.asked ?? 0) || 0;
     mem.mode = Modes.read(saved?.mode);
     mem.plan = typeof saved?.plan?.text === "string" ? saved.plan : null;
-    mem.routines = Array.isArray(saved?.routines) ? saved.routines : [];
+    mem.routines = Memory.routines_read(saved?.routines);
     mem.routined = Number(saved?.routined ?? 0) || 0;
-    mem.timers = Array.isArray(saved?.timers) ? saved.timers : [];
+    mem.timers = Memory.timers_read(saved?.timers);
     mem.timered = Number(saved?.timered ?? 0) || 0;
     mem.drafts = Array.isArray(saved?.drafts) ? saved.drafts : [];
     mem.assigned = Array.isArray(saved?.assigned) ? saved.assigned : [];
@@ -307,7 +308,7 @@ export namespace Memory {
     mem.explain = typeof saved?.explain === "object" && saved.explain !== null ? { ...explain_new(), ...saved.explain, writing: false, asking: null } : explain_new();
     mem.gchat = Array.isArray(saved?.gchat?.posted) && Array.isArray(saved?.gchat?.acted) ? { posted: saved.gchat.posted, acted: saved.gchat.acted } : gchat_new();
     // none saved (a chat from before super auto, or new): imported once from its log
-    mem.tallies = typeof saved?.tallies === "object" && saved.tallies !== null && !Array.isArray(saved.tallies) ? saved.tallies : Memory.past_answers(dir);
+    mem.tallies = typeof saved?.tallies === "object" && saved.tallies !== null && !Array.isArray(saved.tallies) ? Memory.tallies_read(saved.tallies) : Memory.past_answers(dir);
     mem.decided = Array.isArray(saved?.decided) ? saved.decided : [];
     mem.likes = Array.isArray(saved?.likes) ? saved.likes.filter((x) => typeof x === "string") : [];
     mem.drafted = Number(saved?.drafted ?? 0) || 0;
@@ -330,6 +331,43 @@ export namespace Memory {
     Memory.fit(mem);
     Memory.save(mem);
     return mem;
+  }
+
+  // RED ZONE (R7, DRAFT awaiting the user's sign-off): what view.json
+  // says of who decides, checked as it loads (a file written by hand, or
+  // by an agent, starts no work and decides nothing for the user): a
+  // routine as Routines.routine_check takes one, its run state well
+  // formed; a timer as Tools' timer makes one; a tally of a known kind,
+  // its counts whole, none negative, no more taken than answered. Any
+  // other entry is dropped; the lists cut at their caps
+  export function routines_read(x: unknown): Routine[] {
+    const str = (v: unknown) => v === undefined || typeof v === "string";
+    return (Array.isArray(x) ? x : []).flatMap((r) => {
+      const given = Routines.routine_check(r);
+      const seen = r?.seen === undefined || (Array.isArray(r.seen) && r.seen.every((k: unknown) => typeof k === "string"));
+      const ok = typeof given !== "string" && Number.isInteger(r.id) && typeof r.on === "boolean" && (r.last === null || Number.isFinite(r.last)) && Number.isFinite(r.made) && seen && str(r.by) && str(r.why);
+      return ok ? [{ id: r.id, ...given, on: r.on, last: r.last, made: r.made, ...(r.seen === undefined ? {} : { seen: r.seen }), ...(r.by === undefined ? {} : { by: r.by }), ...(r.why === undefined ? {} : { why: r.why }) }] : [];
+    }).slice(0, Routines.MOST);
+  }
+
+  export function timers_read(x: unknown): Timer[] {
+    return (Array.isArray(x) ? x : []).flatMap((t) => {
+      const ok = Number.isInteger(t?.id) && typeof t.who === "string" && t.who !== "" && Number.isFinite(t.at) && typeof t.note === "string" && t.note !== "" && t.note.length <= Routines.TIMER_NOTE && Number.isFinite(t.made);
+      return ok ? [{ id: t.id, who: t.who, at: t.at, note: t.note, made: t.made }] : [];
+    }).slice(0, Routines.TIMERS);
+  }
+
+  export function tallies_read(x: object): Partial<Record<AskKind, Tally>> {
+    const count = (v: unknown) => Number.isInteger(v) && (v as number) >= 0;
+    const out: Partial<Record<AskKind, Tally>> = {};
+    for (const kind of ASK_KINDS) {
+      const t = Object.hasOwn(x, kind) ? (x as any)[kind] : undefined;
+      const auto = t?.auto === undefined || (Array.isArray(t.auto) && t.auto.every((a: any) => Number.isInteger(a?.id) && typeof a.undone === "boolean"));
+      if (count(t?.n) && count(t.took) && t.took <= t.n && (t.est === undefined || typeof t.est === "boolean") && auto) {
+        out[kind] = { n: t.n, took: t.took, ...(t.est === undefined ? {} : { est: t.est }), ...(t.auto === undefined ? {} : { auto: t.auto.map((a: any) => ({ id: a.id, undone: a.undone })) }) };
+      }
+    }
+    return out;
   }
 
   // view.json; null: none, or unreadable

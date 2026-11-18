@@ -118,6 +118,40 @@ test("HTML goes with a CSP; every answer with nosniff and no referrer; /tree run
   expect(await tree.text()).not.toContain("<script");
 });
 
+// RED ZONE (R1, DRAFT awaiting the user's sign-off): a view is a
+// browser's only: its session a cookie's, made by a browser's sign-in. A
+// terminal's Bearer session (its token in ~/.unii, within an agent
+// shell's reach) is never one: its socket names its device or is
+// refused, sent as a cookie too; its /api/act is a device's
+test("only a browser's session is a view: a terminal's token, as Bearer or cookie, never is", async () => {
+  const key = crypto.randomUUID();
+  const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "term@x.com", key }) });
+  const { code } = await asked.json();
+  for (let k = 0; k < 50 && !/term@x\.com[\s\S]*\/auth\?t=/.test(printed); k++) {
+    await Bun.sleep(20);
+  }
+  const t = [...printed.matchAll(/\/auth\?t=(\S+)/g)].at(-1)?.[1] ?? "";
+  const form = new URLSearchParams({ t, code }).toString();
+  const done = await fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE }, body: form, redirect: "manual" });
+  expect(done.status).toBe(302);
+  const opens = (q: string, headers: Record<string, string>) => new Promise<boolean>((ok) => {
+    const ws = new WebSocket(SITE.replace(/^http/, "ws") + "/ws" + q, { headers } as any);
+    ws.onopen = () => (ws.close(), ok(true));
+    ws.onerror = () => ok(false);
+  });
+  const bearer = { authorization: "Bearer " + key };
+  expect(await opens("", { cookie })).toBe(true);
+  expect(await opens("?device=box", bearer)).toBe(true);
+  expect(await opens("", bearer)).toBe(false);
+  expect(await opens("?device=", bearer)).toBe(false);
+  expect(await opens("", { cookie: "unii=" + key })).toBe(false);
+  // a todo ticked: a view finds none ("No todo"), a device is refused
+  const tick = (headers: Record<string, string>) => fetch(SITE + "/api/act?$=assignment&id=" + crypto.randomUUID() + "&n=1&done=true", { method: "POST", headers }).then((r) => r.json());
+  expect((await tick({ cookie })).error).toMatch(/^No todo/);
+  expect((await tick(bearer)).error).toMatch(/in a view/);
+  expect((await tick({ cookie: "unii=" + key })).error).toMatch(/in a view/);
+});
+
 // what's read before anyone is signed in is small: /api/delete's
 test("/api/delete reads at most a small body", async () => {
   const big = JSON.stringify({ confirm: "x".repeat(64 * 1024) });

@@ -190,6 +190,12 @@ type Limit = { rate: number; most: number; keys: Map<string, { n: number; at: nu
 // one ends, naming it
 const LOCK       = process.env.UNII_ANOTHER === "1" ? config.DIR + "/lock" : os.homedir() + "/.unii/lock";
 const HELD       = 10_000;
+// L6: who may take the lock now (Main.taking): a file made only if none
+// is there (O_EXCL), holding its maker's pid, so two starts at once never
+// both find a stale lock, remove it and listen; one whose maker is gone
+// (or that says no pid, TAKING ms on) is removed
+const TAKE       = LOCK + ".take";
+const TAKING     = 5_000;
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // unix socket devices and terminals reach this server on (Main.unix)
 const SOCK       = config.DIR + "/server.sock";
@@ -227,6 +233,19 @@ const SPARE      = 2 ** 30;
 
 // the acts with a body (Chat.post)
 const BODIES     = ["say", "import", "voice"];
+
+// RED ZONE (R1, DRAFT awaiting the user's sign-off): the device an act
+// posted (/api/act) with no browser's session comes from: no view
+// (Cloud.browser), so every act a view only may do is refused it
+const POSTED     = "api";
+
+// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// what agents may do: the mode, the plan, a waiting call's yes, a Claude
+// Code worker's start, a question's answer. A view's acts only (Chat.act):
+// a device's socket is within an agent's reach, so an agent must not
+// approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
+// device too: its /mode, /plan, /allow, /approve, /answer are refused
+const SAYS       = ["mode", "plan", "consent", "approve", "answer"];
 
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
@@ -360,7 +379,7 @@ export namespace Chat {
     mem.troubled = () => Chat.all(chat, Chat.state(chat));
     chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
-    if (Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "")) {
+    if (Chat.gchat_for(user.id, config.KEYS.gchat ?? "")) {
       chat.bridging = { busy: false, me: null, timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
       chat.bridging.timer!.unref?.();
     }
@@ -1341,6 +1360,9 @@ export namespace Chat {
     if ("req" in msg && BODIES.includes(msg.$)) {
       return Chat.post(chat, id, msg);
     }
+    if (device !== "" && SAYS.includes(msg.$)) {
+      return { error: "That is the user's say: give it in a view (the web)." };
+    }
     switch (msg.$) {
       case "stop": {
         const name = msg.name === undefined ? null : String(msg.name);
@@ -2154,8 +2176,12 @@ const LIKES = 30;
 
   // the page written again, if due (Explain.explain_due) and the credit
   // pays: nothing going on, no cards and no call; failed, why, the cards
-  // kept and tried again an EVERY on
+  // kept and tried again an EVERY on. Only while a view shows it (a socket
+  // with no device): the call is billed, and no device reads the page
   export async function observe(chat: Chat, now: number): Promise<void> {
+    if (![...chat.socks].some((s) => s.data.host === null)) {
+      return;
+    }
     const ex = chat.mem.explain;
     const text = Chat.snapshot(chat);
     const hash = Explain.explain_hash(text);
@@ -2251,10 +2277,18 @@ const LIKES = 30;
     });
   }
 
+  // RED ZONE (R8, DRAFT awaiting the user's sign-off): whether the bridge
+  // is on for a user's chat: it posts to one space and acts on its
+  // replies, so one owner's chat only, the user config gchat_user names
+  // (none named: no one's, fail closed)
+  export function gchat_for(user: string, url: string): boolean {
+    return user === config.GCHAT_USER && Gchat.gchat_on(config.GCHAT_SPACE, url);
+  }
+
   export async function bridge(chat: Chat, now: number): Promise<void> {
     const g = chat.mem.gchat;
     const url = config.KEYS.gchat ?? "";
-    if (!Gchat.gchat_on(config.GCHAT_SPACE, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
+    if (!Chat.gchat_for(chat.acct.user, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
       return;
     }
     const b = (chat.bridging ??= { busy: false, me: null });
@@ -2704,34 +2738,54 @@ export namespace Main {
 
   // a unix socket one process at a time listens on, which tells one that
   // connects who holds it: one a crash left refuses connections and is
-  // taken; one held is waited on (HELD), then this process ends
+  // taken; one held is waited on (HELD), then this process ends. Each try
+  // is made holding TAKE (Main.taking), so no other start removes the
+  // socket between this one's look and its listen
   export async function lock(port: number): Promise<void> {
     fs.mkdirSync(config.DIR, { recursive: true });
     fs.mkdirSync(LOCK.slice(0, LOCK.lastIndexOf("/")), { recursive: true, mode: 0o700 });
     const me = "pid " + process.pid + ", port " + port + ", dir " + config.DIR;
     const until = Date.now() + HELD;
-    while (true) {
+    const listen = () => {
       try {
         Bun.listen({ unix: LOCK, socket: { open: (sock) => void sock.write(me), data() {} } });
-        return;
+        return true;
       } catch (err: any) {
         if (err.code !== "EADDRINUSE") {
           throw err;
         }
+        return false;
       }
-      // what the holder says (one before this says nothing: "" once it
-      // stays quiet a second); null: nothing holds it (refused, or gone).
-      // Any other failure (a reset) is a holder's, never taken
-      const held = await new Promise<string | null>((done) => {
-        const sock = net.connect(LOCK);
-        const end = (said: string | null) => (sock.destroy(), done(said));
-        sock.on("connect", () => setTimeout(() => end(""), 1000));
-        sock.on("data", (piece) => end(String(piece)));
-        sock.on("error", (err: any) => end(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? null : ""));
-      });
-      if (held === null) {
-        fs.rmSync(LOCK, { force: true });
+    };
+    while (true) {
+      if (!Main.taking()) {
+        await Bun.sleep(50);
         continue;
+      }
+      let held: string | null;
+      try {
+        if (listen()) {
+          return;
+        }
+        // what the holder says (one before this says nothing: "" once it
+        // stays quiet a second); null: nothing holds it (refused, or gone).
+        // Any other failure (a reset) is a holder's, never taken
+        held = await new Promise<string | null>((done) => {
+          const sock = net.connect(LOCK);
+          const end = (said: string | null) => (sock.destroy(), done(said));
+          sock.on("connect", () => setTimeout(() => end(""), 1000));
+          sock.on("data", (piece) => end(String(piece)));
+          sock.on("error", (err: any) => end(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? null : ""));
+        });
+        if (held === null) {
+          fs.rmSync(LOCK, { force: true });
+          if (listen()) {
+            return;
+          }
+          held = "";
+        }
+      } finally {
+        fs.rmSync(TAKE, { force: true });
       }
       if (Date.now() > until) {
         console.error("unii: a Legion server already runs (" + (held || "an older one, or not a server") + "), holding " + LOCK + ". Stop it first, or set UNII_ANOTHER=1 to run another beside it.");
@@ -2739,6 +2793,36 @@ export namespace Main {
       }
       await Bun.sleep(500);
     }
+  }
+
+  // whether this process now holds TAKE: made here, or there and its
+  // maker gone (removed, then tried again on the next call)
+  export function taking(): boolean {
+    try {
+      const fd = fs.openSync(TAKE, "wx", 0o600);
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (err: any) {
+      if (err.code !== "EEXIST") {
+        throw err;
+      }
+    }
+    const alive = (pid: number) => {
+      try {
+        return process.kill(pid, 0);
+      } catch (err: any) {
+        return err.code === "EPERM";
+      }
+    };
+    try {
+      const pid = Number(fs.readFileSync(TAKE, "utf8").trim());
+      const old = Date.now() - fs.statSync(TAKE).mtimeMs > TAKING;
+      if (Number.isInteger(pid) && pid > 0 ? !alive(pid) : old) {
+        fs.rmSync(TAKE, { force: true });
+      }
+    } catch {}
+    return false;
   }
 
   // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
@@ -2853,7 +2937,7 @@ export namespace Main {
           return Response.json({ error: "Too many requests: wait a moment." }, { status: 429 });
         }
         const msg = { ...Object.fromEntries(new URL(req.url).searchParams), req };
-        const out = await Chat.apply(chat, msg, "");
+        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED);
         return Response.json(out, { status: out.status ?? (out.error === undefined ? 200 : 400) });
       }
       case "/api/imported": {
@@ -2944,11 +3028,19 @@ export namespace Main {
         if ((Main.sockets.get(user.id) ?? 0) >= SOCKETS || !Main.spend(USERS, user.id)) {
           return new Response("too many requests", { status: 429 });
         }
+        // RED ZONE (R1, DRAFT awaiting the user's sign-off): a view is a
+        // browser's socket only (Cloud.browser); a terminal's or device's
+        // (a Bearer session, its token within an agent shell's reach)
+        // names its device, or is refused: it is never a view
         const q    = new URL(req.url).searchParams;
+        const host = q.get("device") || null;
+        if (host === null && !Cloud.browser(cloud, req)) {
+          return new Response("a terminal or device names itself: ?device=", { status: 400 });
+        }
         const who  = Cloud.hash(Cloud.token(req));
         const work = q.get("work") ?? "~/.unii/work";
         const home = q.get("home") || null;
-        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host: q.get("device"), computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
+        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
         return server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
       const chat = Chat.open(user);

@@ -81,6 +81,10 @@ const LEGION_CONFIG = ["config.json", "mcp.json", "mcp.local.json"];
 // and this checkout's local/mcp.extra.json, as mcp.json is rebuilt from it
 // at each start (local/mcp.ts)
 const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
+// RED ZONE (R7, DRAFT awaiting the user's sign-off): and each chat's
+// view.json, users/<id>/view.json in that dir: its mode, routines (on or
+// off), tallies (what super auto decides for the user) and timers
+const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
 
 // the shells started here, kept until their process groups are empty, so
 // end() kills a backgrounded job whose shell already exited
@@ -245,7 +249,7 @@ export namespace Machine {
   }
 
   // whether a file gates the hooks (GATING, ~/.claude, $CLAUDE_CONFIG_DIR:
-  // Hooks.home) or Legion's trust (LEGION_CONFIG), by its path or its real
+  // Hooks.home) or Legion's trust (LEGION_CONFIG, LEGION_CHAT), by its path or its real
   // one, in any case
   export function gating(p: string): boolean {
     const at = path.resolve(p);
@@ -253,7 +257,8 @@ export namespace Machine {
     const homes = [os.homedir() + "/.claude", Hooks.home()].flatMap((h) => [h, Machine.real(h)]).map(fold);
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
-    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q));
+    const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
+    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length))));
   }
 
   // this unii's environment for a job (ENV; also: a worker's more), marked

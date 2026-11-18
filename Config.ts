@@ -111,6 +111,10 @@ export const GCHAT_SPACE = config_get("gchat_space", "");
 // read like the other keys. None kept, or refused: "" (the bridge off),
 // said without a key
 const GCHAT_KEYCHAIN = process.env.UNII_GCHAT_KEYCHAIN === "1";
+
+// RED ZONE (R8, DRAFT awaiting the user's sign-off): the one user whose
+// chat it bridges (their id, as in users/<id>); none: no one's
+export const GCHAT_USER  = config_get("gchat_user", "");
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
 if (GCHAT_KEYCHAIN && GCHAT_SPACE !== "") {
   KEYS.gchat = await config_keychain(VARS.gchat!);
