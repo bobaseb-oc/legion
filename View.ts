@@ -861,7 +861,7 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Decision": {
       const text = (act.text ?? "").trim();
-      return view_decided(v, Date.now()).some((d) => d.id === act.n) ? [{ $: "decision", n: act.n, undo: act.undo, ...(text === "" ? {} : { text }) }] : [];
+      return (v.decided ?? []).some((d) => d.id === act.n) ? [{ $: "decision", n: act.n, undo: act.undo, ...(text === "" ? {} : { text }) }] : [];
     }
     case "Mode": {
       return [{ $: "mode", mode: act.mode ?? Modes.next(Modes.read(v.mode)) }];

@@ -233,8 +233,22 @@ export function waiting_html(v: View.View): string[] {
 // the question backlog (View.view_questions), beside the chat: each the
 // orchestrator's question (its lines kept), its offered answers as
 // buttons, a box to answer it, a dismiss; then its notes (notify), each
-// with a dismiss; none: nothing
-export function questions_html(v: View.View): string[] {
+// with a dismiss; then super auto's decisions (View.view_decided), each
+// with Undo (a box for what to do instead) and a dismiss, under the
+// kinds' progress (View.view_tallies_text); none: nothing
+export function questions_html(v: View.View, now = Date.now()): string[] {
+  const ds = View.view_decided(v, now);
+  const tallies = View.view_tallies_text(v);
+  const decided = ds.length === 0 && (tallies === "" || v.mode !== "super") ? [] : [`<div class="q decided"><div class="qh"><b>Decided for you</b><span class="meta">super auto${tallies === "" ? "" : " · " + esc(tallies)}</span></div></div>`,...ds.map((d) => {
+    const head = `<div class="qh"><b>${d.id}</b><span class="meta">${esc(d.kind)} · ${esc(new Date(d.date).toLocaleString())}</span><button class="x" title="dismiss"${act_html({ $: "Decision", n: d.id, undo: false })}>×</button></div>`;
+    const undo = `<div class="qos"><button class="qo"${act_html({ $: "Decision", n: d.id, undo: true })}>Undo</button></div>`;
+    const box = `<form class="qa" data-decision="${d.id}"><input placeholder="Undo: what to do instead…" aria-label="undo decision ${d.id}, saying what to do instead"></form>`;
+    return `<div class="q decided">${head}<div class="qt">${esc(d.question)}</div><div class="qt">→ ${esc(d.answer)}</div>${undo}${box}</div>`;
+  })];
+  return questions_open_html(v).concat(decided);
+}
+
+function questions_open_html(v: View.View): string[] {
   return View.view_questions(v).map((q) => {
     const quick = (q.options ?? []).map((o) => `<button class="qo"${act_html({ $: "Answer", q: q.id, text: o })}>${esc(o)}</button>`).join("");
     const head = `<div class="qh"><b>${q.id}</b><span class="meta">${esc(new Date(q.date).toLocaleString())}</span><button class="x" title="dismiss"${act_html({ $: "Drop", q: q.id })}>×</button></div>`;
