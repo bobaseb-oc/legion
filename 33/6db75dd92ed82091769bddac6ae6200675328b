@@ -1,0 +1,63 @@
+Explain.ts
+  s_f610e34a306ba7::t_e34e879656a659 1-152
+Explain.test.ts
+  s_f610e34a306ba7::t_4079f37d137403 1-161
+  s_f610e34a306ba7::t_2959a9f95866da 162
+Config.ts
+  s_f610e34a306ba7::t_1c74efc8078e47 49-50
+web/style.css
+  s_f610e34a306ba7::t_746675ebbe840e 747-754
+web/app.js
+  s_f610e34a306ba7::t_94cb61654c1219 1428-1441,1453,1550,1629-1632,1884-1887,2212,2784,3160,3202-3203,3211,3355,3384,3606-3621,3900,4788-4793,4981-4990
+web/src/main.ts
+  s_f610e34a306ba7::t_35062dd42a4ad0 316,1422-1427,1642-1652
+  s_f610e34a306ba7::t_699adc6d916402 1653-1654
+Cockpit.ts
+  s_f610e34a306ba7::t_20e6cf169e3552 498-527
+  s_84bdb1ff93ccb4::t_ebfc6c5e0d5df6 9,623,632
+Server.ts
+  s_f610e34a306ba7::t_9d8bb155418c1f 1511,2014-2125
+  s_f610e34a306ba7::t_8c468d08a3215b 53,357,1198,1509-1510
+Cockpit.test.ts
+  s_f610e34a306ba7::t_23716ae9bc2a96 214,414-430
+Deck.test.ts
+  s_f610e34a306ba7::t_d21f174fcca380 49,277-278
+Html.test.ts
+  s_f610e34a306ba7::t_a93f68599ebcb5 312-318
+Memory.ts
+  s_f610e34a306ba7::t_053ad7fdb6fc05 76,128,171,280,297,342
+Pages.test.ts
+  s_f610e34a306ba7::t_ab58b16a5d4fb2 508-525
+View.test.ts
+  s_f610e34a306ba7::t_876d61ac1d0974 596-608
+View.ts
+  s_f610e34a306ba7::t_bf282615bfef15 22,163,194,240,319,386,586,666-669,936-939,1673
+web/src/Html.ts
+  s_f610e34a306ba7::t_f9939e93b304ef 273,285
+web/src/Pages.ts
+  s_f610e34a306ba7::t_2a69b153ad0de5 11,167,207,493-518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "336db75dd92ed82091769bddac6ae6200675328b",
+  "prompts": {},
+  "sessions": {
+    "s_84bdb1ff93ccb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ac181949cc5160198",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_f610e34a306ba7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b4fcd35-e705-4b53-b4c5-e8443bde3971",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
