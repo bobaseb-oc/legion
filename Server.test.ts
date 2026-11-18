@@ -168,6 +168,39 @@ test("a lock that is not a socket is left alone: the server ends", async () => {
   expect(fs.readFileSync(home + "/.unii/lock", "utf8")).toBe("not a socket");
 }, 30_000);
 
+// L6: two starts at once on a stale lock (a holder killed -9 left its
+// socket, which refuses): one takes it, the other finds it held. Without
+// a lock around taking a stale one, both see it stale, both remove what
+// is there and listen: the second removes the first's live socket. Its
+// take of the lock (Main.taking), left too, is removed: its pid is gone
+const RACE = `
+const { Main } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const won = [];
+Main.lock(1).then(() => won.push(1));
+Main.lock(2).then(() => won.push(2));
+await Bun.sleep(2500);
+console.log(JSON.stringify({ won: won.length }));
+process.exit(0);
+`;
+
+test("two starts at once on a stale lock: one takes it, the other finds it held", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  fs.mkdirSync(home + "/.unii");
+  const lock = home + "/.unii/lock";
+  const dead = Bun.spawn([process.execPath, "-e", "Bun.listen({ unix: " + JSON.stringify(lock) + ", socket: { data() {} } }); console.log('up'); setInterval(() => {}, 1e3);"], { stdout: "pipe" });
+  for await (const _ of dead.stdout) break;
+  dead.kill("SIGKILL");
+  await dead.exited;
+  expect(fs.lstatSync(lock).isSocket()).toBe(true);
+  // and its take of the lock, left as it died
+  fs.writeFileSync(lock + ".take", String(dead.pid));
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/race.ts", RACE);
+  const proc = Bun.spawn([process.execPath, dir + "/race.ts"], { env: { ...process.env, HOME: home, UNII_DIR: dir, UNII_ANOTHER: "" }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.won).toBe(1);
+});
+
 // a /model while the turn's call runs picks the next call's: the wait
 // names the model the running one asked. Its own process, as config is
 // read once a process (another test file's dir is not this one's)

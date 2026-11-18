@@ -190,6 +190,12 @@ type Limit = { rate: number; most: number; keys: Map<string, { n: number; at: nu
 // one ends, naming it
 const LOCK       = process.env.UNII_ANOTHER === "1" ? config.DIR + "/lock" : os.homedir() + "/.unii/lock";
 const HELD       = 10_000;
+// L6: who may take the lock now (Main.taking): a file made only if none
+// is there (O_EXCL), holding its maker's pid, so two starts at once never
+// both find a stale lock, remove it and listen; one whose maker is gone
+// (or that says no pid, TAKING ms on) is removed
+const TAKE       = LOCK + ".take";
+const TAKING     = 5_000;
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // unix socket devices and terminals reach this server on (Main.unix)
 const SOCK       = config.DIR + "/server.sock";
@@ -2728,34 +2734,54 @@ export namespace Main {
 
   // a unix socket one process at a time listens on, which tells one that
   // connects who holds it: one a crash left refuses connections and is
-  // taken; one held is waited on (HELD), then this process ends
+  // taken; one held is waited on (HELD), then this process ends. Each try
+  // is made holding TAKE (Main.taking), so no other start removes the
+  // socket between this one's look and its listen
   export async function lock(port: number): Promise<void> {
     fs.mkdirSync(config.DIR, { recursive: true });
     fs.mkdirSync(LOCK.slice(0, LOCK.lastIndexOf("/")), { recursive: true, mode: 0o700 });
     const me = "pid " + process.pid + ", port " + port + ", dir " + config.DIR;
     const until = Date.now() + HELD;
-    while (true) {
+    const listen = () => {
       try {
         Bun.listen({ unix: LOCK, socket: { open: (sock) => void sock.write(me), data() {} } });
-        return;
+        return true;
       } catch (err: any) {
         if (err.code !== "EADDRINUSE") {
           throw err;
         }
+        return false;
       }
-      // what the holder says (one before this says nothing: "" once it
-      // stays quiet a second); null: nothing holds it (refused, or gone).
-      // Any other failure (a reset) is a holder's, never taken
-      const held = await new Promise<string | null>((done) => {
-        const sock = net.connect(LOCK);
-        const end = (said: string | null) => (sock.destroy(), done(said));
-        sock.on("connect", () => setTimeout(() => end(""), 1000));
-        sock.on("data", (piece) => end(String(piece)));
-        sock.on("error", (err: any) => end(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? null : ""));
-      });
-      if (held === null) {
-        fs.rmSync(LOCK, { force: true });
+    };
+    while (true) {
+      if (!Main.taking()) {
+        await Bun.sleep(50);
         continue;
+      }
+      let held: string | null;
+      try {
+        if (listen()) {
+          return;
+        }
+        // what the holder says (one before this says nothing: "" once it
+        // stays quiet a second); null: nothing holds it (refused, or gone).
+        // Any other failure (a reset) is a holder's, never taken
+        held = await new Promise<string | null>((done) => {
+          const sock = net.connect(LOCK);
+          const end = (said: string | null) => (sock.destroy(), done(said));
+          sock.on("connect", () => setTimeout(() => end(""), 1000));
+          sock.on("data", (piece) => end(String(piece)));
+          sock.on("error", (err: any) => end(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? null : ""));
+        });
+        if (held === null) {
+          fs.rmSync(LOCK, { force: true });
+          if (listen()) {
+            return;
+          }
+          held = "";
+        }
+      } finally {
+        fs.rmSync(TAKE, { force: true });
       }
       if (Date.now() > until) {
         console.error("unii: a Legion server already runs (" + (held || "an older one, or not a server") + "), holding " + LOCK + ". Stop it first, or set UNII_ANOTHER=1 to run another beside it.");
@@ -2763,6 +2789,36 @@ export namespace Main {
       }
       await Bun.sleep(500);
     }
+  }
+
+  // whether this process now holds TAKE: made here, or there and its
+  // maker gone (removed, then tried again on the next call)
+  export function taking(): boolean {
+    try {
+      const fd = fs.openSync(TAKE, "wx", 0o600);
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (err: any) {
+      if (err.code !== "EEXIST") {
+        throw err;
+      }
+    }
+    const alive = (pid: number) => {
+      try {
+        return process.kill(pid, 0);
+      } catch (err: any) {
+        return err.code === "EPERM";
+      }
+    };
+    try {
+      const pid = Number(fs.readFileSync(TAKE, "utf8").trim());
+      const old = Date.now() - fs.statSync(TAKE).mtimeMs > TAKING;
+      if (Number.isInteger(pid) && pid > 0 ? !alive(pid) : old) {
+        fs.rmSync(TAKE, { force: true });
+      }
+    } catch {}
+    return false;
   }
 
   // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
