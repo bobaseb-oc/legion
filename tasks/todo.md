@@ -1092,7 +1092,13 @@ Answers that Chat.reply refuses (credit, device-only acts) are refused here too.
 - [x] Implement (Gchat.ts: post, poll, route; Server.ts tick wiring); mutation check
       on the sender, space and once rules
 - [ ] Proof: full suite, tsc on changed lines (done); end to end against the real space
-      (user runs it: one question answered from the phone)
+      (user runs it: one question answered from the phone). 2026-11-18: posting proven (the
+      phone notified); replies not: every poll stopped at "who is signed in is unknown",
+      as tokeninfo gives no sub without the openid scope. Fix (the user's pick, A): openid
+      added to SCOPES, Google.me reads OpenID userinfo's sub; the user signs in again
+- [x] RED ZONE signed off by the user 2026-11-18 (A): openid added to Google's scopes (who is
+      signed in, no data) for the bridge's sender check; Google.test: every other scope still
+      .readonly, me's token in a header only, an old grant or an odd sub throws
 - [x] RED ZONE signed off by the user 2026-11-18 (option A): the server reads the guarded
       Google grant itself when the bridge is on (Chat.gchat_token; U2 widened to the server),
       read once at start so its one Keychain prompt comes while the user is there; a refused
@@ -1109,8 +1115,8 @@ REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD; a failure says its HTTP status or "not rea
 the URL), gchat_replies (RED ZONE: sender == users/<sub> and HUMAN, name and thread in the space,
 the thread of an item posted and still open, createTime after the post's createTime, not in
 acted), gchat_act (a reply as the view's act). Google.replies lists the space's messages since
-the oldest open post (chat.messages.readonly); Google.me is tokeninfo's sub (POST, the token in a
-header). Server.ts Chat.bridge (a 15 s timer next to the tick, only when on): posts new items
+the oldest open post (chat.messages.readonly); Google.me is OpenID userinfo's sub (the openid
+scope, added 2026-11-18; the token in a header). Server.ts Chat.bridge (a 15 s timer next to the tick, only when on): posts new items
 (10 a pass, a failed one next pass), forgets closed ones, then Chat.bridged keeps each reply's
 name as acted before sending it through Chat.act(..., device "") so Chat.reply's, assignment's
 and decision's own checks (open item, credit) apply; a refusal or a reply not understood is

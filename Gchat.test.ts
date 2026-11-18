@@ -135,7 +135,7 @@ globalThis.fetch = async (url, init = {}) => {
     lists.push(u.pathname);
     return Response.json({ messages: [...script].reverse() });
   }
-  if (u.host === "oauth2.googleapis.com" && u.pathname === "/tokeninfo") {
+  if (u.host === "openidconnect.googleapis.com" && u.pathname === "/v1/userinfo") {
     return Response.json({ sub: "111" });
   }
   return new Response("no", { status: 404 });
