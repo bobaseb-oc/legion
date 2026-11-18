@@ -238,7 +238,8 @@ export namespace Hooks {
   // RED ZONE (security review L1, DRAFT awaiting the user's sign-off): an
   // allowlisted plugin's hooks.json fails closed as managed settings do,
   // missing or unreadable, or its root not really under the plugins dir,
-  // unless the user's disableAllHooks drops its hooks anyway
+  // unless the user's disableAllHooks drops its hooks anyway; a plugin's
+  // own disableAllHooks drops none (it is not the user's settings)
   function load(src: Source[], event: Event, tool: string): { hooks: Hook[]; broken: string | null } {
     const read: { s: Source; json: any }[] = [];
     let lost: string | null = null;
@@ -266,7 +267,7 @@ export namespace Hooks {
     }
     const managed = read.filter((r) => r.s.managed);
     const off_all = managed.some((r) => r.json?.disableAllHooks === true);
-    const off_own = off_all || managed.some((r) => r.json?.allowManagedHooksOnly === true) || read.some((r) => !r.s.managed && r.s.project !== true && r.json?.disableAllHooks === true);
+    const off_own = off_all || managed.some((r) => r.json?.allowManagedHooksOnly === true) || read.some((r) => !r.s.managed && r.s.project !== true && r.s.plugin === undefined && r.json?.disableAllHooks === true);
     if (lost !== null && !off_own) {
       return { hooks: [], broken: lost };
     }

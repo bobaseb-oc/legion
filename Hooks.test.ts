@@ -341,3 +341,13 @@ test.skipIf(OC === undefined || !fs.existsSync(OC + "/hooks/hooks.json"))("the i
   expect(Bun.spawnSync(["python3", OC + "/scripts/ca_telemetry.py", "mark-polished", "--cwd", repo]).exitCode).toBe(0);
   expect((await pr()).deny).toBeNull();
 });
+
+// security review 3: a plugin's hooks.json is not the user's settings, so
+// its disableAllHooks can't drop the user's hooks (nor its own)
+test("a plugin's disableAllHooks drops no hook", async () => {
+  const user = script("plugoff.sh", `echo user >&2; exit 2`);
+  const conf = plugged([[OCKEY, true, "user"]], "exit 0", { hooks: { PreToolUse: [group("Bash", user)] } });
+  const file = conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0/hooks/hooks.json";
+  fs.writeFileSync(file, JSON.stringify({ disableAllHooks: true, hooks: { PreToolUse: [group("Bash", "exit 0")] } }));
+  expect((await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBe("user");
+});
