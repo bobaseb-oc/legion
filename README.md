@@ -43,8 +43,11 @@ How it works
   PostToolUse hooks in your managed, user and project settings (so the
   OnCorps guard blocks here too). `!cmd` runs a shell command yourself.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
-  checks each change; anything it can't decide comes to you) and full.
-  Shift+Tab cycles them.
+  checks each change; anything it can't decide comes to you), super
+  auto (the default: as auto, and a question of a kind you answered with
+  Legion's pick 85% of the time, over 20 answers or more, is decided with
+  it, shown on the Questions page to undo; access, Red Zone, money,
+  outward and prod merges always ask) and full. Shift+Tab cycles them.
 - **A cockpit.** The web has Home (who needs you, stats, agents with an
   estimated cost, activity), an Inbox (review requests, your PRs and
   their CI state, Jira tickets, worktrees to clean up), Routines and a

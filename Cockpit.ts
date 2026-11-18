@@ -641,6 +641,7 @@ const PAGE_ITEMS: Item[] = [
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },
   { label: "Plan mode", hint: "command · only reading till a plan is approved", go: { act: { $: "Mode", mode: "plan" } } },
   { label: "Auto mode", hint: "command · a reviewer checks each change", go: { act: { $: "Mode", mode: "auto" } } },
+  { label: "Super auto mode", hint: "command · as auto, and Legion takes its pick where you always would", go: { act: { $: "Mode", mode: "super" } } },
   { label: "Full mode", hint: "command · hooks only", go: { act: { $: "Mode", mode: "full" } } },
 ];
 

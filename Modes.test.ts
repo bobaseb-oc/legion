@@ -129,9 +129,17 @@ test("what each mode allows: plan only reading; auto and full every tool (auto r
   expect(Modes.allows("plan", "harvest", { action: "entries" })).toBeNull();
   expect(Modes.reviews("auto", "edit", { command: "ls" })).toBe(true);
   expect(Modes.next("plan")).toBe("auto");
-  expect(Modes.next("auto")).toBe("full");
+  expect(Modes.next("auto")).toBe("super");
+  expect(Modes.next("super")).toBe("full");
   expect(Modes.next("full")).toBe("plan");
-  expect(Modes.read("bogus")).toBe("auto");
+  expect(Modes.read("bogus")).toBe("super");
+  expect(Modes.read("auto")).toBe("auto");
+  // super reviews tool calls exactly as auto
+  for (const command of ["git status", "git push origin main", "cat .env"]) {
+    expect(Modes.reviews("super", "shell", { command })).toBe(Modes.reviews("auto", "shell", { command }));
+  }
+  expect(Modes.reviews("super", "write")).toBe(true);
+  expect(Modes.allows("super", "write", {})).toBeNull();
 });
 
 // security review SA (RED ZONE): zsh (the device's $SHELL) expands an
@@ -379,4 +387,114 @@ test("fetch: reviewed in auto mode, refused in plan mode, run in full mode", () 
   expect(Modes.allows("full", "fetch", input)).toBeNull();
   // the search tool stays as it was: not reviewed
   expect(Modes.reviews("auto", "search", { query: "x" })).toBe(false);
+});
+
+// super auto (RED ZONE: who decides): a question kind unlocks at 20
+// answered with a pick and 85% of them taken; the floor never does; a
+// question missing its kind, pick or options asks; a merge asks unless
+// marked not to touch prod; 2 undone of a kind's last 10 relock it
+test("super: a kind unlocks at 17 of 20 picks taken, not 16 of 20 nor 17 of 19", () => {
+  expect(Modes.unlocked("push", { n: 20, took: 17 })).toBe(true);
+  expect(Modes.unlocked("push", { n: 20, took: 16 })).toBe(false);
+  expect(Modes.unlocked("push", { n: 19, took: 17 })).toBe(false);
+  expect(Modes.unlocked("push", { n: 19, took: 19 })).toBe(false);
+  expect(Modes.unlocked("retry", { n: 40, took: 34 })).toBe(true);
+  expect(Modes.unlocked("retry", undefined)).toBe(false);
+});
+
+test("super: the floor (access, redzone, money, outward) and unknown kinds never unlock", () => {
+  for (const kind of ["access", "redzone", "money", "outward", "bogus", undefined, "", "toString", "__proto__"]) {
+    expect([kind, Modes.unlocked(kind, { n: 100, took: 100 })]).toEqual([kind, false]);
+  }
+  expect(Modes.FLOOR).toEqual(["access", "redzone", "money", "outward"]);
+});
+
+test("super: decides only in super mode, for an unlocked kind with a pick among its options; merges only off prod", () => {
+  const all = { n: 20, took: 20 };
+  const tallies = { push: all, merge: all, scope: all, access: all };
+  const q = { kind: "push", pick: 1, options: ["Hold", "Push it"] };
+  expect(Modes.decides("super", q, tallies)).toBe(true);
+  for (const mode of ["plan", "auto", "full"] as const) {
+    expect(Modes.decides(mode, q, tallies)).toBe(false);
+  }
+  expect(Modes.decides("super", { ...q, kind: "retry" }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, kind: "access" }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, kind: undefined }, tallies)).toBe(false);
+  // worded as access (credentials, a token, a login), whatever kind it says: asks
+  expect(Modes.decides("super", { ...q, text: "Push the branch that rotates the deploy token?" }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, text: "Push the branch?" }, tallies)).toBe(true);
+  for (const pick of [undefined, -1, 2, 0.5, "1", null]) {
+    expect([pick, Modes.decides("super", { ...q, pick }, tallies)]).toEqual([pick, false]);
+  }
+  expect(Modes.decides("super", { kind: "push", pick: 0 }, tallies)).toBe(false);
+  expect(Modes.decides("super", { kind: "push", pick: 0, options: [] }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, kind: "merge", prod: false }, tallies)).toBe(true);
+  expect(Modes.decides("super", { ...q, kind: "merge", prod: true }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, kind: "merge" }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, kind: "merge", prod: "no" }, tallies)).toBe(false);
+});
+
+test("super: a pick is taken when the answer is its option or starts with its letter", () => {
+  const q = { options: ["Hold the push", "Push it now", "Ask Dan"], pick: 1 };
+  expect(Modes.took(q, "Push it now")).toBe(true);
+  expect(Modes.took(q, "  push it  now ")).toBe(true);
+  expect(Modes.took(q, "B")).toBe(true);
+  expect(Modes.took(q, "B) go")).toBe(true);
+  expect(Modes.took(q, "b")).toBe(true);
+  expect(Modes.took(q, "A")).toBe(false);
+  expect(Modes.took(q, "Hold the push")).toBe(false);
+  expect(Modes.took(q, "Push it now, then tell Dan")).toBe(false);
+  expect(Modes.took({ options: ["a", "b"] }, "a")).toBe(false);
+});
+
+test("super: answers count, auto-decisions are kept (last 10), 2 undone of them relock the kind to zero", () => {
+  let t = Modes.counted(undefined, true);
+  expect(t).toEqual({ n: 1, took: 1, auto: [] });
+  t = Modes.counted(t, false);
+  expect(t).toMatchObject({ n: 2, took: 1 });
+  t = { n: 20, took: 18, est: true, auto: [] };
+  for (let id = 1; id <= 12; id++) {
+    t = Modes.decided(t, id);
+  }
+  expect(t.auto!.map((a) => a.id)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  expect(Modes.relocks(t)).toBe(false);
+  t = Modes.undone(t, 5);
+  expect(t).toMatchObject({ n: 21, took: 18, est: true });
+  expect(Modes.relocks(t)).toBe(false);
+  expect(Modes.unlocked("push", t)).toBe(true); // 18 of 21: 85.7%
+  expect(Modes.unlocked("push", Modes.counted(t, false))).toBe(false); // 18 of 22
+  const again = Modes.undone(t, 12);
+  expect(again).toEqual({ n: 0, took: 0, auto: [] });
+  // an undo of a decision out of the last 10 still counts, but not to relock
+  const old = Modes.undone(Modes.undone(t, 1), 2);
+  expect(old.n).toBe(23);
+  expect(Modes.relocks(old)).toBe(false);
+});
+
+test("super: the bootstrap reads past answers from the log: a (rec) answer was the pick; else the letter before my pick", () => {
+  const ask = (n: number, q: string, a: string) => "Answer to your question " + n + " (" + q + "):\n" + a;
+  const texts = [
+    ask(1, "Push the branch? A) push now B) wait", "push now (recommended)"),
+    ask(2, "Merge PR #3? A) merge (my pick) B) hold", "A"),
+    ask(3, "Merge PR #4? A) hold B) merge (rec)", "A) hold, wait for Dan"),
+    ask(3, "Merge PR #4? A) hold B) merge (rec)", "B"),
+    ask(4, "Retry the flaky test? A) retry B) skip (my pick)", "b"),
+    ask(5, "Grant the token? A) yes B) no (my pick)", "B"),
+    ask(6, "Which ticket for this, AO-12? A) AO-12 (my pick) B) new", "A"),
+    ask(7, "Lunch? A) pizza (my pick) B) soup", "B"),
+    ask(8, "Merge it? No letters here, my pick: merge", "fine"),
+    ask(9, "Merge it?", "do it"),
+    "Reply to your note 10 (x):\nok",
+    "Answer to your question 11 (Merge PR #5? A) go (my pick)):\nA",
+  ];
+  const t = Modes.imported(texts);
+  expect(t).toEqual({
+    push: { n: 1, took: 1, est: true, auto: [] },
+    merge: { n: 3, took: 2, est: true, auto: [] },
+    retry: { n: 1, took: 1, est: true, auto: [] },
+    access: { n: 1, took: 1, est: true, auto: [] },
+    scope: { n: 1, took: 1, est: true, auto: [] },
+    other: { n: 1, took: 0, est: true, auto: [] },
+  });
+  expect(["Approve the PR?", "Rebase the branch?", "The build timed out", "Need a login", "Jira PLP-9 scope", "Lunch?", "Merge the PR that rotates the deploy token?"].map(Modes.guess)).toEqual(["merge", "push", "retry", "access", "scope", "other", "access"]);
 });

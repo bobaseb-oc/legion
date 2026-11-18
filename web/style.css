@@ -179,6 +179,8 @@ body.qmode { padding-right: var(--crew); }
 #mode .perm { margin-left: 8px; padding: 0 8px; border: 1px solid var(--hair); border-radius: 9px; background: none; color: var(--mid); font: 600 12px/18px var(--sans); cursor: pointer; }
 #mode .perm.plan { border-color: var(--accent); color: var(--accent); }
 #mode .perm.full { border-color: var(--del, #e5534b); color: var(--del, #e5534b); }
+#mode .perm.super { border-color: var(--add, #3fb950); color: var(--add, #3fb950); }
+#questions .q.decided { border-left: 3px solid var(--add, #3fb950); }
 #questions .q.plan { border-left: 3px solid var(--accent); }
 #questions .q.call { border-left: 3px solid var(--you, #d29922); }
 #questions .q.fyi { border-left: 3px solid var(--line, #8888); opacity: .9; }

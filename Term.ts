@@ -230,7 +230,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
     ["Pick", [
       ["",                  "Shift+Left, Shift+Right", "the model before, the next",                     (t, k) => term_move(t, ARROWS[k])],
       ["",                  "Shift+Up, Shift+Down",    "more effort, less",                              (t, k) => term_move(t, ARROWS[k])],
-      ["",                  "Shift+Tab",               "the next mode: plan, auto, full (as Claude Code's), typing or not", (t) => term_act(t, { $: "Mode" })],
+      ["",                  "Shift+Tab",               "the next mode: plan, auto, super, full (as Claude Code's), typing or not", (t) => term_act(t, { $: "Mode" })],
       ["/model [name]",     "",                        "the models to pick from; with a name, that one", (t, a) => term_pick(t, "model", a)],
       ["/effort [level]",   "",                        "the efforts; with one, that one",                (t, a) => term_pick(t, "effort", a)],
       ["/speed [speed]",    "",                        "the speeds; with one, that one",                 (t, a) => term_pick(t, "speed", a)],
@@ -250,7 +250,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/deny [name]",      "",                        "refuse a Claude Code worker asking to start",     (t, a) => term_approve(t, a, false)],
     ]],
     ["Modes", [
-      ["/mode [name]",      "",                        "plan (agents only read till you approve a plan), auto (a reviewer checks each change) or full (hooks only); alone: the next", (t, a) => term_answer(t, View.view_mode_cmd(a))],
+      ["/mode [name]",      "",                        "plan (agents only read till you approve a plan), auto (a reviewer checks each change), super (as auto, and Legion takes its pick on questions where you always have) or full (hooks only); alone: the next", (t, a) => term_answer(t, View.view_mode_cmd(a))],
       ["/plan [yes|no]",    "",                        "the plan waiting for you; yes [auto|full] approves it, no <feedback> sends it back", (t, a) => term_answer(t, View.view_plan_cmd(t.v, a))],
       ["/allow <n>",        "",                        "run call n, waiting as auto mode's reviewer couldn't check it", (t, a) => term_answer(t, View.view_consent_cmd(t.v, a, true))],
       ["/refuse <n>",       "",                        "refuse waiting call n",                          (t, a) => term_answer(t, View.view_consent_cmd(t.v, a, false))],
@@ -260,7 +260,8 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/explain [question]", "",                    "what the crew is building and why, for a manager (an observer writes it); with a question: asked there, answered there, never in the chat", term_explain],
       ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_page_cmd(t, "questions", () => View.view_questions_note(t.v))],
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
-      ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
+      ["/drop <n>",         "",                        "dismiss question n (or super auto's decision n)", (t, a) => term_answer(t, View.view_drop(t.v, a))],
+      ["/reverse <n> [answer]", "",                    "undo super auto's decision n, saying what instead (none: don't, ask me)", (t, a) => term_answer(t, View.view_reverse_cmd(t.v, a, Date.now()))],
     ]],
     ["Files", [
       ["/look <path[:line]>", "",                      "a file's lines, from that line (asked of a device; secrets refused)", term_look],

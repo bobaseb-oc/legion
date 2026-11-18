@@ -958,6 +958,60 @@ when, the sidebar and top bar show 2, a real click on × drops one (page and vie
 from Home goes to #todo, no page errors.
 RED ZONE signed off by the user 2026-11-18: the view-only guard in Chat.assignment.
 
+## Super auto: Legion takes its own pick where you always would (2026-11-18, feat/super-auto)
+Why: auto mode reviews tool calls, but the attention cost is the questions: 445 answered in
+about a week. Where its pick was readable, the user took it 75%+ of the time (push/branch 8/8,
+ticket scope 12/14, PR approve/merge 49/65, retry 14/21, access 1/3).
+Promise: a 4th mode, `super`, the new default. It answers a question with the orchestrator's
+own pick, without asking, only for a question kind that has earned it; every other question
+is asked as in auto. Tool review is unchanged (auto's reviewer still runs).
+- Data: `ask` gains `kind` (push | scope | retry | merge | access | redzone | money | outward |
+  other) and `pick` (index of the option it recommends). Each answer records (kind, picked?).
+- Unlock (per kind): >=20 answered with a pick and >=85% taken (17/20). A new user has
+  nothing unlocked, so super behaves like auto; the mode picker shows progress per kind.
+- Floor, never unlocked: access, redzone, money, outward; a missing/unknown kind or no pick
+  (fail closed); a merge marked `prod: true` (depends on other merges/deploys first, or can
+  affect prod). The prompt tells the orchestrator when to set it.
+- Decided for you: an auto-taken answer goes to the chat as "Decided for you (super auto): ..."
+  and to a list on the Questions page with Undo, for 24 h or until dismissed. Undo sends
+  "The user reversed decision N: <their answer>" (a turn) and counts as an override.
+  2 undone in a kind's last 10 auto-decisions: the kind relocks and needs 20 new answers.
+- Learn from overrides: an answer that is not the pick is added (one line, deduped, capped)
+  to a preferences note in the orchestrator's prompt, so its picks get better.
+- Bootstrap: an import of past answers from the chat log (the "my pick"/"(rec)" matcher used
+  for the numbers above), counted as estimated, so this user starts with history.
+RED ZONE (who decides: access-control policy, DRAFT for the user's sign-off): Modes.ts gains
+`super`; the unlock rule, the floor and the relock are pure functions there.
+- [x] Red tests: Modes (unlock at 17/20 not 16/20, floor never unlocks, no kind/pick asks,
+      merge prod asks, relock at 2 of 10); Tools/Server (super answers with the pick and
+      logs it, auto still asks, Undo sends the reversal once and counts); bootstrap matcher
+- [x] Implement until green; mutation check (floor, threshold, relock, prod flag)
+- [x] Web + terminal: mode picker shows `super` with per-kind progress; Decided-for-you list
+- [x] Proof: full suite, tsc on changed files, end to end on a throwaway server
+
+Review (2026-11-18): Modes.unlocked/decides/took/counted/decided/undone/relocks/guess/
+imported (pure, RED ZONE); Tools.question files or Tools.decide answers; Chat.tally counts
+answers and Chat.like learns overrides (Tools.likes: a block in main's call context, not the
+system prompt, so the cache holds); Chat.decision (view only) undoes or dismisses; Memory
+imports past answers once (Memory.past_answers) when view.json has no tallies. Web: the
+Questions pane's Decided-for-you list (Undo, a box for what instead, ×) under the kinds'
+progress, the green super chip, the palette; terminal: the deck's Questions page (u, Enter
+/reverse, x), /reverse <n> [answer], /drop of a decision. Choice: a merge decides only when
+marked prod: false (unset asks: fail closed).
+Proof: full suite 556 pass, 2 fail (the known log-staging pair); tsc on changed files: one
+diagnostic on a changed line, Memory.ts readdirSync's untyped callback (no node types, as the
+old line 377); mutants (no floor, 80%, relock at 3, prod only when true, no prod check, no
+device guard, decision not removed) each killed; end to end on a throwaway server (9555) in
+headless Chrome over CDP: the pane shows "Decided for you", "push 20/20 ✓ unlocked · retry
+14/21 estimated (needs 85%)", the item and Undo; a real click on Undo removes it, view.json
+holds no decision, push at n 21 took 20, the log holds "The user reversed decision 5
+(Push AO-1 to origin?): do not do this, ask me"; no page errors.
+RED ZONE signed off by the user 2026-11-18: Modes' unlock/floor/relock, Tools.decide, Chat.tally,
+Chat.decision's guard. With it, two follow-ups (red tests first, each reverted once and caught):
+the kind guess checks access before merge, and a live question worded as access always asks
+(Modes.decides, whatever kind it says); approving a plan lands in super (/plan yes [super|auto|full],
+web Approve: super). Suite 556 pass, 2 known log-staging fails.
+
 ## Explain tab: what the crew is building, for a manager (after super auto, feat/explain-tab)
 Why: the user wants one page saying, at a manager's level, what new behavior is being built
 right now and why, kept current, and a place to ask about it without interrupting the

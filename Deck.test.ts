@@ -226,6 +226,24 @@ test("questions, as the web's pane: pick one, a number sends that offered answer
   expect(key(v, d, "x").deck.say).toContain("Pick");
 });
 
+test("questions: super auto's decisions under them, with the kinds' progress; u undoes, Enter types /reverse, x dismisses", () => {
+  const v = team();
+  const date = new Date().toISOString();
+  View.view_hear(v, { $: "state", ...v, mode: "super", decided: [{ id: 9, kind: "push", question: "Push AO-1?", answer: "Push it", date }], tallies: { push: { n: 20, took: 20 } } });
+  const d = Deck.deck_new("questions");
+  const lines = Deck.deck_lines(v, d, W, H, 0).map(text).join("\n");
+  expect(lines).toMatch(/Ship it\?[\s\S]*Decided for you \(super auto\)[\s\S]*push 20\/20 ✓ unlocked[\s\S]*9\. Push AO-1\? → Push it/);
+  expect(key(v, d, "j", "j").deck.sel).toBe("d9");
+  expect(key(v, d, "j", "j", "u").acts).toEqual([{ $: "Decision", n: 9, undo: true }]);
+  expect(key(v, d, "j", "j", "x").acts).toEqual([{ $: "Decision", n: 9, undo: false }]);
+  expect(key(v, d, "j", "j", "Enter")).toMatchObject({ done: true, type: "/reverse 9 " });
+  expect(key(v, d, "j", "j", "1").deck.say).toContain("u undoes");
+  expect(View.view_reverse_cmd(v, "9 hold it", Date.now())).toEqual({ $: "Decision", n: 9, undo: true, text: "hold it" });
+  expect(View.view_reverse_cmd(v, "4", Date.now())).toContain("No decision 4");
+  expect(View.view_drop(v, "9")).toEqual({ $: "Decision", n: 9, undo: false });
+  expect(View.view_questions_note(v)).toContain("Decided for you (super auto):\n9. Push AO-1? → Push it");
+});
+
 test("memory, as the web's page: pins and the last recall's hits to pick; Enter seeks it in the chat, p pins or unpins, / types /recall", () => {
   const v = team();
   View.view_hear(v, { $: "state", ...v, pins: [{ i: 12, kind: "user", date: "2026-11-12T10:00:00Z", text: "keep this", size: 100 }] });

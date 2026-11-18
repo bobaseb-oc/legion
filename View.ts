@@ -10,7 +10,7 @@
 // and comes again before a message in another 3-hour window.
 
 import type { Kind, Vendor } from "./AskAI.ts";
-import { Modes, type Mode as Perm } from "./Modes.ts";
+import { Modes, ASK_KINDS, type AskKind, type Mode as Perm, type Tally } from "./Modes.ts";
 import { topup } from "./Import.ts";
 import * as Call from "./Call.ts";
 import type { Inbox } from "./Inbox.ts";
@@ -83,7 +83,15 @@ export type State = {
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
   pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
+  decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
+  tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
 };
+
+// a question super auto answered with Legion's pick (Tools.question),
+// shown DECIDED_MS or till dismissed, to undo: its number (the
+// questions'), kind, question, the answer taken, when (ISO)
+export type Decided = { id: number; kind: AskKind; question: string; answer: string; date: string };
+export const DECIDED_MS = 24 * 3600_000;
 
 // what an agent needs the user to do, only they can (Tools.assign): its
 // number, text, who filed it, when (ISO)
@@ -130,7 +138,7 @@ export type DeviceStatus = { device: string; dir: string; branch: string | null;
 // Harvest id) or failed (why)
 export type Draft = { n: number; project_id: number; task_id: number; project: string; task: string; date: string; hours: number; notes: string; why: string; by: string; state: "draft" | "sending" | "sent" | "failed"; harvest?: number; error?: string };
 
-export type Question = { id: number; text: string; options?: string[]; at: number; date: string; fyi?: true }; // fyi: a note (notify), no answer awaited
+export type Question = { id: number; text: string; options?: string[]; at: number; date: string; fyi?: true; kind?: AskKind; pick?: number; prod?: boolean }; // fyi: a note (notify), no answer awaited; kind, pick (of its options), prod: for super auto (Modes.decides)
 
 // an item of an agent's checklist (Tools.todo): what, and how far
 export type Todo = { text: string; status: "pending" | "doing" | "done" };
@@ -317,6 +325,7 @@ export type Client =
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "explain"; q: string } // a view: a question about the Explain page (the user's only: Chat.explain), answered there
+  | { $: "decision"; n: number; undo: boolean; text?: string } // a view: super auto's decision n undone (text: the user's answer) or dismissed (the user's only: Chat.decision)
   | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
 
 // an act not answered: with its id, the socket it went by, what its
@@ -357,6 +366,7 @@ export type Act =
   | { $: "Tell"; name: string; text: string }   // a message to that agent (a tile's box)
   | { $: "Answer"; q: number; text: string }    // an open question answered (the backlog pane)
   | { $: "Drop"; q: number }                    // an open question dismissed
+  | { $: "Decision"; n: number; undo: boolean; text?: string } // super auto's decision undone (text: the user's answer instead) or dismissed
   | { $: "Mode"; mode?: Perm }                  // the mode set; none: the next (Shift+Tab, the chip)
   | { $: "Verdict"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved into a mode, or sent back
   | { $: "Consent"; n: number; yes: boolean }   // a waiting call: run it, or not
@@ -858,6 +868,10 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Drop": {
       return [{ $: "answer", q: act.q }];
+    }
+    case "Decision": {
+      const text = (act.text ?? "").trim();
+      return (v.decided ?? []).some((d) => d.id === act.n) ? [{ $: "decision", n: act.n, undo: act.undo, ...(text === "" ? {} : { text }) }] : [];
     }
     case "Mode": {
       return [{ $: "mode", mode: act.mode ?? Modes.next(Modes.read(v.mode)) }];
@@ -1374,10 +1388,10 @@ export function view_mode_cmd(arg: string): Act | string {
   if (m === "") {
     return { $: "Mode" };
   }
-  return ["plan", "auto", "full"].includes(m) ? { $: "Mode", mode: m as Perm } : "No mode " + m + ": plan, auto or full.";
+  return ["plan", "auto", "super", "full"].includes(m) ? { $: "Mode", mode: m as Perm } : "No mode " + m + ": plan, auto, super or full.";
 }
 
-// /plan: the plan waiting, shown; /plan yes [auto|full], /plan no
+// /plan: the plan waiting, shown; /plan yes [super|auto|full], /plan no
 // <feedback>: a Verdict; else why not
 export function view_plan_cmd(v: View, arg: string): Act | string {
   if (!v.plan) {
@@ -1386,15 +1400,15 @@ export function view_plan_cmd(v: View, arg: string): Act | string {
   const [word, ...rest] = arg.trim().split(/\s+/);
   const more = rest.join(" ");
   if (word === "" || word === undefined) {
-    return "The plan waiting for you:\n" + v.plan.text + "\n/plan yes [auto|full] to approve it, /plan no <feedback> to send it back.";
+    return "The plan waiting for you:\n" + v.plan.text + "\n/plan yes [super|auto|full] to approve it, /plan no <feedback> to send it back.";
   }
-  if (word === "yes" && (more === "" || more === "auto" || more === "full")) {
-    return { $: "Verdict", yes: true, mode: more === "full" ? "full" : "auto" };
+  if (word === "yes" && (more === "" || more === "super" || more === "auto" || more === "full")) {
+    return { $: "Verdict", yes: true, mode: more === "full" || more === "auto" ? more : "super" };
   }
   if (word === "no") {
     return { $: "Verdict", yes: false, text: more };
   }
-  return "/plan, /plan yes [auto|full] or /plan no <feedback>.";
+  return "/plan, /plan yes [super|auto|full] or /plan no <feedback>.";
 }
 
 // /allow <n> or /refuse <n>: a Consent to a waiting call; else why not
@@ -1413,8 +1427,48 @@ export function view_notes(v: View): Question[] {
   return [...(v.questions ?? [])].filter((q) => q.fyi === true).sort((a, b) => a.id - b.id);
 }
 
+// super auto's decisions still shown (DECIDED_MS), oldest first
+export function view_decided(v: View, now: number): Decided[] {
+  return (v.decided ?? []).filter((d) => now - Date.parse(d.date) < DECIDED_MS).sort((a, b) => a.id - b.id);
+}
+
+// a decision as a line: its number, the question's first line, the answer taken
+export function decided_text(d: Decided): string {
+  return d.id + ". " + d.question.split("\n")[0] + " → " + d.answer;
+}
+
+// super auto's progress per question kind (those with a record), as
+// "push 20/20 ✓ unlocked · retry 14/21 (needs 85%)"; "": none
+export function view_tallies_text(v: View): string {
+  const t = v.tallies ?? {};
+  return ASK_KINDS.filter((k) => Object.hasOwn(t, k) && t[k]!.n > 0).map((k) => {
+    const x = t[k]!;
+    const how = Modes.FLOOR.includes(k) ? "(always asks)" : Modes.unlocked(k, x) ? "✓ unlocked" : x.n < 20 ? "(needs 20)" : "(needs 85%)";
+    return k + " " + x.took + "/" + x.n + (x.est ? " estimated " : " ") + how;
+  }).join(" · ");
+}
+
+// /reverse's argument, "<n> [answer]", as a Decision undone (its answer
+// instead, if given); else why not
+export function view_reverse_cmd(v: View, arg: string, now: number): Act | string {
+  const [n = "", ...rest] = arg.trim().split(/\s+/);
+  const d = view_decided(v, now).find((x) => String(x.id) === n);
+  return d === undefined ? "No decision " + n + " to undo: /questions lists them." : { $: "Decision", n: d.id, undo: true, text: rest.join(" ") };
+}
+
+// the decisions super auto took for the user, as /questions ends with them
+function decided_note(v: View): string[] {
+  const ds = view_decided(v, Date.now());
+  const tallies = view_tallies_text(v);
+  return [...(ds.length === 0 ? [] : ["Decided for you (super auto):", ...ds.map(decided_text), "Undo one: /reverse <n> [your answer]; dismiss: /drop <n>."]), ...(tallies === "" ? [] : ["Super auto: " + tallies])];
+}
+
 // the open questions as the terminal lists them (/questions)
 export function view_questions_note(v: View): string {
+  return [view_open_note(v), ...decided_note(v)].join("\n");
+}
+
+function view_open_note(v: View): string {
   const qs = view_questions(v);
   const notes = view_notes(v).map((q) => "note " + q.id + ": " + q.text.split("\n").join("\n   "));
   if (qs.length === 0) {
@@ -1473,10 +1527,12 @@ export function view_answer(v: View, arg: string): Act | string {
   return { $: "Answer", q: q.id, text: q.options?.[k] ?? m[2]! };
 }
 
-// /drop's argument, a question's number, as a Drop; else why not
+// /drop's argument, a question's number, as a Drop (a decision's: it
+// dismissed); else why not
 export function view_drop(v: View, arg: string): Act | string {
   const q = [...view_questions(v), ...view_notes(v)].find((x) => String(x.id) === arg.trim());
-  return q === undefined ? "No open question " + arg.trim() + ": /questions lists them." : { $: "Drop", q: q.id };
+  const d = view_decided(v, Date.now()).find((x) => String(x.id) === arg.trim());
+  return q !== undefined ? { $: "Drop", q: q.id } : d !== undefined ? { $: "Decision", n: d.id, undo: false } : "No open question " + arg.trim() + ": /questions lists them.";
 }
 
 // what an undo does, asked before it (the web's confirm, the terminal's yes)

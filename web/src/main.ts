@@ -1268,7 +1268,8 @@ function crew_bars(): void {
   const crew = mode === "crew";
   document.body.classList.toggle("crewmode", crew && !P.guest);
   const asked = View.view_questions(v).length + View.view_waiting(v);
-  const notes = View.view_notes(v).length;
+  // super auto's decisions to undo show in the pane, counted with the notes
+  const notes = View.view_notes(v).length + View.view_decided(v, Date.now()).length;
   markup($("#mode"), Html.mode_html(mode, View.view_pill(v), asked, P.guest ? undefined : v.mode, Cockpit.inbox_badge(v.inbox), notes, (v.assigned ?? []).length));
   side_bars(mode);
   if (page_bars(mode)) {
@@ -1363,7 +1364,9 @@ function answer(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   const input = form.querySelector("input")!;
-  act(form.dataset.verdict !== undefined ? { $: "Verdict", yes: false, text: input.value } : { $: "Answer", q: Number(form.dataset.q), text: input.value });
+  act(form.dataset.verdict !== undefined ? { $: "Verdict", yes: false, text: input.value }
+    : form.dataset.decision !== undefined ? { $: "Decision", n: Number(form.dataset.decision), undo: true, text: input.value }
+    : { $: "Answer", q: Number(form.dataset.q), text: input.value });
   input.value = "";
 }
 
