@@ -345,6 +345,18 @@ test("write and edit refuse Legion's config.json, mcp.json and mcp.local.json", 
   expect(Machine.gating(os.homedir() + "/.unii/work/config.json")).toBe(false);
 });
 
+// RED ZONE (R7): a chat's view.json (~/.unii/users/<id>/) holds its mode,
+// routines (on or off), tallies (what super auto decides) and timers: an
+// agent's write or edit reaches none, in any case; the chat's other files,
+// and a view.json elsewhere, aren't refused
+test("write and edit refuse a chat's view.json under Legion's dir", () => {
+  expect(Machine.gating(os.homedir() + "/.unii/users/10/view.json")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/Users/10/VIEW.json")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/users/10/main.index")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.unii/work/users/10/view.json")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/repo/view.json")).toBe(false);
+});
+
 // mcp.json is rebuilt at each start from this checkout's local/mcp.extra.json
 // (local/mcp.ts): as gating as mcp.json; another repo's file of that name isn't
 test("write and edit refuse this checkout's local/mcp.extra.json", () => {
