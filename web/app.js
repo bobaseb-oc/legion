@@ -3535,8 +3535,12 @@ function routines_html(v, now) {
     const flip = `<button class="pbtn"${act_html2({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html2({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
     const task = r.task === "" ? "" : `<p class="rtask">${esc2(r.task)}</p>`;
-    const by = !pending(r) ? "" : `<p class="meta">Proposed by ${r.by === "main" ? "Unii" : esc2(r.by)}: ${esc2(r.why ?? "")}. Turn it on to approve.</p>`;
-    return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc2(r.name)}</b>${when}</div>${by}${task}<div class="acts">${run}${flip}${drop}</div></div>`;
+    const acts = `<div class="acts">${run}${flip}${drop}</div>`;
+    if (!pending(r)) {
+      return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc2(r.name)}</b>${when}</div>${task}${acts}</div>`;
+    }
+    const who = r.by === "main" ? "Unii" : esc2(r.by);
+    return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc2(r.name)}”</b>${when}</div>` + `<blockquote class="rwhy">${who}'s words: “${esc2(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
   const head = `<div class="phead"><h2>Routines</h2><p class="meta">Each starts a Legion agent on its task; they run while Legion's server runs and a view or a device is connected.</p></div>`;
   const form = `<form class="radd"><b>New routine</b><input name="name" placeholder="Name" maxlength="${NAME}" required>` + `<div class="rwhen"><select name="kind"><option value="daily">daily at</option><option value="weekly">weekly on</option><option value="every">every</option><option value="review">on each new review request</option></select>` + `<select name="day" aria-label="day">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}"${i === 5 ? " selected" : ""}>${d}</option>`).join("")}</select>` + `<input name="at" type="time" value="09:00"><input name="hours" type="number" min="1" max="${HOURS}" value="4" aria-label="hours"><span class="meta">hours</span>` + `<select name="tier"><option value="worker">a worker</option><option value="manager">a manager</option></select></div>` + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${TASK}"></textarea><button class="pbtn">Add</button></form>`;
