@@ -442,3 +442,28 @@ test("the Explain page, as the web's: the cards and the thread as text; / or ? l
   expect(key(v, d, "?")).toMatchObject({ done: true, type: "/explain " });
   expect(key(v, Deck.deck_new("home"), "g", "x").deck.page).toBe("explain");
 });
+
+// R2: what others write (a PR's body, a calendar event's title, an agent's
+// routine why) painted as the terminal draws it (Paint.line_ansi over the
+// deck's lines and the chat's footer): no escape but the painter's own
+const OWN = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b\x07]*\x1b\\/g;
+const EVIL = "\x1b]52;c;cHduZWQ=\x07\x1b[H\x1b[2K";
+const drawn = (ls: Paint.Line[], w: number) => ls.map((l) => Paint.line_ansi(Paint.runs_wrap(l, w, true)[0] ?? [])).join("\r\n");
+test("a PR body, an event title, a routine's why: drawn without their escapes", () => {
+  const v = inboxed();
+  const evil: Inbox.Inbox = { ...v.inbox!, reviews: [pr({ number: 5, title: "Add " + EVIL + "cache", body: "Why " + EVIL + "it\nmatters" + EVIL })],
+    google: { events: [{ id: "e", title: "Sync " + EVIL + "up", start: new Date(NOW + 3600e3).toISOString(), end: new Date(NOW + 7200e3).toISOString(), meet: "", people: 2 }], docs: [] } };
+  View.view_hear(v, { $: "inbox", inbox: evil });
+  View.view_hear(v, { $: "state", ...v, crew: [...v.crew, crew("A", "main", "working"), crew("B", "main", "working"), crew("C", "main", "working")] });
+  View.view_hear(v, { $: "state", ...v, routines: [{ id: 5, name: "Standup " + EVIL, task: "t" + EVIL, when: { $: "daily", at: "09:00" }, tier: "worker", on: false, last: null, made: 0, by: "main", why: "you " + EVIL + "asked" }] });
+  const detail = ikey(v, Deck.deck_new("inbox"), "j", "j", "Tab").deck;
+  const pages = [Deck.deck_lines(v, detail, W, 40, NOW), Deck.deck_lines(v, Deck.deck_new("routines"), W, 40, NOW), Deck.crew_foot(v, 140, NOW, 8, true), Deck.crew_foot(v, 140, NOW, 8, false)];
+  const all = pages.map((ls) => drawn(ls, 140)).join("\r\n");
+  expect(all).toContain("Why ]52;c;cHduZWQ=[H[2Kit");
+  expect(all).toContain("Sync ]52;c;");
+  expect(all).toContain("]52;c;cHduZWQ=[H[2Kasked");
+  expect(all.replace(OWN, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  // the menu: a label from a palette item (an agent's name, a PR's title)
+  const menu = Deck.menu_lines([{ label: "PR " + EVIL, hint: "h" + EVIL, go: { run: "/x" } }], 0, W);
+  expect(drawn(menu, W).replace(OWN, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+});
