@@ -49,6 +49,16 @@ test("a post sets the thread key and fallback, and says a failure without the UR
   const e2 = await gchat_post(URL_, "k", "hi", down);
   expect(e1).toEqual({ error: "GChat: HTTP 400." });
   expect(e2).toEqual({ error: "GChat: not reachable." });
+  // Google's reason said too (a bad token is clear at once), one line,
+  // capped, and never the URL's key or token even if it echoes them
+  const why = (msg: string) => (async () => Response.json({ error: { code: 400, message: msg } }, { status: 400 })) as any;
+  expect(await gchat_post(URL_, "k", "hi", why("Missing or malformed token in the request."))).toEqual({ error: "GChat: HTTP 400: Missing or malformed token in the request." });
+  const u = new URL(URL_);
+  const echo = await gchat_post(URL_, "k", "hi", why("bad " + URL_ + "\nkey " + u.searchParams.get("key") + " " + "x".repeat(500)));
+  expect("error" in echo && echo.error.length <= 240).toBe(true);
+  expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("key")!);
+  expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("token")!);
+  expect(JSON.stringify(echo)).not.toContain("\n");
 });
 
 // RED ZONE: who may answer

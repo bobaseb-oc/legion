@@ -112,13 +112,25 @@ export async function gchat_post(url: string, tk: string, text: string, f: typeo
   for (const chunk of gchat_chunks(text)) {
     const res = await f(u.href, { method: "POST", headers: { "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ text: chunk }), redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
     if (res === null || !res.ok) {
-      return { error: "GChat: " + (res === null ? "not reachable" : "HTTP " + res.status) + "." };
+      return { error: "GChat: " + (res === null ? "not reachable." : "HTTP " + res.status + (await gchat_why(res, u))) };
     }
     const json: any = await res.json().catch(() => null);
     const at = Date.parse(String(json?.createTime ?? ""));
     first ??= { thread: String(json?.thread?.name ?? ""), at: Number.isFinite(at) ? at : Date.now() };
   }
   return first!;
+}
+
+// Google's reason for a refused post (": <message>", else "."): one line,
+// at most 200 chars, the URL and its key and token cut from it, as it may
+// echo the request
+async function gchat_why(res: Response, u: URL): Promise<string> {
+  const json: any = await res.json().catch(() => null);
+  let why = String(json?.error?.message ?? "").replace(/\s+/g, " ").trim();
+  for (const secret of [u.href, u.searchParams.get("key"), u.searchParams.get("token")]) {
+    why = secret ? why.split(secret).join("<redacted>") : why;
+  }
+  return why === "" ? "." : ": " + why.slice(0, 200);
 }
 
 // RED ZONE (access control: who may answer; signed off by the user

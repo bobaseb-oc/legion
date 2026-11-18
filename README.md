@@ -48,6 +48,11 @@ How it works
   `gchat_space` (`spaces/...`) and the webhook's URL in the environment,
   a key like the others (never logged), set where the server starts, e.g.
   `export GCHAT_WEBHOOK_URL=$(security find-generic-password -s GCHAT_WEBHOOK_URL -w)`.
+  Keep it in the Keychain from the clipboard (copy the URL from the
+  space's Apps & integrations, Webhooks):
+  `security add-generic-password -U -a "$USER" -s GCHAT_WEBHOOK_URL -w "$(pbpaste)" && pbcopy < /dev/null`.
+  Not `-w` alone: its prompt keeps 128 characters, cutting the URL's
+  token (Google then answers "Missing or malformed token").
   Reading replies uses your Google sign-in (`legion google-login`): the
   server reads it once at start (one Keychain prompt; deny it and the
   bridge only posts). Keep `legion device` running while away: if no view
