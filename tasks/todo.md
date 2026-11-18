@@ -1010,4 +1010,4 @@ CDP): #explain shows the card and "updated just now", top bar and sidebar link i
 click and typed question is answered in the page's thread and kept in view.json, the chat
 page doesn't show it, g x from Home goes to #explain, no page errors; the observer asked
 twice (OBSERVE, ASK) with searches 0 and no server.
-RED ZONE open: the view-only guard in Chat.explain awaits the user's sign-off.
+RED ZONE signed off by the user 2026-11-18: the view-only guard in Chat.explain.
