@@ -602,7 +602,7 @@ test("plan: the orchestrator files its plan in plan mode, kept across a reload; 
   const mem = Memory.load(dir, () => SHARE);
   const tools = served(mem, []);
   const plan = (who: string, args: object) => Tools.call(tools, who, "plan", args, new AbortController().signal, "x");
-  expect(mem.mode).toBe("auto");
+  expect(mem.mode).toBe("super");
   expect((await plan("main", { plan: "1. read\n2. fix" })).text).toContain("not in plan mode");
   mem.mode = "plan";
   expect(Tools.list(tools, "main").map((t) => t.name)).toContain("plan");

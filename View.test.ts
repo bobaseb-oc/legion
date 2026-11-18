@@ -422,7 +422,7 @@ test("modes in the views: cycle and set, the plan's verdict, a waiting call's ye
   View.view_hear(v, { $: "state", ...v, mode: "plan", plan: { text: "1. read\n2. fix", date: "2026-11-12T10:00:00.000Z" }, calls: [{ id: 3, who: "Wkr", tool: "shell", what: "make deploy (on mac)" }] } as any);
   expect(View.view_act(v, { $: "Mode" })).toEqual([{ $: "mode", mode: "auto" }]);
   expect(View.view_act(v, { $: "Mode", mode: "full" })).toEqual([{ $: "mode", mode: "full" }]);
-  expect(View.view_mode_cmd("bogus")).toBe("No mode bogus: plan, auto or full.");
+  expect(View.view_mode_cmd("bogus")).toBe("No mode bogus: plan, auto, super or full.");
   expect(View.view_mode_cmd(" plan ")).toEqual({ $: "Mode", mode: "plan" });
   expect(View.view_mode_cmd("")).toEqual({ $: "Mode" });
   expect(View.view_act(v, { $: "Verdict", yes: true, mode: "full" })).toEqual([{ $: "plan", yes: true, mode: "full" }]);
@@ -439,7 +439,7 @@ test("modes in the views: cycle and set, the plan's verdict, a waiting call's ye
   expect(View.view_pill(v)).toBe("2 need you");
   View.view_hear(v, { $: "state", ...v, plan: null, calls: [], mode: "auto" } as any);
   expect(View.view_plan_cmd(v, "")).toBe("No plan is waiting for you.");
-  expect(View.view_act(v, { $: "Mode" })).toEqual([{ $: "mode", mode: "full" }]);
+  expect(View.view_act(v, { $: "Mode" })).toEqual([{ $: "mode", mode: "super" }]);
   expect(View.view_pill(v)).toBe("");
 });
 

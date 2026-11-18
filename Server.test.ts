@@ -971,7 +971,7 @@ test("the user switches the mode, and approves or rejects the orchestrator's pla
   const proc = Bun.spawn([process.execPath, dir + "/mode.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({
-    first: "auto", bad: true, none: { error: "No plan is waiting for approval." },
+    first: "super", bad: true, none: { error: "No plan is waiting for approval." },
     switched: ["plan", 0, "note", "The user switched to plan mode: agents only read, until you approve a plan."],
     shown: "1. fix it",
     rejected: ["plan", null, "The user didn't approve your plan: test first\nStill in plan mode: revise it and file it again with plan."],

@@ -17,19 +17,44 @@
 // Types
 // =====
 
-export type Mode = "plan" | "auto" | "full";
+export type Mode = "plan" | "auto" | "super" | "full";
+
+// what a question of the orchestrator's is about (Tools.question's kind)
+export type AskKind = "push" | "scope" | "retry" | "merge" | "access" | "redzone" | "money" | "outward" | "other";
+
+// a kind's record (super auto): its questions the user answered with a
+// pick offered, those they took it, whether the counts were imported
+// from the log (Modes.imported), its last LAST auto-decisions (undone?)
+export type Tally = { n: number; took: number; est?: boolean; auto?: Array<{ id: number; undone: boolean }> };
 
 // Constants
 // =========
 
-export const MODES: Mode[] = ["plan", "auto", "full"];
+export const MODES: Mode[] = ["plan", "auto", "super", "full"];
+
+export const ASK_KINDS: AskKind[] = ["push", "scope", "retry", "merge", "access", "redzone", "money", "outward", "other"];
 
 // what a mode says of itself, to the user and the agents
 export const ABOUT: Record<Mode, string> = {
   plan: "plan mode: agents only read, until you approve a plan",
   auto: "auto mode: a reviewer allows or refuses each change",
+  super: "super auto mode: as auto, and Legion takes its own pick on questions of a kind where you always have",
   full: "full mode: every call runs (hooks only)",
 };
+
+// super auto: a kind unlocks at UNLOCK answered with a pick and TAKEN of
+// them taken; RELOCK undone of its LAST auto-decisions relock it
+const UNLOCK = 20;
+const TAKEN = 85; // percent
+const RELOCK = 2;
+const LAST = 10;
+
+// the bootstrap's matchers (Modes.imported): an answer in the log, the
+// pick marked in it or in the question, an answer's letter
+const ANSWERED = /^Answer to your question (\d+) \(([\s\S]*)\):\n([\s\S]*)$/;
+const REC = /\(rec(?:ommended)?\)/i;
+const MARK = /my pick|\(rec(?:ommended)?\)|recommended/i;
+const LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
 
 // what an agent refused in plan mode does instead
 const AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
@@ -102,9 +127,9 @@ const FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-
 
 export namespace Modes {
 
-  // a saved or sent mode, or auto
+  // a saved or sent mode, or super (the default)
   export function read(x: unknown): Mode {
-    return MODES.includes(x as Mode) ? (x as Mode) : "auto";
+    return MODES.includes(x as Mode) ? (x as Mode) : "super";
   }
 
   // the mode after it (Shift+Tab)
@@ -147,7 +172,7 @@ export namespace Modes {
   // line or its words, quotes off), nor an MCP tool whose exact name is on
   // MCP_READS or reads (one cut with a hash, Mcp.name, never is)
   export function reviews(mode: Mode, tool: string, input?: any, reads: readonly string[] = []): boolean {
-    if (mode !== "auto") {
+    if (mode !== "auto" && mode !== "super") {
       return false;
     }
     if (tool.startsWith("mcp__")) {
@@ -164,6 +189,120 @@ export namespace Modes {
     }
     const lexed = lex(command);
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
+  }
+
+  // Super auto
+  // ----------
+  // RED ZONE (who decides: access-control policy, DRAFT awaiting the
+  // user's sign-off): whether Legion answers a question with its own pick
+  // instead of asking. Fail closed: anything not plainly earned asks.
+
+  // the kinds never answered for the user, whatever their record
+  export const FLOOR: readonly AskKind[] = ["access", "redzone", "money", "outward"];
+
+  // whether a kind has earned super auto: known, not the floor, UNLOCK
+  // answered with a pick and TAKEN of them taken
+  export function unlocked(kind: unknown, t: Tally | undefined): boolean {
+    if (!ASK_KINDS.includes(kind as AskKind) || FLOOR.includes(kind as AskKind) || t === undefined) {
+      return false;
+    }
+    return t.n >= UNLOCK && t.took * 100 >= TAKEN * t.n;
+  }
+
+  // whether super auto answers a question with its pick: super mode, a
+  // pick among its options, its kind unlocked; a merge only if marked
+  // not to touch prod (prod: false; unset asks)
+  export function decides(mode: Mode, q: { kind?: unknown; pick?: unknown; options?: string[]; prod?: unknown }, tallies: Partial<Record<AskKind, Tally>>): boolean {
+    const n = q.options?.length ?? 0;
+    if (mode !== "super" || !Number.isInteger(q.pick) || (q.pick as number) < 0 || (q.pick as number) >= n) {
+      return false;
+    }
+    if (q.kind === "merge" && q.prod !== false) {
+      return false;
+    }
+    return Object.hasOwn(tallies, q.kind as string) && Modes.unlocked(q.kind, tallies[q.kind as AskKind]);
+  }
+
+  // whether an answer took the pick: its option's text (spaces, case
+  // aside), or its letter (A for the first) alone or before ) . : or a word
+  export function took(q: { options?: string[]; pick?: number }, answer: string): boolean {
+    const pick = q.pick === undefined ? undefined : q.options?.[q.pick];
+    if (pick === undefined) {
+      return false;
+    }
+    const flat = (x: string) => x.replace(/\s+/g, " ").trim().toLowerCase();
+    return flat(answer) === flat(pick) || Modes.letter(answer) === q.pick;
+  }
+
+  // an answer's leading option letter, as an index (A: 0); null: none
+  // (a lowercase one only alone or before ) . :, so "a fix" is no A)
+  export function letter(answer: string): number | null {
+    const m = /^\s*(?:([A-F])\b|([a-f])(?:$|[).:]))/.exec(answer);
+    const l = m?.[1] ?? m?.[2]?.toUpperCase();
+    return l === undefined ? null : l.charCodeAt(0) - 65;
+  }
+
+  // a kind's record after the user's answer (took: their pick)
+  export function counted(t: Tally | undefined, took: boolean): Tally {
+    return { ...t, n: (t?.n ?? 0) + 1, took: (t?.took ?? 0) + (took ? 1 : 0), auto: t?.auto ?? [] };
+  }
+
+  // a kind's record after an auto-decision (its number): its last LAST kept
+  export function decided(t: Tally | undefined, id: number): Tally {
+    return { ...t, n: t?.n ?? 0, took: t?.took ?? 0, auto: [...(t?.auto ?? []), { id, undone: false }].slice(-LAST) };
+  }
+
+  // a kind's record after the user undid an auto-decision: an override
+  // (answered, not taken); RELOCK undone of its last LAST: back to nothing
+  export function undone(t: Tally | undefined, id: number): Tally {
+    const after = { ...Modes.counted(t, false), auto: (t?.auto ?? []).map((a) => (a.id === id ? { id, undone: true } : a)) };
+    return Modes.relocks(after) ? { n: 0, took: 0, auto: [] } : after;
+  }
+
+  // whether a kind's last LAST auto-decisions hold RELOCK undone
+  export function relocks(t: Tally): boolean {
+    return (t.auto ?? []).slice(-LAST).filter((a) => a.undone).length >= RELOCK;
+  }
+
+  // a question's kind guessed from its words (the bootstrap: past
+  // questions had none)
+  export function guess(question: string): AskKind {
+    return /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge"
+      : /\bpush|\bbranch|\brebase/i.test(question) ? "push"
+      : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry"
+      : /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access"
+      : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope"
+      : "other";
+  }
+
+  // the bootstrap: past answers in the user's messages (as Chat.reply
+  // logs them), each question once, counted per guessed kind where the
+  // pick is readable: a (rec) in the answer (taken), else the option
+  // letter before "my pick", "(rec)" or "recommended" in the question,
+  // matched by the answer's letter. Estimated: the counts say so
+  export function imported(texts: string[]): Partial<Record<AskKind, Tally>> {
+    const out: Partial<Record<AskKind, Tally>> = {};
+    const seen = new Set<string>();
+    for (const text of texts) {
+      const m = ANSWERED.exec(text);
+      if (m === null || seen.has(m[1]!)) {
+        continue;
+      }
+      seen.add(m[1]!);
+      const [question, answer] = [m[2]!, m[3]!];
+      let took: boolean | null = REC.test(answer) ? true : null;
+      if (took === null) {
+        const mark = MARK.exec(question);
+        const pick = mark === null ? undefined : [...question.slice(0, mark.index).matchAll(LETTER)].at(-1)?.[1];
+        const said = Modes.letter(answer);
+        took = pick === undefined || said === null ? null : said === pick.charCodeAt(0) - 65;
+      }
+      if (took !== null) {
+        const kind = Modes.guess(question);
+        out[kind] = { ...Modes.counted(out[kind], took), est: true };
+      }
+    }
+    return out;
   }
 
   // why a shell command is not plainly read-only; null: it is

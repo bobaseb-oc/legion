@@ -38,7 +38,7 @@ import { COMPUTER, INT, STR, TOOLS, spec, type Job, type Spec } from "./Machine.
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
 import { Memory, type Seen } from "./Memory.ts";
-import { ABOUT, Modes } from "./Modes.ts";
+import { ABOUT, ASK_KINDS, Modes, type AskKind } from "./Modes.ts";
 import PROMPT from "./prompt.txt" with { type: "text" };
 import { EFFORTS, LABELS, Pick } from "./Pick.ts";
 import { Price } from "./Price.ts";
@@ -46,7 +46,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
-import type { Assignment, Crew, Draft, Live, Pulse, Question, Status, Todo, Waiting } from "./View.ts";
+import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
 
@@ -125,7 +125,8 @@ export type Moved = {
 };
 
 // what the server does for agents (report: work stopped stays unanswered;
-// pick: the chat's pick; halt: what stops its turn)
+// pick: the chat's pick; halt: what stops its turn; note: a note in the
+// chat, as Chat.note)
 type Hooks = {
   push   : (agent: Agent, kind: Kind, text: string) => void;
   on     : (agent: Agent, ev: Event) => void;
@@ -133,6 +134,7 @@ type Hooks = {
   change : () => void;
   pick   : () => Pick;
   halt   : () => AbortSignal;
+  note?  : (text: string) => void;
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -392,8 +394,11 @@ const NOTES = 30;
 const DRAFTS = 100;
 const ASK_TEXT = 2000;
 const ASK_OPTIONS = 6;
-const ASK = spec("ask", "File a question for the user in their backlog of questions, where they answer it in due course without scrolling the chat: only a decision that is theirs (Red Zone, outward or hard to undo, money or credentials, a real fork in what they want); one question each, said in full as a short brief with your pick (it is read apart from the chat). options: short answers to offer, if it has a few. Their answer reaches you as a message quoting it. close: the number of a question of yours no longer needed, to withdraw it. Ask in the chat instead only what the turn can't go on without.", {
+// super auto's decisions kept to undo (Tools.decide)
+const DECIDEDS = 30;
+const ASK = spec("ask", "File a question for the user in their backlog of questions, where they answer it in due course without scrolling the chat: only a decision that is theirs (Red Zone, outward or hard to undo, money or credentials, a real fork in what they want); one question each, said in full as a short brief with your pick (it is read apart from the chat). options: short answers to offer, if it has a few. Their answer reaches you as a message quoting it. close: the number of a question of yours no longer needed, to withdraw it. Ask in the chat instead only what the turn can't go on without. Always set kind (what it is about) and pick (the index in options of your pick); for a merge, prod: true if it waits on other merges or deploys first or can affect production, else false. In super auto mode, a kind the user always answers with your pick is decided for you with it (you are told, and go on); they may undo it.", {
   question: STR, options: { type: "array", items: STR }, close: INT,
+  kind: { type: "string", enum: ASK_KINDS }, pick: INT, prod: { type: "boolean" },
 }, []);
 // the orchestrator's notes for the user, beside its questions (notify;
 // user's ask 2026-11-13): no answer awaited, the oldest dropped past NOTES
@@ -1267,11 +1272,40 @@ export namespace Tools {
     }
     const line = (x: unknown) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, TODO_TEXT);
     const options = Array.isArray(args.options) ? [...new Set(args.options.map(line).filter((x: string) => x !== ""))].slice(0, ASK_OPTIONS) as string[] : [];
-    const q: Question = { id: (mem.asked += 1), text, ...(options.length === 0 ? {} : { options }), at: mem.count, date: new Date().toISOString() };
+    // the pick by its text, so options made unique keep it on its answer
+    const pick = Number.isInteger(args.pick) && Array.isArray(args.options) ? options.indexOf(line(args.options[args.pick])) : -1;
+    const kind = ASK_KINDS.find((k) => k === args.kind);
+    const how = { ...(kind === undefined ? {} : { kind }), ...(pick < 0 ? {} : { pick }), ...(typeof args.prod === "boolean" ? { prod: args.prod } : {}) };
+    if (Modes.decides(Modes.read(mem.mode), { ...how, options }, mem.tallies)) {
+      return Tools.decide(tools, { id: (mem.asked += 1), kind: kind!, question: text, answer: options[pick]!, date: new Date().toISOString() });
+    }
+    const q: Question = { id: (mem.asked += 1), text, ...(options.length === 0 ? {} : { options }), ...how, at: mem.count, date: new Date().toISOString() };
     mem.questions.push(q);
     Memory.save(mem);
     tools.hooks.change();
     return { text: "Filed as question " + q.id + "; the user's answer will reach you as a message.", fail: false };
+  }
+
+  // RED ZONE (who decides, DRAFT awaiting the user's sign-off): super
+  // auto's answer to a question with Legion's own pick (Modes.decides
+  // said so): kept on the Questions page to undo (at most DECIDEDS, the
+  // oldest dropped), counted in its kind's last auto-decisions (a relock
+  // reads them: Modes.undone), noted in the chat for the user to see
+  export function decide(tools: Tools, d: Decided): Out {
+    const mem = tools.mem;
+    mem.decided = [...mem.decided, d].slice(-DECIDEDS);
+    mem.tallies = { ...mem.tallies, [d.kind]: Modes.decided(mem.tallies[d.kind], d.id) };
+    Memory.save(mem);
+    tools.hooks.change();
+    tools.hooks.note?.("Decided for you (super auto): " + d.answer + " (decision " + d.id + ": " + d.question.split("\n")[0]!.slice(0, 200) + "). Undo it on the Questions page.");
+    return { text: "Decided for you (super auto): " + d.answer + ". Proceed.", fail: false };
+  }
+
+  // what the user chose over Legion's picks (Chat.reply), at the start of
+  // the orchestrator's calls' messages; none: no block
+  export function likes(tools: Tools): Block[] {
+    const likes = tools.mem?.likes ?? [];
+    return likes.length === 0 ? [] : [{ text: "The user's preferences, from answers that weren't your pick (pick as they would):\n" + likes.map((l) => "- " + l).join("\n") + "\n\n", mark: false }];
   }
 
   // an agent's timesheet drafts filed (each checked whole: Harvest.entry_check),
