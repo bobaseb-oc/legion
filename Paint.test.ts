@@ -135,3 +135,25 @@ test("a working agent's mark spins; the others keep theirs", () => {
   expect(a[2]).toBe(b[2]);
   expect(a[2]).toContain("✓ Old");
 });
+
+// R2: text from outside (a PR's body, an event's title, an agent's words)
+// reaches the terminal as text: no escape of its own (an OSC 52 clipboard
+// write, a cursor move, a line wipe), only the SGR and link codes the
+// painter itself writes; and the width it is wrapped at is the width drawn
+const OWN = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b\x07]*\x1b\\/g;
+test("a line's text can't carry its own escapes: Run and line_ansi clean it, widths as drawn", () => {
+  const evil = "a\x1b]52;c;cHduZWQ=\x07b\x1b[H\x1b[2Kc\x9b2J";
+  const made = Paint.line_ansi([Paint.Run(evil, { ...Paint.INK, b: true })]);
+  expect(made.replace(OWN, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  expect(made).toContain("\x1b[0;1m");
+  // a run made without the constructor: line_ansi still cleans it
+  const raw = Paint.line_ansi([{ x: evil, s: Paint.INK }]);
+  expect(raw.replace(OWN, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  // a link's target can't end its link early
+  const link = Paint.line_ansi([{ x: "x", s: { ...Paint.INK, k: "https://e.x/\x1b\\\x1b]52;c;eA==\x07" } }]);
+  expect(link.replace(OWN, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  // wrapped at the width it is drawn at
+  for (const l of Paint.runs_wrap([Paint.Run(evil.repeat(4))], 12, true)) {
+    expect(Paint.text_width(Paint.line_ansi(l).replace(OWN, ""))).toBeLessThanOrEqual(12);
+  }
+});

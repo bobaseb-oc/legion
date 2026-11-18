@@ -1483,16 +1483,25 @@ function view_open_note(v: View): string {
   return ["Your questions:", ...qs.map(item), ...(notes.length === 0 ? [] : ["Notes:", ...notes]), "Answer one: /answer <n> <text> (or the answer's number); dismiss: /drop <n>."].join("\n");
 }
 
-// the terminal's /routines: each with its number, when, tier, on or off,
-// and one an agent proposed, by whom and why
+// the terminal's /routines: each with its number, when, tier, on or off;
+// one an agent proposed marked so, its name and why quoted as the agent's
+// words, then its whole task, which turning it on approves
 const PROPOSER = (by: string) => (by === "main" ? "Unii" : by);
 export function view_routines_note(v: View): string {
   const rs = v.routines ?? [];
   if (rs.length === 0) {
     return "No routines. Add one: /routine add daily 09:00 Name: task (or every 4h, or on review).";
   }
-  return ["Your routines:", ...rs.map((r) => r.id + ". " + r.name + " · " + when_text(r.when) + " · " + r.tier + " · " + (r.on ? "on" : "off") + (pending(r) ? " · proposed by " + PROPOSER(r.by!) + " (" + r.why + "): /routine on " + r.id + " to approve" : "")),
-    "/routine run|on|off|drop <n>; /routine add daily 09:00 | every 4h | on review, then name: task."].join("\n");
+  const line = (r: Routine) => {
+    const head = (name: string) => r.id + ". " + name + " · " + when_text(r.when) + " · " + r.tier + " · " + (r.on ? "on" : "off");
+    if (!pending(r)) {
+      return head(r.name);
+    }
+    const who = PROPOSER(r.by!);
+    return [head("[proposed by " + who + "] “" + r.name + "”"), "   " + who + "'s words: “" + (r.why ?? "") + "”",
+      "   The task:", ...r.task.split("\n").map((l) => "     " + l), "   /routine on " + r.id + " approves this task"].join("\n");
+  };
+  return ["Your routines:", ...rs.map(line), "/routine run|on|off|drop <n>; /routine add daily 09:00 | every 4h | on review, then name: task."].join("\n");
 }
 
 // /routine's argument: add <when> <name>: <task>, or run|on|off|drop <n>

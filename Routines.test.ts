@@ -189,10 +189,38 @@ test("views: a proposal reads as proposed, its why shown (escaped), till the use
   const View = await import("./View.ts");
   const Pages = await import("./web/src/Pages.ts");
   const v = View.view_new();
-  v.routines = [routine({ $: "daily", at: "09:00" }, { id: 5, name: "Standup", on: false, by: "main", why: "you <asked>" }), routine({ $: "daily", at: "09:00" }, { id: 6, name: "Mine", on: false })];
-  expect(View.view_routines_note(v)).toContain("5. Standup · daily at 09:00 · worker · off · proposed by Unii (you <asked>): /routine on 5 to approve");
-  expect(View.view_routines_note(v)).not.toContain("6. Mine · daily at 09:00 · worker · off · proposed");
+  const task = "post the <standup>\nthen push to main";
+  v.routines = [routine({ $: "daily", at: "09:00" }, { id: 5, name: "Standup", task, on: false, by: "main", why: "you <asked>" }), routine({ $: "daily", at: "09:00" }, { id: 6, name: "Mine", task: "my task", on: false })];
+  // the terminal: marked, the agent's name and why quoted as its words, the
+  // whole task (each of its lines) over what turning it on approves
+  expect(View.view_routines_note(v)).toBe([
+    "Your routines:",
+    "5. [proposed by Unii] “Standup” · daily at 09:00 · worker · off",
+    "   Unii's words: “you <asked>”",
+    "   The task:",
+    "     post the <standup>",
+    "     then push to main",
+    "   /routine on 5 approves this task",
+    "6. Mine · daily at 09:00 · worker · off",
+    "/routine run|on|off|drop <n>; /routine add daily 09:00 | every 4h | on review, then name: task.",
+  ].join("\n"));
+  // as the terminal draws it (the routines page's lines): one row each
+  const Deck = await import("./Deck.ts");
+  const drawn = Deck.deck_lines(v, Deck.deck_new("routines"), 100, 40, at(9)).map((l) => l.map((r) => r.x).join(""));
+  expect(drawn).toContain("   Unii's words: “you <asked>”");
+  expect(drawn).toContain("     then push to main");
+  // the web: the card marked (class and badge), the agent's words quoted,
+  // the whole task beside Turn on, all escaped; the user's own plain
   const html = Pages.routines_html(v, at(9)).join("");
-  expect(html).toContain("Proposed by Unii: you &lt;asked&gt;. Turn it on to approve.");
+  const [mine, own] = html.split('<div class="routine').slice(1);
+  expect(mine).toStartWith(' off proposed">');
+  expect(mine).toContain('<span class="rbadge">Proposed by Unii</span>');
+  expect(mine).toContain("<b>5. “Standup”</b>");
+  expect(mine).toContain('<blockquote class="rwhy">Unii\'s words: “you &lt;asked&gt;”</blockquote>');
+  expect(mine).toContain('<div class="rapprove"><p class="meta">Turn on approves this task:</p><p class="rtask">post the &lt;standup&gt;\nthen push to main</p><div class="acts">');
+  expect(mine.indexOf("rapprove")).toBeLessThan(mine.indexOf("Turn on</button>"));
+  expect(own).toStartWith(' off">');
+  expect(own).toContain("<b>6. Mine</b>");
   expect(html.match(/Proposed by/g)?.length).toBe(1);
+  expect(html).not.toContain("<standup>");
 });
