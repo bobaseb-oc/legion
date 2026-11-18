@@ -1,0 +1,23 @@
+README.md
+  s_f610e34a306ba7::t_82b5218cfcb637 41
+  s_f610e34a306ba7::t_f85aa799380455 42-45
+prompt.txt
+  s_f610e34a306ba7::t_00c641fcefa3ab 62-69
+  s_f610e34a306ba7::t_9f1fe2cd9cdac9 79-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bf12bf18060d4baa9184984bfa7bf54a261e3347",
+  "prompts": {},
+  "sessions": {
+    "s_f610e34a306ba7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b4fcd35-e705-4b53-b4c5-e8443bde3971",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
