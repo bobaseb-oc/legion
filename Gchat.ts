@@ -31,9 +31,6 @@ export type Posted = { key: string; tk: string; thread: string; at: number };
 // the messages acted on (their names, the last ACTED)
 export type Gchat = { posted: Posted[]; acted: string[] };
 
-// a Chat message as listed (Google.replies)
-export type Said = Message;
-
 // a reply to act on: the item, the message's name, its text
 export type Reply = { item: Item; name: string; text: string };
 
@@ -130,7 +127,7 @@ export async function gchat_post(url: string, tk: string, text: string, f: typeo
 // users/<id>; none known: none counts) and HUMAN, in the space, in the
 // thread of an item posted and still open, made after it was posted, and
 // never acted on (acted). A bot's, the webhook's or anyone else's never
-export function gchat_replies(said: Said[], me: string | null, space: string, g: Gchat, items: Item[]): Reply[] {
+export function gchat_replies(said: Message[], me: string | null, space: string, g: Gchat, items: Item[]): Reply[] {
   if (me === null || !/^users\/\d+$/.test(me) || !SPACE.test(space)) {
     return [];
   }

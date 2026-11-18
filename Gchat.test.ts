@@ -10,7 +10,8 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { gchat_act, gchat_chunks, gchat_new, gchat_on, gchat_post, gchat_replies, type Item, type Said } from "./Gchat.ts";
+import { gchat_act, gchat_chunks, gchat_new, gchat_on, gchat_post, gchat_replies, type Item } from "./Gchat.ts";
+import type { Message } from "./Google.ts";
 
 const SPACE = "spaces/TESTSPACE";
 const URL_ = "https://chat.googleapis.com/v1/" + SPACE + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
@@ -58,7 +59,7 @@ test("only the signed-in user's reply, in the space, in an open item's thread, n
   ] };
   const items: Item[] = [{ key: "q1", kind: "question", n: 1, text: "Q" }]; // q2 closed
   const me = "users/111";
-  const m = (name: string, o: Partial<Said> = {}): Said => ({ name: SPACE + "/messages/" + name, sender: me, type: "HUMAN", thread: SPACE + "/threads/A", at: 2000, text: "yes", ...o });
+  const m = (name: string, o: Partial<Message> = {}): Message => ({ name: SPACE + "/messages/" + name, sender: me, type: "HUMAN", thread: SPACE + "/threads/A", at: 2000, text: "yes", ...o });
   const said = [
     m("good"),
     m("other", { sender: "users/222" }),
