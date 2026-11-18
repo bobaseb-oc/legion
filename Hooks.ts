@@ -10,8 +10,9 @@
 // a "deny" (or "ask": no one answers here) permissionDecision; its
 // systemMessage only warns. A managed hook that can't run (missing,
 // crashed, timed out, its settings unreadable) refuses the call: the
-// org's gate fails closed. The others' failures only warn, as in Claude
-// Code. The `claude` worker is Claude Code itself, with its own hooks.
+// org's gate fails closed; so does a HOOKED plugin's hooks.json (missing,
+// unreadable, or its root out of the plugins dir). The others' failures
+// only warn, as in Claude Code. The `claude` worker is Claude Code itself, with its own hooks.
 // Device side: imports nothing of the server's (Machine.ts).
 
 import * as fs from "node:fs";
@@ -26,7 +27,8 @@ import type { Job } from "./Machine.ts";
 // a settings file, whether it is the org's (managed), whether a project's
 // (its .claude/settings*.json, which an agent working there can write);
 // plugin: a plugin's hooks.json, its root (its hooks' $CLAUDE_PLUGIN_ROOT)
-export type Source = { file: string; managed: boolean; project?: boolean; plugin?: string };
+// and its key (name@marketplace)
+export type Source = { file: string; managed: boolean; project?: boolean; plugin?: string; key?: string };
 
 // a tool call as Claude Code names it: its tool, its input
 export type Call = { tool: string; input: Record<string, unknown> };
@@ -50,11 +52,12 @@ type Event = "PreToolUse" | "PostToolUse";
 const MANAGED = process.platform === "darwin" ? "/Library/Application Support/ClaudeCode" : "/etc/claude-code";
 
 // RED ZONE (a new gate source, DRAFT awaiting the user's sign-off): the
-// plugins whose hooks gate Legion's tools as Claude Code's: the OnCorps
-// coding flows (oncorps-shared-skills), whose PreToolUse hook refuses
+// plugins whose hooks gate Legion's tools as Claude Code's, by their full
+// installed key (name@marketplace: the same name from another marketplace
+// is not trusted): the OnCorps coding flows, whose PreToolUse hook refuses
 // `gh pr create` until pre-ship polish has run for the commit. Others'
 // hooks (claude-mem's memory capture, ...) are left to Claude Code
-export const HOOKED = ["oc-coding-assistant"];
+export const HOOKED = ["oc-coding-assistant@oncorps-shared-skills"];
 
 // a hook's timeout when its settings give none, as Claude Code's (s)
 const TIMEOUT = 60;
@@ -87,14 +90,15 @@ export namespace Hooks {
       { file: Hooks.home() + "/settings.json", managed: false },
       { file: project + "/.claude/settings.json", managed: false, project: true },
       { file: project + "/.claude/settings.local.json", managed: false, project: true },
-      ...Hooks.plugins(Hooks.home()).filter((p) => HOOKED.includes(p.name)).map((p) => ({ file: p.root + "/hooks/hooks.json", managed: false, plugin: p.root })),
+      ...Hooks.plugins(Hooks.home()).filter((p) => HOOKED.includes(p.key)).map((p) => ({ file: p.root + "/hooks/hooks.json", managed: false, plugin: p.root, key: p.key })),
     ];
   }
 
   // the plugins enabled for the user (settings.json enabledPlugins) at
   // their user-scoped installed version (installed_plugins.json), as
-  // Claude Code loads them: none disabled, local to a project, or old
-  export function plugins(dir: string): { name: string; root: string }[] {
+  // Claude Code loads them: none disabled, local to a project, or old;
+  // each its name, its key (name@marketplace) and its root
+  export function plugins(dir: string): { name: string; key: string; root: string }[] {
     const json = (file: string): any => {
       try {
         return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -106,7 +110,7 @@ export namespace Hooks {
     const installed = json(dir + "/plugins/installed_plugins.json").plugins ?? {};
     return Object.entries(installed).flatMap(([key, entries]) => {
       const user = (Array.isArray(entries) ? entries : [entries]).find((e: any) => e?.scope === "user");
-      return enabled[key] === true && typeof user?.installPath === "string" ? [{ name: key.split("@")[0]!, root: user.installPath as string }] : [];
+      return enabled[key] === true && typeof user?.installPath === "string" ? [{ name: key.split("@")[0]!, key, root: user.installPath as string }] : [];
     });
   }
 
@@ -230,11 +234,23 @@ export namespace Hooks {
   // allowManagedHooksOnly (managed) or disableAllHooks drop the user's and
   // the project's; only a managed disableAllHooks drops managed ones, and a
   // project's drops none (RED ZONE, security review SB, DRAFT awaiting
-  // the user's sign-off, M3: an agent can write its project's settings)
+  // the user's sign-off, M3: an agent can write its project's settings).
+  // RED ZONE (security review L1, DRAFT awaiting the user's sign-off): an
+  // allowlisted plugin's hooks.json fails closed as managed settings do,
+  // missing or unreadable, or its root not really under the plugins dir,
+  // unless the user's disableAllHooks drops its hooks anyway
   function load(src: Source[], event: Event, tool: string): { hooks: Hook[]; broken: string | null } {
     const read: { s: Source; json: any }[] = [];
+    let lost: string | null = null;
     for (const s of src) {
+      if (s.plugin !== undefined && !plugged(s.plugin)) {
+        lost ??= "the root of " + s.key + " (" + s.plugin + ") is not under " + Hooks.home() + "/plugins";
+        continue;
+      }
       if (!fs.existsSync(s.file)) {
+        if (s.plugin !== undefined) {
+          lost ??= "can't read the hooks of " + s.key + ": " + s.file + " is missing";
+        }
         continue;
       }
       try {
@@ -243,11 +259,17 @@ export namespace Hooks {
         if (s.managed) {
           return { hooks: [], broken: "can't read the managed settings " + s.file + ": " + say(String(err?.message ?? err)) };
         }
+        if (s.plugin !== undefined) {
+          lost ??= "can't read the hooks of " + s.key + ": " + s.file + ": " + say(String(err?.message ?? err));
+        }
       }
     }
     const managed = read.filter((r) => r.s.managed);
     const off_all = managed.some((r) => r.json?.disableAllHooks === true);
     const off_own = off_all || managed.some((r) => r.json?.allowManagedHooksOnly === true) || read.some((r) => !r.s.managed && r.s.project !== true && r.json?.disableAllHooks === true);
+    if (lost !== null && !off_own) {
+      return { hooks: [], broken: lost };
+    }
     const hooks: Hook[] = [];
     for (const { s, json } of read) {
       if (s.managed ? off_all : off_own) {
@@ -269,6 +291,16 @@ export namespace Hooks {
       }
     }
     return { hooks, broken: null };
+  }
+
+  // whether a plugin's root really is under the user's plugins dir, both
+  // by their real paths (no link or ".." out of it)
+  function plugged(root: string): boolean {
+    try {
+      return fs.realpathSync(root).startsWith(fs.realpathSync(Hooks.home() + "/plugins") + path.sep);
+    } catch {
+      return false;
+    }
   }
 
   // whether a matcher takes a tool: "" or "*" every tool, else a regex of
