@@ -28,12 +28,18 @@ function home(): string {
   skill(cache + "/mk/here/1.0/skills/gamma", "name: gamma\ndescription: Local to a project.");
   skill(cache + "/mk/claude-mem/1.0/skills/recall", "name: recall\ndescription: Excluded plugin.");
   skill(cache + "/mk/on/2.0/skills/long", "name: long\ndescription: " + "x".repeat(400));
-  fs.writeFileSync(h + "/.claude/settings.json", JSON.stringify({ enabledPlugins: { "on@mk": true, "off@mk": false, "here@mk": true, "claude-mem@mk": true } }));
+  fs.mkdirSync(cache + "/mk/on/2.0/commands", { recursive: true });
+  fs.writeFileSync(cache + "/mk/on/2.0/commands/review.md", '---\ndescription: "Review a PR."\nargument-hint: "<PR>"\n---\n\nBody\n');
+  fs.mkdirSync(cache + "/mk/on/2.0/agents", { recursive: true });
+  fs.writeFileSync(cache + "/mk/on/2.0/agents/pr-reviewer.md", "---\nname: pr-reviewer\ndescription: Reviews a diff.\n---\n\nBody\n");
+  skill(cache + "/mk/coding-assistant/1.0/skills/dup", "name: dup\ndescription: The home fork.");
+  fs.writeFileSync(h + "/.claude/settings.json", JSON.stringify({ enabledPlugins: { "on@mk": true, "off@mk": false, "here@mk": true, "claude-mem@mk": true, "coding-assistant@mk": true } }));
   fs.writeFileSync(h + "/.claude/plugins/installed_plugins.json", JSON.stringify({ version: 2, plugins: {
     "on@mk"   : [{ scope: "user", installPath: cache + "/mk/on/2.0" }],
     "off@mk"  : [{ scope: "user", installPath: cache + "/mk/off/1.0" }],
     "here@mk" : [{ scope: "local", projectPath: "/p", installPath: cache + "/mk/here/1.0" }],
     "claude-mem@mk" : [{ scope: "user", installPath: cache + "/mk/claude-mem/1.0" }],
+    "coding-assistant@mk" : [{ scope: "user", installPath: cache + "/mk/coding-assistant/1.0" }],
   } }));
   return h;
 }
@@ -41,7 +47,9 @@ function home(): string {
 test("the user's skills and the enabled plugins' installed ones, by name", () => {
   const h = home();
   const found = skills(h);
-  expect(found.map((s) => s.name).sort()).toEqual(["linked", "mine", "on:alpha", "on:long"]);
+  expect(found.map((s) => s.name).sort()).toEqual(["/on:review", "linked", "mine", "on:alpha", "on:long", "on:pr-reviewer"]);
+  expect(found.find((s) => s.name === "/on:review")).toEqual({ name: "/on:review", description: "Review a PR.", path: h + "/.claude/plugins/cache/mk/on/2.0/commands/review.md", kind: "command" });
+  expect(found.find((s) => s.name === "on:pr-reviewer")).toEqual({ name: "on:pr-reviewer", description: "Reviews a diff.", path: h + "/.claude/plugins/cache/mk/on/2.0/agents/pr-reviewer.md", kind: "agent" });
   expect(found.find((s) => s.name === "on:alpha")!.description).toBe("Folded over two lines.");
   expect(found.find((s) => s.name === "linked")!.description).toBe("A linked one: quoted.");
   expect(found.find((s) => s.name === "on:alpha")!.path).toBe(h + "/.claude/plugins/cache/mk/on/2.0/skills/alpha/SKILL.md");
@@ -57,4 +65,8 @@ test("the index says how to use a skill and lists each with its path, descriptio
   expect(text).not.toContain("beta");
   expect(text).not.toContain("gamma");
   expect(text).not.toContain("stale");
+  expect(text).not.toContain("home fork");
+  expect(text).toContain("- /on:review [command]: Review a PR. (");
+  expect(text).toContain("- on:pr-reviewer [agent]: Reviews a diff. (");
+  expect(text).toContain("${CLAUDE_PLUGIN_ROOT}");
 });
