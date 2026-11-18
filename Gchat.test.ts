@@ -220,7 +220,7 @@ process.exit(0);
 
 async function run(dir: string, step: string, env: Record<string, string>): Promise<{ out: any; all: string }> {
   fs.writeFileSync(dir + "/gchat.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, UNII_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", UNII_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, UNII_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", UNII_GCHAT_USER: "u1", UNII_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
   const [o, e] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), all: o + e };
 }

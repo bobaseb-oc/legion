@@ -373,7 +373,7 @@ export namespace Chat {
     mem.troubled = () => Chat.all(chat, Chat.state(chat));
     chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
-    if (Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "")) {
+    if (Chat.gchat_for(user.id, config.KEYS.gchat ?? "")) {
       chat.bridging = { busy: false, me: null, timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
       chat.bridging.timer!.unref?.();
     }
@@ -2267,10 +2267,18 @@ const LIKES = 30;
     });
   }
 
+  // RED ZONE (R8, DRAFT awaiting the user's sign-off): whether the bridge
+  // is on for a user's chat: it posts to one space and acts on its
+  // replies, so one owner's chat only, the user config gchat_user names
+  // (none named: no one's, fail closed)
+  export function gchat_for(user: string, url: string): boolean {
+    return user === config.GCHAT_USER && Gchat.gchat_on(config.GCHAT_SPACE, url);
+  }
+
   export async function bridge(chat: Chat, now: number): Promise<void> {
     const g = chat.mem.gchat;
     const url = config.KEYS.gchat ?? "";
-    if (!Gchat.gchat_on(config.GCHAT_SPACE, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
+    if (!Chat.gchat_for(chat.acct.user, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
       return;
     }
     const b = (chat.bridging ??= { busy: false, me: null });

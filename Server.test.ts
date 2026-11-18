@@ -1213,3 +1213,44 @@ test("the gateway's budget, read every 10 minutes through the gateway, and busy 
   expect(own.reads).toEqual([]);
   expect(own.sent[0]).toEqual({ $: "gateway", budget: null, busy: 42 });
 });
+
+// RED ZONE (R8, DRAFT awaiting the user's sign-off): the GChat bridge
+// posts a chat's questions to one space and acts on its replies, so it
+// bridges one owner's chat only: the user config gchat_user names; none
+// named, no chat's (fail closed), however many users the server has
+const BRIDGED = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+Chat.gchat_token = null;
+let posts = 0;
+globalThis.fetch = async () => (posts++, Response.json({}));
+const bridged = [];
+for (const id of ["u1", "u2"]) {
+  const chat = Chat.open({ id, name: id + "@b.c" });
+  Chat.chats.set(id, chat);
+  chat.mem.questions.push({ id: 1, text: "Ship?", at: Date.now(), date: "" });
+  const opened = chat.bridging !== undefined;
+  const before = posts;
+  await Chat.bridge(chat, Date.now());
+  bridged.push({ opened, posted: posts > before });
+}
+console.log(JSON.stringify({ bridged }));
+process.exit(0);
+`;
+
+test("the GChat bridge opens on and posts from the chat of the user gchat_user names only; none named, none", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/bridged.ts", BRIDGED);
+  const space = "spaces/TESTSPACE";
+  const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
+  const run = async (user: string | null) => {
+    const env: Record<string, string | undefined> = { ...process.env, UNII_DIR: fs.mkdtempSync(dir + "/d-"), UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_USER: user ?? undefined };
+    const proc = Bun.spawn([process.execPath, dir + "/bridged.ts"], { env, stdout: "pipe", stderr: "inherit" });
+    return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}").bridged;
+  };
+  const none = { opened: false, posted: false };
+  expect(await run("u2")).toEqual([none, { opened: true, posted: true }]);
+  expect(await run(null)).toEqual([none, none]);
+  expect(await run("")).toEqual([none, none]);
+});
