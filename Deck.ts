@@ -17,7 +17,7 @@ import * as View from "./View.ts";
 // Types
 // =====
 
-export const PAGES = ["home", "inbox", "todo", "crew", "questions", "memory", "file", "routines", "digest", "transcripts", "timesheet"] as const;
+export const PAGES = ["home", "inbox", "todo", "crew", "explain", "questions", "memory", "file", "routines", "digest", "transcripts", "timesheet"] as const;
 export type Page = (typeof PAGES)[number];
 
 // the deck: the page shown, what is selected on it (an agent's name, a
@@ -54,7 +54,7 @@ const CHORDS: Record<string, Page | "chat"> = {
 const NAV: [letter: string, label: string, page: Page | "chat"][] = [
   ["h", "Home", "home"], ["i", "Inbox", "inbox"], ["o", "Todo", "todo"], ["m", "Chat", "chat"], ["c", "Crew", "crew"],
   ["q", "Questions", "questions"], ["p", "Memory", "memory"], ["f", "File", "file"],
-  ["r", "Routines", "routines"], ["d", "Digest", "digest"], ["t", "Transcripts", "transcripts"], ["s", "Timesheet", "timesheet"],
+  ["r", "Routines", "routines"], ["d", "Digest", "digest"], ["t", "Transcripts", "transcripts"], ["s", "Timesheet", "timesheet"], ["x", "Explain", "explain"],
 ];
 
 const BOLD = { ...Paint.INK, b: true };
@@ -167,7 +167,7 @@ function deck_click(v: View.View, was: Deck, d: Deck, x: number, y: number, w: n
 
 // a page's own keys, before Esc, q and the moves (null: not its key)
 type Keys = (v: View.View, d: Deck, key: string, now: number) => Out | null;
-const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key, todo: deck_todo_key };
+const PAGE_KEYS: Partial<Record<Page, Keys>> = { home: deck_home_key, inbox: deck_inbox_key, questions: deck_questions_key, memory: deck_memory_key, todo: deck_todo_key, explain: deck_explain_key };
 
 // a key while a filter is typed: text goes in it, Backspace takes the last
 // character, Enter or Esc end it (a key's name, as Screen names keys, is
@@ -285,6 +285,12 @@ function deck_todo_key(v: View.View, d: Deck, key: string, _now: number): Out | 
     return null;
   }
   return act_or_say(d, d.sel === null ? "Pick a todo first: ↑↓." : Cockpit.todo_cmd(v, (key === "d" ? "done " : "drop ") + d.sel));
+}
+
+// the Explain page's key (the web's box): / or ? leaves with /explain
+// typed, a question answered on the page
+function deck_explain_key(_v: View.View, d: Deck, key: string, _now: number): Out | null {
+  return key === "/" || key === "?" ? { deck: d, acts: [], sends: [], done: true, type: "/explain " } : null;
 }
 
 // memory's keys (the web's page): Enter shows the message picked in the
@@ -576,6 +582,7 @@ function deck_text(v: View.View, page: Page): string {
     case "digest": return Cockpit.digest_text(v);
     case "transcripts": return Cockpit.transcripts_text(v);
     case "timesheet": return Cockpit.timesheet_text(v);
+    case "explain": return Cockpit.explain_text(v, Date.now());
     default: return page === "file" ? "No file shown yet: /look <path>, then g f." : "";
   }
 }

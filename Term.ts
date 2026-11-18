@@ -211,7 +211,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
-      ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
+      ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x explain, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
       ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
@@ -257,6 +257,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
     ]],
     ["Questions", [
       ["/todos [done|drop <n>]", "",                  "what your agents need you to do (only you can); done n tells its agent, drop n drops it", (t, a) => a.trim() === "" ? term_page_cmd(t, "todo", () => Cockpit.todo_text(t.v)) : term_answer(t, Cockpit.todo_cmd(t.v, a))],
+      ["/explain [question]", "",                    "what the crew is building and why, for a manager (an observer writes it); with a question: asked there, answered there, never in the chat", term_explain],
       ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_page_cmd(t, "questions", () => View.view_questions_note(t.v))],
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n",                             (t, a) => term_answer(t, View.view_drop(t.v, a))],
@@ -640,7 +641,7 @@ function term_chord(t: Term): void {
   }
   t.chord = true;
   t.scr.grab = true;
-  term_toast(t, "Go to: h home · i inbox · o todo · c crew · q questions · p memory · f file · r routines · d digest · t transcripts · s timesheet · any other key: stay");
+  term_toast(t, "Go to: h home · i inbox · o todo · c crew · x explain · q questions · p memory · f file · r routines · d digest · t transcripts · s timesheet · any other key: stay");
 }
 
 function term_chord_key(t: Term, key: string): void {
@@ -953,6 +954,15 @@ function term_answer(t: Term, act: View.Act | string): void {
     return;
   }
   term_act(t, act);
+}
+
+// /explain [question]: the Explain page; a question asked first (its
+// answer comes on the page, never in the chat)
+function term_explain(t: Term, arg: string): void {
+  if (arg.trim() !== "") {
+    term_answer(t, Cockpit.explain_cmd(t.v, arg));
+  }
+  term_page_cmd(t, "explain", () => Cockpit.explain_text(t.v, Date.now()));
 }
 
 function term_stop(t: Term, arg: string): void {
