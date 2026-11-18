@@ -295,7 +295,9 @@ export namespace Memory {
     mem.goal = saved?.goal ?? null;
     mem.questions = Array.isArray(saved?.questions) ? saved.questions : [];
     mem.asked = Number(saved?.asked ?? 0) || 0;
-    mem.mode = Modes.read(saved?.mode);
+    // a new chat (no view.json) keeps super, the default; a saved one
+    // unread or unknown fails closed to auto (Modes.read, R5)
+    mem.mode = fs.existsSync(dir + "/view.json") ? Modes.read(saved?.mode) : mem.mode;
     mem.plan = typeof saved?.plan?.text === "string" ? saved.plan : null;
     mem.routines = Array.isArray(saved?.routines) ? saved.routines : [];
     mem.routined = Number(saved?.routined ?? 0) || 0;
