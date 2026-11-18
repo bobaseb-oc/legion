@@ -63,3 +63,44 @@ test("mcp_reads: exact mcp__server__tool names, comma-separated; others refuse t
     expect(out.text).toContain("config: mcp_reads");
   }
 });
+
+// RED ZONE (security review R6, DRAFT awaiting the user's sign-off): the
+// GChat webhook's URL read by the server itself from the login Keychain
+// (UNII_GCHAT_KEYCHAIN=1, the launcher's), never from its environment
+// (any process of this user reads that: ps -E), and not put back in a
+// worker's. The Keychain is a stub here (Auth.security replaced before
+// Config loads): the user's own item is never read
+const HOOK = "https://chat.googleapis.com/v1/spaces/TESTSPACE/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
+const KEYCHAIN = `
+import { Auth } from "./Auth.ts";
+const calls: string[][] = [];
+const fake = async (args: string[]) => (calls.push(args), process.env.STUB === "none" ? { code: 44, out: "" } : { code: 0, out: ${JSON.stringify(HOOK)} + "\\n" });
+Auth.security = fake as any;
+if (Auth.security !== fake) throw new Error("no stub: the real Keychain would be read");
+const c = await import("./Config.ts");
+console.log(JSON.stringify({ hook: c.KEYS.gchat === ${JSON.stringify(HOOK)}, other: c.KEYS.gchat === "https://dev.example/hook", empty: c.KEYS.gchat === "", calls, env: "GCHAT_WEBHOOK_URL" in process.env, worker: "GCHAT_WEBHOOK_URL" in c.config_env() }));
+`;
+
+function keychain(env: Record<string, string | undefined>): { out: any; err: string } {
+  const all = { ...process.env, UNII_DIR: DIR, UNII_GCHAT_KEYCHAIN: undefined, UNII_GCHAT_SPACE: undefined, GCHAT_WEBHOOK_URL: undefined, ...env };
+  const out = Bun.spawnSync([process.execPath, "-e", KEYCHAIN], { cwd: import.meta.dir, env: all });
+  const text = out.stdout.toString().trim();
+  return { out: text === "" ? null : JSON.parse(text), err: out.stderr.toString() };
+}
+
+test("gchat webhook: read from the Keychain by the server, never kept in its environment or a worker's", () => {
+  const read = [["find-generic-password", "-s", "GCHAT_WEBHOOK_URL", "-w"]];
+  const on = { UNII_GCHAT_KEYCHAIN: "1", UNII_GCHAT_SPACE: "spaces/TESTSPACE" };
+  expect(keychain(on).out).toEqual({ hook: true, other: false, empty: false, calls: read, env: false, worker: false });
+  // Keychain first: a URL left in the environment is not used, and removed
+  expect(keychain({ ...on, GCHAT_WEBHOOK_URL: "https://dev.example/hook" }).out).toEqual({ hook: true, other: false, empty: false, calls: read, env: false, worker: false });
+  // none kept: the bridge off, said, without a key
+  const none = keychain({ ...on, STUB: "none" });
+  expect(none.out).toEqual({ hook: false, other: false, empty: true, calls: read, env: false, worker: false });
+  expect(none.err).toContain("GChat webhook");
+  // no space: the Keychain not asked
+  expect(keychain({ UNII_GCHAT_KEYCHAIN: "1" }).out.calls).toEqual([]);
+  // off (tests, a server run by hand): the environment's, never the Keychain
+  const off = keychain({ UNII_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://dev.example/hook" });
+  expect(off.out).toEqual({ hook: false, other: true, empty: false, calls: [], env: false, worker: true });
+});
