@@ -38,6 +38,25 @@ How it works
   `observer`, Haiku 5.5 by default, no tools) rewrites its cards once the
   crew, the plan or your PRs change, at most every 5 minutes, and answers
   your questions there, never in the chat and without interrupting Legion.
+  Away from your desk, a private Google Chat space can be a second
+  Questions pane (the GChat bridge, off by default; a Red Zone draft):
+  each new question, note, todo and super auto decision is posted once
+  through the space's incoming webhook, one thread each, so your phone
+  rings; your reply in its thread answers it (a question's option by
+  number or your words; a todo `done` or `drop`; a decision `undo [what
+  instead]` or `keep`), and only yours counts. On with config
+  `gchat_space` (`spaces/...`) and the webhook's URL in the environment,
+  a key like the others (never logged), set where the server starts, e.g.
+  `export GCHAT_WEBHOOK_URL=$(security find-generic-password -s GCHAT_WEBHOOK_URL -w)`.
+  Keep it in the Keychain from the clipboard (copy the URL from the
+  space's Apps & integrations, Webhooks):
+  `security add-generic-password -U -a "$USER" -s GCHAT_WEBHOOK_URL -w "$(pbpaste)" && pbcopy < /dev/null`.
+  Not `-w` alone: its prompt keeps 128 characters, cutting the URL's
+  token (Google then answers "Missing or malformed token").
+  Reading replies uses your Google sign-in (`legion google-login`): the
+  server reads it once at start (one Keychain prompt; deny it and the
+  bridge only posts). Keep `legion device` running while away: if no view
+  or device is left, the space is told "Legion stopped listening".
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings (so the
