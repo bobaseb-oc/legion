@@ -1,0 +1,62 @@
+agents.test.ts
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 605
+tasks/todo.md
+  s_f610e34a306ba7::t_21e0e7cffc0a89 1014
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 961-1013
+web/src/main.ts
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 1271-1272,1367-1369
+prompt.txt
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 62-69,79-80
+web/app.js
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 520-529,630,656,673-752,1537,1904-1907,2286-2296,2849,2853-2864,3254,3339,3448,3490,3511,4783,4862
+web/style.css
+  s_f610e34a306ba7::t_0c6d8a3edfe57f 182-183
+Cockpit.ts
+  s_f610e34a306ba7::t_4b4cd693cfd4f1 644
+Deck.test.ts
+  s_f610e34a306ba7::t_b8032d3491ef3c 229-246
+Deck.ts
+  s_f610e34a306ba7::t_1920af5a9ff194 258,261-268,425,461-463,466-472,482
+Html.test.ts
+  s_f610e34a306ba7::t_0e5c8da687d815 269,283-308
+Memory.ts
+  s_f610e34a306ba7::t_c53428571e5d40 72-73,128,172-174,283,301-304,336-354,368
+Modes.test.ts
+  s_f610e34a306ba7::t_14495e1ce76735 132-133,135-142,391-500
+Modes.ts
+  s_f610e34a306ba7::t_68b41ffdb48d28 20-28,33-35,41,45-58,130,132,175,194-309
+README.md
+  s_f610e34a306ba7::t_6b39563fed1a09 46-50
+Server.test.ts
+  s_f610e34a306ba7::t_7d2ad007c82202 964-970,980,985
+Server.ts
+  s_f610e34a306ba7::t_a556cd1c02bf9e 48,56,328,602,1155,1513-1515,1668,1673-1741,2039-2040,2391
+Super.test.ts
+  s_f610e34a306ba7::t_72532cd85d84ed 1-140
+Term.ts
+  s_f610e34a306ba7::t_186ef366124846 233,253,263-264
+Tools.ts
+  s_f610e34a306ba7::t_a483794f6b727a 41,49,128-129,137,397-399,401,1275-1282,1289-1310
+View.test.ts
+  s_f610e34a306ba7::t_a6cb4edcf572fd 425,430-432,435-436,443
+View.ts
+  s_f610e34a306ba7::t_5939fa1873cb49 13,86-87,90-95,141,328,369,872-875,1391,1394,1403,1405-1406,1411,1430-1465,1468-1471,1530-1531,1534-1535
+web/src/Html.ts
+  s_f610e34a306ba7::t_c1676cbb29522c 228,236-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e5c5574aea330857bbb26cdb09837664aca06bd",
+  "prompts": {},
+  "sessions": {
+    "s_f610e34a306ba7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b4fcd35-e705-4b53-b4c5-e8443bde3971",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
