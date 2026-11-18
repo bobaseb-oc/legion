@@ -211,13 +211,14 @@ export namespace Modes {
 
   // whether super auto answers a question with its pick: super mode, a
   // pick among its options, its kind unlocked; a merge only if marked
-  // not to touch prod (prod: false; unset asks)
-  export function decides(mode: Mode, q: { kind?: unknown; pick?: unknown; options?: string[]; prod?: unknown }, tallies: Partial<Record<AskKind, Tally>>): boolean {
+  // not to touch prod (prod: false; unset asks); never one worded as
+  // access (guess), whatever kind it says
+  export function decides(mode: Mode, q: { kind?: unknown; pick?: unknown; options?: string[]; prod?: unknown; text?: string }, tallies: Partial<Record<AskKind, Tally>>): boolean {
     const n = q.options?.length ?? 0;
     if (mode !== "super" || !Number.isInteger(q.pick) || (q.pick as number) < 0 || (q.pick as number) >= n) {
       return false;
     }
-    if (q.kind === "merge" && q.prod !== false) {
+    if ((q.kind === "merge" && q.prod !== false) || Modes.guess(q.text ?? "") === "access") {
       return false;
     }
     return Object.hasOwn(tallies, q.kind as string) && Modes.unlocked(q.kind, tallies[q.kind as AskKind]);
@@ -264,13 +265,14 @@ export namespace Modes {
     return (t.auto ?? []).slice(-LAST).filter((a) => a.undone).length >= RELOCK;
   }
 
-  // a question's kind guessed from its words (the bootstrap: past
+  // a question's kind guessed from its words, access first (a merge of
+  // a credentials PR asks: the floor) (the bootstrap: past
   // questions had none)
   export function guess(question: string): AskKind {
-    return /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge"
+    return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access"
+      : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge"
       : /\bpush|\bbranch|\brebase/i.test(question) ? "push"
       : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry"
-      : /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access"
       : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope"
       : "other";
   }

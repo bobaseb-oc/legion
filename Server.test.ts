@@ -961,7 +961,13 @@ await Tools.call(chat.tools, "main", "plan", { plan: "1. test\\n2. fix" }, new A
 await Chat.act(chat, "p2", { $: "plan", yes: true, mode: "full" }, "");
 await until(() => asks.length === 2);
 const approved = [Chat.state(chat).mode, Chat.state(chat).plan, msgs().filter((m) => m.kind === "user").at(-1).text];
-console.log(JSON.stringify({ first, bad: "error" in bad, none, switched, shown, rejected, approved }));
+asks.at(-1)?.end({ ok: true, text: "ok", left: [] });
+await until(() => !chat.busy);
+chat.mem.mode = "plan";
+await Tools.call(chat.tools, "main", "plan", { plan: "1. ship" }, new AbortController().signal, "t3");
+await Chat.act(chat, "p3", { $: "plan", yes: true }, "");
+const plain = Chat.state(chat).mode;
+console.log(JSON.stringify({ first, bad: "error" in bad, none, switched, shown, rejected, approved, plain }));
 process.exit(0);
 `;
 
@@ -976,6 +982,7 @@ test("the user switches the mode, and approves or rejects the orchestrator's pla
     shown: "1. fix it",
     rejected: ["plan", null, "The user didn't approve your plan: test first\nStill in plan mode: revise it and file it again with plan."],
     approved: ["full", null, "The user approved your plan; now in full mode: every call runs (hooks only). Go ahead with it."],
+    plain: "super",
   });
 });
 

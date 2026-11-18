@@ -420,6 +420,9 @@ test("super: decides only in super mode, for an unlocked kind with a pick among 
   expect(Modes.decides("super", { ...q, kind: "retry" }, tallies)).toBe(false);
   expect(Modes.decides("super", { ...q, kind: "access" }, tallies)).toBe(false);
   expect(Modes.decides("super", { ...q, kind: undefined }, tallies)).toBe(false);
+  // worded as access (credentials, a token, a login), whatever kind it says: asks
+  expect(Modes.decides("super", { ...q, text: "Push the branch that rotates the deploy token?" }, tallies)).toBe(false);
+  expect(Modes.decides("super", { ...q, text: "Push the branch?" }, tallies)).toBe(true);
   for (const pick of [undefined, -1, 2, 0.5, "1", null]) {
     expect([pick, Modes.decides("super", { ...q, pick }, tallies)]).toEqual([pick, false]);
   }
@@ -493,5 +496,5 @@ test("super: the bootstrap reads past answers from the log: a (rec) answer was t
     scope: { n: 1, took: 1, est: true, auto: [] },
     other: { n: 1, took: 0, est: true, auto: [] },
   });
-  expect(["Approve the PR?", "Rebase the branch?", "The build timed out", "Need a login", "Jira PLP-9 scope", "Lunch?"].map(Modes.guess)).toEqual(["merge", "push", "retry", "access", "scope", "other"]);
+  expect(["Approve the PR?", "Rebase the branch?", "The build timed out", "Need a login", "Jira PLP-9 scope", "Lunch?", "Merge the PR that rotates the deploy token?"].map(Modes.guess)).toEqual(["merge", "push", "retry", "access", "scope", "other", "access"]);
 });

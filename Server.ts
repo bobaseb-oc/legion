@@ -2259,7 +2259,7 @@ const LIKES = 30;
     if (plan === null) {
       return { error: "No plan is waiting for approval." };
     }
-    const mode: Mode = yes ? (to === "full" ? "full" : "auto") : "plan";
+    const mode: Mode = yes ? (to === "full" || to === "auto" ? to : "super") : "plan";
     const refused = await Chat.afford(chat);
     if (refused !== null) {
       return refused;

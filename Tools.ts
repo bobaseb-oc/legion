@@ -1276,7 +1276,7 @@ export namespace Tools {
     const pick = Number.isInteger(args.pick) && Array.isArray(args.options) ? options.indexOf(line(args.options[args.pick])) : -1;
     const kind = ASK_KINDS.find((k) => k === args.kind);
     const how = { ...(kind === undefined ? {} : { kind }), ...(pick < 0 ? {} : { pick }), ...(typeof args.prod === "boolean" ? { prod: args.prod } : {}) };
-    if (Modes.decides(Modes.read(mem.mode), { ...how, options }, mem.tallies)) {
+    if (Modes.decides(Modes.read(mem.mode), { ...how, options, text }, mem.tallies)) {
       return Tools.decide(tools, { id: (mem.asked += 1), kind: kind!, question: text, answer: options[pick]!, date: new Date().toISOString() });
     }
     const q: Question = { id: (mem.asked += 1), text, ...(options.length === 0 ? {} : { options }), ...how, at: mem.count, date: new Date().toISOString() };

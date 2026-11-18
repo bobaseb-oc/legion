@@ -683,7 +683,7 @@ var Modes;
     if (mode !== "super" || !Number.isInteger(q.pick) || q.pick < 0 || q.pick >= n) {
       return false;
     }
-    if (q.kind === "merge" && q.prod !== false) {
+    if (q.kind === "merge" && q.prod !== false || Modes.guess(q.text ?? "") === "access") {
       return false;
     }
     return Object.hasOwn(tallies, q.kind) && Modes.unlocked(q.kind, tallies[q.kind]);
@@ -722,7 +722,7 @@ var Modes;
   }
   Modes2.relocks = relocks;
   function guess(question) {
-    return /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge" : /\bpush|\bbranch|\brebase/i.test(question) ? "push" : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry" : /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access" : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope" : "other";
+    return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access" : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge" : /\bpush|\bbranch|\brebase/i.test(question) ? "push" : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry" : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope" : "other";
   }
   Modes2.guess = guess;
   function imported(texts) {
@@ -2823,7 +2823,7 @@ function needs_html(v) {
 }
 function waiting_html(v) {
   const b = (label, a, cls = "qo") => `<button class="${cls}"${act_html(a)}>${label}</button>`;
-  const plan = v.plan ? [`<div class="q plan"><div class="qh"><b>Plan</b><span class="meta">${esc2(new Date(v.plan.date).toLocaleString())}</span></div><div class="qt">${esc2(v.plan.text)}</div><div class="qos">${b("Approve: auto", { $: "Verdict", yes: true, mode: "auto" })}${b("Approve: full", { $: "Verdict", yes: true, mode: "full" })}</div><form class="qa" data-verdict><input placeholder="Send it back: what to change…" aria-label="send the plan back with feedback"></form></div>`] : [];
+  const plan = v.plan ? [`<div class="q plan"><div class="qh"><b>Plan</b><span class="meta">${esc2(new Date(v.plan.date).toLocaleString())}</span></div><div class="qt">${esc2(v.plan.text)}</div><div class="qos">${b("Approve: super", { $: "Verdict", yes: true, mode: "super" })}${b("Approve: auto", { $: "Verdict", yes: true, mode: "auto" })}${b("Approve: full", { $: "Verdict", yes: true, mode: "full" })}</div><form class="qa" data-verdict><input placeholder="Send it back: what to change…" aria-label="send the plan back with feedback"></form></div>`] : [];
   const calls = (v.calls ?? []).map((c) => `<div class="q call"><div class="qh"><b>${c.id}</b><span class="meta">${esc2(c.who)} wants to run (auto mode's reviewer couldn't check it)</span></div><div class="qt">${esc2(c.what)}</div><div class="qos">${b("Run it", { $: "Consent", n: c.id, yes: true })}${b("Refuse", { $: "Consent", n: c.id, yes: false })}</div></div>`);
   return [...plan, ...calls];
 }

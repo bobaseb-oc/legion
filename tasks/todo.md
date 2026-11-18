@@ -1006,4 +1006,8 @@ headless Chrome over CDP: the pane shows "Decided for you", "push 20/20 ✓ unlo
 14/21 estimated (needs 85%)", the item and Undo; a real click on Undo removes it, view.json
 holds no decision, push at n 21 took 20, the log holds "The user reversed decision 5
 (Push AO-1 to origin?): do not do this, ask me"; no page errors.
-RED ZONE open: Modes' unlock/floor/relock, Tools.decide, Chat.tally, Chat.decision's guard.
+RED ZONE signed off by the user 2026-11-18: Modes' unlock/floor/relock, Tools.decide, Chat.tally,
+Chat.decision's guard. With it, two follow-ups (red tests first, each reverted once and caught):
+the kind guess checks access before merge, and a live question worded as access always asks
+(Modes.decides, whatever kind it says); approving a plan lands in super (/plan yes [super|auto|full],
+web Approve: super). Suite 556 pass, 2 known log-staging fails.

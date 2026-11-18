@@ -1377,7 +1377,7 @@ export function view_mode_cmd(arg: string): Act | string {
   return ["plan", "auto", "super", "full"].includes(m) ? { $: "Mode", mode: m as Perm } : "No mode " + m + ": plan, auto, super or full.";
 }
 
-// /plan: the plan waiting, shown; /plan yes [auto|full], /plan no
+// /plan: the plan waiting, shown; /plan yes [super|auto|full], /plan no
 // <feedback>: a Verdict; else why not
 export function view_plan_cmd(v: View, arg: string): Act | string {
   if (!v.plan) {
@@ -1386,15 +1386,15 @@ export function view_plan_cmd(v: View, arg: string): Act | string {
   const [word, ...rest] = arg.trim().split(/\s+/);
   const more = rest.join(" ");
   if (word === "" || word === undefined) {
-    return "The plan waiting for you:\n" + v.plan.text + "\n/plan yes [auto|full] to approve it, /plan no <feedback> to send it back.";
+    return "The plan waiting for you:\n" + v.plan.text + "\n/plan yes [super|auto|full] to approve it, /plan no <feedback> to send it back.";
   }
-  if (word === "yes" && (more === "" || more === "auto" || more === "full")) {
-    return { $: "Verdict", yes: true, mode: more === "full" ? "full" : "auto" };
+  if (word === "yes" && (more === "" || more === "super" || more === "auto" || more === "full")) {
+    return { $: "Verdict", yes: true, mode: more === "full" || more === "auto" ? more : "super" };
   }
   if (word === "no") {
     return { $: "Verdict", yes: false, text: more };
   }
-  return "/plan, /plan yes [auto|full] or /plan no <feedback>.";
+  return "/plan, /plan yes [super|auto|full] or /plan no <feedback>.";
 }
 
 // /allow <n> or /refuse <n>: a Consent to a waiting call; else why not

@@ -427,12 +427,13 @@ test("modes in the views: cycle and set, the plan's verdict, a waiting call's ye
   expect(View.view_mode_cmd("")).toEqual({ $: "Mode" });
   expect(View.view_act(v, { $: "Verdict", yes: true, mode: "full" })).toEqual([{ $: "plan", yes: true, mode: "full" }]);
   expect(View.view_act(v, { $: "Verdict", yes: false, text: " test first " })).toEqual([{ $: "plan", yes: false, text: "test first" }]);
-  expect(View.view_plan_cmd(v, "")).toBe("The plan waiting for you:\n1. read\n2. fix\n/plan yes [auto|full] to approve it, /plan no <feedback> to send it back.");
-  expect(View.view_plan_cmd(v, "yes")).toEqual({ $: "Verdict", yes: true, mode: "auto" });
+  expect(View.view_plan_cmd(v, "")).toBe("The plan waiting for you:\n1. read\n2. fix\n/plan yes [super|auto|full] to approve it, /plan no <feedback> to send it back.");
+  expect(View.view_plan_cmd(v, "yes")).toEqual({ $: "Verdict", yes: true, mode: "super" });
+  expect(View.view_plan_cmd(v, "yes auto")).toEqual({ $: "Verdict", yes: true, mode: "auto" });
   expect(View.view_plan_cmd(v, "yes full")).toEqual({ $: "Verdict", yes: true, mode: "full" });
   expect(View.view_plan_cmd(v, "no do tests first")).toEqual({ $: "Verdict", yes: false, text: "do tests first" });
-  expect(View.view_plan_cmd(v, "maybe")).toBe("/plan, /plan yes [auto|full] or /plan no <feedback>.");
-  expect(View.view_plan_cmd(v, "yes please")).toBe("/plan, /plan yes [auto|full] or /plan no <feedback>.");
+  expect(View.view_plan_cmd(v, "maybe")).toBe("/plan, /plan yes [super|auto|full] or /plan no <feedback>.");
+  expect(View.view_plan_cmd(v, "yes please")).toBe("/plan, /plan yes [super|auto|full] or /plan no <feedback>.");
   expect(View.view_act(v, { $: "Consent", n: 3, yes: true })).toEqual([{ $: "consent", n: 3, yes: true }]);
   expect(View.view_consent_cmd(v, "3", false)).toEqual({ $: "Consent", n: 3, yes: false });
   expect(View.view_consent_cmd(v, "9", true)).toBe("No call 9 waits for you.");

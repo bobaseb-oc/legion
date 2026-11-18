@@ -266,6 +266,7 @@ test("modes on the web: the chip, the plan card and waiting calls", () => {
   expect(Html.mode_html("chat", "", 0, "plan").join("")).toContain('<button class="perm plan" title="the mode: Shift+Tab in the box cycles it" data-act="' + act({ $: "Mode" }) + '">plan mode</button>');
   const [plan, call] = Html.waiting_html(v);
   expect(plan).toContain('<div class="qt">1. &lt;read&gt;\n2. fix</div>');
+  expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "super" }));
   expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "auto" }));
   expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "full" }));
   expect(plan).toContain('<form class="qa" data-verdict>');
