@@ -505,3 +505,21 @@ test("the Todo page: each todo, who filed it and when, Done and Drop; none: what
   expect(Pages.home_html(v, new Date(NOW)).join("")).toContain('href="#todo"');
   expect(View.view_route("#todo")).toEqual({ mode: "todo", name: null });
 });
+
+// the Explain page (Pages.explain_html): the observer's cards, when
+// written, the thread and its box (answered here, not in the chat)
+test("the Explain page: each card's what, why, status and watch, escaped; updated when; the thread; the box; writing and answering shown", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  expect(Pages.explain_html(v, NOW).join("")).toContain("not written yet");
+  v.explain = { cards: [{ title: "Explain <tab>", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: NOW - 3 * 60_000, hash: "h", tried: null, qa: [{ q: "Is it <cheap>?", a: "Yes.", at: NOW }], writing: true, asking: "And fast?" };
+  const html = Pages.explain_html(v, NOW).join("");
+  expect(html).toContain("Explain &lt;tab&gt;");
+  expect(html).not.toContain("<tab>");
+  for (const s of ["A page for managers", "To follow the work", "Half done", "Cost", "Is it &lt;cheap&gt;?", "Yes.", "And fast?", "answering", "writing"]) {
+    expect([s, html.includes(s)]).toEqual([s, true]);
+  }
+  expect(html).toContain('<form class="xask">');
+  expect(html).toContain('data-keep="explain"');
+  expect(Pages.side_html(v, "explain", NOW).join("")).toContain('href="#explain" class="here">Explain');
+});

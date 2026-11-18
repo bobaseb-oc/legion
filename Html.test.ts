@@ -336,3 +336,10 @@ test("block_html: fenced code colored by its fence's language", () => {
   expect(Html.block_html({ $: "Code", k: "", x: "const <b>" })).toContain("<code>const &lt;b&gt;</code>");
   expect(Html.block_html({ $: "Code", k: "brainfuck", x: "if" })).toContain("<code>if</code>");
 });
+
+test("the top bar's Explain tab: after Crew, marked when shown", () => {
+  const bar = Html.mode_html("chat", "").join("");
+  expect(bar).toContain('<a href="#explain">Explain</a>');
+  expect(bar.indexOf("#crew")).toBeLessThan(bar.indexOf("#explain"));
+  expect(Html.mode_html("explain", "").join("")).toContain('<a href="#explain" class="here">Explain</a>');
+});

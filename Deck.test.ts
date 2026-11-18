@@ -46,7 +46,7 @@ test("g and a letter go to that page; g m (the chat), Esc or q leave; any other 
   expect(key(v, home, "g", "m").done).toBe(true);
   expect(key(v, home, "Esc").done).toBe(true);
   expect(key(v, home, "q").done).toBe(true);
-  const odd = key(v, home, "g", "x");
+  const odd = key(v, home, "g", "z");
   expect(odd.deck.page).toBe("home");
   expect(odd.deck.g).toBe(false);
   expect(odd.done).toBe(false);
@@ -292,7 +292,8 @@ test("from the chat, Ctrl+G and a letter: the chord's page", () => {
   expect(Deck.deck_chord("q")).toBe("questions");
   expect(Deck.deck_chord("f")).toBe("file");
   expect(Deck.deck_chord("m")).toBe("chat");
-  expect(Deck.deck_chord("x")).toBeNull();
+  expect(Deck.deck_chord("x")).toBe("explain");
+  expect(Deck.deck_chord("z")).toBeNull();
   expect(Deck.deck_chord("constructor")).toBeNull();
 });
 
@@ -428,4 +429,16 @@ test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, S
   expect(body(end)).toContain("r39");
   expect(key(v, end, "j").deck.top).toBe(end.top);
   expect(key(v, end, "Home").deck.top).toBe(0);
+});
+
+test("the Explain page, as the web's: the cards and the thread as text; / or ? leaves with /explain typed; g x goes there", () => {
+  const v = team();
+  View.view_hear(v, { $: "explain", explain: { cards: [{ title: "Explain tab", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: Date.now(), hash: "h", tried: null, qa: [], writing: false, asking: null } });
+  const d = Deck.deck_new("explain");
+  const lines = Deck.deck_lines(v, d, W, H, 0).map(text);
+  expect(lines[0]).toContain("x Explain");
+  expect(lines.join("\n")).toMatch(/Explain tab[\s\S]*What: A page for managers/);
+  expect(key(v, d, "/")).toMatchObject({ done: true, type: "/explain " });
+  expect(key(v, d, "?")).toMatchObject({ done: true, type: "/explain " });
+  expect(key(v, Deck.deck_new("home"), "g", "x").deck.page).toBe("explain");
 });

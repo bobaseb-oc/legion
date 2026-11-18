@@ -32,7 +32,12 @@ How it works
   the terminal's `/crew` show the tree; questions the orchestrator has
   for you wait in a Questions pane, and what only you can do (approve a
   PR, run a login) waits on the Todo page (`#todo`, the terminal's
-  `/todos`), where Done tells the agent that filed it.
+  `/todos`), where Done tells the agent that filed it. The Explain page
+  (`#explain`, `g x`, the terminal's `/explain`) says in plain words, for a
+  manager, what the crew is building and why: an observer (config
+  `observer`, Haiku 5.5 by default, no tools) rewrites its cards once the
+  crew, the plan or your PRs change, at most every 5 minutes, and answers
+  your questions there, never in the chat and without interrupting Legion.
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings (so the

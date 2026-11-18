@@ -1514,6 +1514,20 @@ var Price;
   Price2.cost = cost;
 })(Price ||= {});
 
+// Explain.ts
+var EVERY = 5 * 60000;
+var Q = 500;
+function explain_ago(ex, now) {
+  if (ex.writing) {
+    return "writing…";
+  }
+  if (ex.at === null) {
+    return "not written yet";
+  }
+  const min = Math.floor((now - ex.at) / 60000);
+  return min < 1 ? "updated just now" : min < 120 ? "updated " + min + " min ago" : "updated " + Math.floor(min / 60) + " h ago";
+}
+
 // View.ts
 var BROKE = "out of credit";
 var PACE = 0.0001;
@@ -1526,7 +1540,7 @@ var PINNED = 16000;
 var FIND = 200;
 var FOUND = 50;
 var SHOWN = 200;
-var PAGES = ["home", "inbox", "todo", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
+var PAGES = ["home", "inbox", "todo", "explain", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
 var MAIN = "Legion";
 var TURN = "Unii's turn";
 var WIRE = 2;
@@ -1623,6 +1637,7 @@ function view_new() {
     inbox: null,
     themes: null,
     summaries: new Map,
+    explain: null,
     looked: null,
     source: false,
     dirs: new Map,
@@ -1699,6 +1714,10 @@ function view_hear(v, msg) {
     }
     case "look":
     case "harvest": {
+      return [];
+    }
+    case "explain": {
+      v.explain = msg.explain;
       return [];
     }
     case "summary": {
@@ -1955,6 +1974,10 @@ function view_act(v, act) {
         out.push(...n > 1 ? [{ $: "zoom", part: [id, n] }] : []);
       }
       return out;
+    }
+    case "Explain": {
+      const q = act.q.replace(/\s+/g, " ").trim().slice(0, Q);
+      return q === "" ? [] : [{ $: "explain", q }];
     }
     case "Search": {
       const q = act.q.trim().slice(0, FIND);
@@ -2291,7 +2314,7 @@ function view_line(text) {
   return m === null ? null : Number(m[1]);
 }
 function view_route(hash) {
-  const m = /^#(chat|crew|home|inbox|todo|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
   }
@@ -2874,7 +2897,7 @@ function mode_html(mode, pill, asked = 0, perm, inbox = 0, notes = 0, todos = 0)
   const said = [asked === 0 ? "" : "? " + asked, notes === 0 ? "" : "i " + notes].filter((x) => x !== "").join(" · ");
   const qs = said === "" ? [] : [`<button class="qs" data-qs title="${notes === 0 ? "your questions" : "your questions and notes"}">${said}</button>`];
   const chip = perm === undefined ? [] : [`<button class="perm ${perm}" title="the mode: Shift+Tab in the box cycles it"${act_html({ $: "Mode" })}>${perm} mode</button>`];
-  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, ...chip, ...qs];
+  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, `<a href="#explain"${here("explain")}>Explain</a>`, ...chip, ...qs];
 }
 function tabs_html(tabs) {
   return tabs.map((tab) => {
@@ -3250,6 +3273,7 @@ function todo_who(a) {
   return a.by === "main" ? MAIN : a.by;
 }
 var TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
+var EXPLAIN_NONE = "Nothing being built right now: once the crew works, an observer writes here what it builds and why.";
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3291,7 +3315,8 @@ var CHORDS = {
   t: "transcripts",
   f: "files",
   s: "timesheet",
-  p: "memory"
+  p: "memory",
+  x: "explain"
 };
 var PAGE_ITEMS = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
@@ -3299,6 +3324,7 @@ var PAGE_ITEMS = [
   { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
+  { label: "Explain", hint: "page · g x", go: { href: "#explain" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },
   { label: "Digest", hint: "page · g d", go: { href: "#digest" } },
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
@@ -3443,7 +3469,7 @@ function home_html(v, now, away = null) {
   const meet = (url) => url === "" ? "" : `<a class="pbtn" href="${esc2(url)}" target="_blank" rel="noopener noreferrer">Join</a>`;
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? next.map((e) => `<div class="next"><span class="when">${esc2(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc2(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>` : `<p class="meta">${esc2(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
   const todos = (v.assigned ?? []).length;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#explain", "Explain", explain_line(v))}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
   return [head, ...away === null ? [] : [away_html(away)], stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 function with_files(v) {
@@ -3472,6 +3498,7 @@ function side_html(v, mode, now) {
     ["todo", "Todo", (v.assigned ?? []).length],
     ["chat", "Chat", (v.questions ?? []).length],
     ["crew", "Crew", working],
+    ["explain", "Explain", 0],
     ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length],
     ["digest", "Digest", 0],
     ["transcripts", "Transcripts", 0],
@@ -3692,6 +3719,22 @@ function todo_html(v) {
   }
   const row = (a) => `<div class="trow todo"><span class="n">${esc2(a.text)}</span><span class="meta why">by ${esc2(todo_who(a))} · ${esc2(minute(a.date))}</span>` + `<button class="pbtn go"${act_html2({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html2({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
   return [head, `<div class="tday">${all.map(row).join("")}</div>`];
+}
+function explain_html(v, now) {
+  const ex = v.explain;
+  const ago = ex === null ? "not written yet" : explain_ago(ex, now);
+  const head = `<div class="phead"><h2>Explain</h2><p class="meta">What your crew is building and why, in plain words · ${esc2(ago)}${ex?.error ? " · " + esc2(ex.error) : ""}</p></div>`;
+  const field = (label, text) => `<p><b>${label}</b> ${esc2(text)}</p>`;
+  const card = (c) => `<section class="xcard"><h3>${esc2(c.title)}</h3>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}</section>`;
+  const cards = ex === null || ex.at === null ? `<p class="meta">Not written yet: an observer writes here what the crew builds and why, once it works.</p>` : ex.cards.length === 0 ? `<p class="meta">${esc2(EXPLAIN_NONE)}</p>` : `<div class="xcards">${ex.cards.map(card).join("")}</div>`;
+  const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc2(x.q)}</div><div class="xa">${esc2(x.a)}</div>`).join("");
+  const asking = ex?.asking ? `<div class="xq">${esc2(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
+  const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
+  return [head, cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
+}
+function explain_line(v) {
+  const n = v.explain?.cards.length ?? 0;
+  return n === 0 ? "what the crew builds, and why" : n + (n === 1 ? " workstream" : " workstreams") + " in plain words";
 }
 function timesheet_html(v) {
   const drafts = v.drafts ?? [];
@@ -3971,6 +4014,7 @@ function chat() {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -4858,6 +4902,12 @@ function page_bars(mode) {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), todo_html(v));
+  } else if (mode === "explain") {
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    const typed = typing($("#page .pbody"));
+    markup($("#page .pbody"), explain_html(v, Date.now()));
+    typed();
   } else if (mode === "files") {
     files_open();
     $("#picks").hidden = true;
@@ -5044,6 +5094,16 @@ function memory_find(ev) {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input").value });
+}
+function explain_ask(ev) {
+  const form = ev.target.closest("form.xask");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  const box = form.querySelector("input");
+  act({ $: "Explain", q: box.value });
+  box.value = "";
 }
 function routine_add(ev) {
   const form = ev.target.closest("form.radd");

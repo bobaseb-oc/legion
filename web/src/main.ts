@@ -313,6 +313,7 @@ function chat(): void {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -1421,6 +1422,12 @@ function page_bars(mode: View.Mode): boolean {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), Pages.todo_html(v));
+  } else if (mode === "explain") {
+    $("#picks").hidden = true;
+    markup($("#page .ptop"), []);
+    const typed = typing($("#page .pbody"));
+    markup($("#page .pbody"), Pages.explain_html(v, Date.now()));
+    typed();
   } else if (mode === "files") {
     files_open();
     $("#picks").hidden = true;
@@ -1633,6 +1640,19 @@ function memory_find(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input")!.value });
+}
+
+// the Explain page's box sent: a question for the observer, answered on
+// the page (never in the chat)
+function explain_ask(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.xask");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  const box = form.querySelector("input")!;
+  act({ $: "Explain", q: box.value });
+  box.value = "";
 }
 
 // the Routines page's form sent: a routine added (the server checks it)
