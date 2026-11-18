@@ -92,7 +92,11 @@ const VARS: Record<string, string> = {
   openai          : "OPENAI_API_KEY",
   resend          : "RESEND_API_KEY",
   apns            : "APNS_KEY",
+  gchat           : "GCHAT_WEBHOOK_URL",
 };
+
+// the GChat bridge's space (Gchat.ts: on only with KEYS.gchat, its webhook)
+export const GCHAT_SPACE = config_get("gchat_space", "");
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
 
 // Config

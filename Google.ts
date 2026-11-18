@@ -71,6 +71,10 @@ export type Mail = { id: string; thread: string; from: string; subject: string; 
 export type Space = { name: string; title: string; type: string };
 export type Said = { from: string; text: string; at: string };
 
+// a Chat message as the GChat bridge reads it (Gchat.ts): its name, its
+// sender's name and type (HUMAN, BOT), its thread's name, when (ms), its text
+export type Message = { name: string; sender: string; type: string; thread: string; at: number; text: string };
+
 // Constants
 // =========
 
@@ -483,6 +487,32 @@ export namespace Google {
     const json = await (await get("/v1/" + space + "/messages?" + new URLSearchParams({ pageSize: String(n), orderBy: "createTime desc" }), token, o, "chat")).json();
     const all: any[] = Array.isArray(json?.messages) ? json.messages : [];
     return all.slice(0, n).map((m) => ({ from: String(m?.sender?.displayName ?? m?.sender?.name ?? ""), text: String(m?.text ?? "").slice(0, 4000), at: String(m?.createTime ?? "") }));
+  }
+
+  // a Chat space's messages made after since (ms), at most CHAT, oldest
+  // first, as the GChat bridge reads them (Gchat.ts: name, sender, thread)
+  export async function replies(token: string, space: string, since: number, o: Opts = {}): Promise<Message[]> {
+    if (!SPACE.test(space)) {
+      throw new Error("not a Chat space (spaces/...).");
+    }
+    const q = new URLSearchParams({ pageSize: String(CHAT), orderBy: "createTime desc", filter: "createTime > \"" + new Date(since).toISOString() + "\"" });
+    const json = await (await get("/v1/" + space + "/messages?" + q, token, o, "chat")).json();
+    const all: any[] = Array.isArray(json?.messages) ? json.messages : [];
+    return all.slice(0, CHAT).reverse().map((m) => ({
+      name: String(m?.name ?? ""), sender: String(m?.sender?.name ?? ""), type: String(m?.sender?.type ?? ""),
+      thread: String(m?.thread?.name ?? ""), at: Date.parse(String(m?.createTime ?? "")) || 0, text: String(m?.text ?? "").slice(0, 4000),
+    }));
+  }
+
+  // the signed-in user as Chat names them (users/<id>: the account's id,
+  // tokeninfo's sub, the token in a header, never a URL); unknown: throws
+  export async function me(token: string, o: Opts = {}): Promise<string> {
+    const res = await fetch(new URL(ends(o).token).origin + "/tokeninfo", { method: "POST", headers: { authorization: "Bearer " + token }, redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
+    const sub = res?.ok ? String((await res.json().catch(() => null))?.sub ?? "") : "";
+    if (!/^\d{1,40}$/.test(sub)) {
+      throw new Error("Google: who is signed in is unknown" + (res === null ? " (not reachable)" : res.ok ? "" : " (HTTP " + res.status + ")") + ".");
+    }
+    return "users/" + sub;
   }
 
   // what Google gave, fenced as data from source for the agent's model (a
