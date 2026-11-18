@@ -517,7 +517,16 @@ function look_css(kind, look) {
 }
 
 // Modes.ts
-var MODES = ["plan", "auto", "full"];
+var MODES = ["plan", "auto", "super", "full"];
+var ASK_KINDS = ["push", "scope", "retry", "merge", "access", "redzone", "money", "outward", "other"];
+var UNLOCK = 20;
+var TAKEN = 85;
+var RELOCK = 2;
+var LAST = 10;
+var ANSWERED = /^Answer to your question (\d+) \(([\s\S]*)\):\n([\s\S]*)$/;
+var REC = /\(rec(?:ommended)?\)/i;
+var MARK = /my pick|\(rec(?:ommended)?\)|recommended/i;
+var LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
 var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
 var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
@@ -618,7 +627,7 @@ var FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fp
 var Modes;
 ((Modes2) => {
   function read(x) {
-    return MODES.includes(x) ? x : "auto";
+    return MODES.includes(x) ? x : "super";
   }
   Modes2.read = read;
   function next(mode) {
@@ -644,7 +653,7 @@ var Modes;
     ...["list_pages", "take_snapshot", "list_console_messages", "get_console_message", "list_network_requests", "get_network_request"].map((t) => "mcp__chrome-devtools__" + t)
   ];
   function reviews(mode, tool, input, reads = []) {
-    if (mode !== "auto") {
+    if (mode !== "auto" && mode !== "super") {
       return false;
     }
     if (tool.startsWith("mcp__")) {
@@ -661,6 +670,86 @@ var Modes;
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
   }
   Modes2.reviews = reviews;
+  Modes2.FLOOR = ["access", "redzone", "money", "outward"];
+  function unlocked(kind, t) {
+    if (!ASK_KINDS.includes(kind) || Modes2.FLOOR.includes(kind) || t === undefined) {
+      return false;
+    }
+    return t.n >= UNLOCK && t.took * 100 >= TAKEN * t.n;
+  }
+  Modes2.unlocked = unlocked;
+  function decides(mode, q, tallies) {
+    const n = q.options?.length ?? 0;
+    if (mode !== "super" || !Number.isInteger(q.pick) || q.pick < 0 || q.pick >= n) {
+      return false;
+    }
+    if (q.kind === "merge" && q.prod !== false || Modes.guess(q.text ?? "") === "access") {
+      return false;
+    }
+    return Object.hasOwn(tallies, q.kind) && Modes.unlocked(q.kind, tallies[q.kind]);
+  }
+  Modes2.decides = decides;
+  function took(q, answer) {
+    const pick = q.pick === undefined ? undefined : q.options?.[q.pick];
+    if (pick === undefined) {
+      return false;
+    }
+    const flat = (x) => x.replace(/\s+/g, " ").trim().toLowerCase();
+    return flat(answer) === flat(pick) || Modes.letter(answer) === q.pick;
+  }
+  Modes2.took = took;
+  function letter(answer) {
+    const m = /^\s*(?:([A-F])\b|([a-f])(?:$|[).:]))/.exec(answer);
+    const l = m?.[1] ?? m?.[2]?.toUpperCase();
+    return l === undefined ? null : l.charCodeAt(0) - 65;
+  }
+  Modes2.letter = letter;
+  function counted(t, took) {
+    return { ...t, n: (t?.n ?? 0) + 1, took: (t?.took ?? 0) + (took ? 1 : 0), auto: t?.auto ?? [] };
+  }
+  Modes2.counted = counted;
+  function decided(t, id) {
+    return { ...t, n: t?.n ?? 0, took: t?.took ?? 0, auto: [...t?.auto ?? [], { id, undone: false }].slice(-LAST) };
+  }
+  Modes2.decided = decided;
+  function undone(t, id) {
+    const after = { ...Modes.counted(t, false), auto: (t?.auto ?? []).map((a) => a.id === id ? { id, undone: true } : a) };
+    return Modes.relocks(after) ? { n: 0, took: 0, auto: [] } : after;
+  }
+  Modes2.undone = undone;
+  function relocks(t) {
+    return (t.auto ?? []).slice(-LAST).filter((a) => a.undone).length >= RELOCK;
+  }
+  Modes2.relocks = relocks;
+  function guess(question) {
+    return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access" : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge" : /\bpush|\bbranch|\brebase/i.test(question) ? "push" : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry" : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope" : "other";
+  }
+  Modes2.guess = guess;
+  function imported(texts) {
+    const out = {};
+    const seen = new Set;
+    for (const text of texts) {
+      const m = ANSWERED.exec(text);
+      if (m === null || seen.has(m[1])) {
+        continue;
+      }
+      seen.add(m[1]);
+      const [question, answer] = [m[2], m[3]];
+      let took = REC.test(answer) ? true : null;
+      if (took === null) {
+        const mark = MARK.exec(question);
+        const pick = mark === null ? undefined : [...question.slice(0, mark.index).matchAll(LETTER)].at(-1)?.[1];
+        const said = Modes.letter(answer);
+        took = pick === undefined || said === null ? null : said === pick.charCodeAt(0) - 65;
+      }
+      if (took !== null) {
+        const kind = Modes.guess(question);
+        out[kind] = { ...Modes.counted(out[kind], took), est: true };
+      }
+    }
+    return out;
+  }
+  Modes2.imported = imported;
   function readonly(command) {
     const lexed = lex(command);
     if (typeof lexed === "string") {
@@ -1431,6 +1520,7 @@ var PACE = 0.0001;
 var email_ask = (github) => "First, what's your email" + (github ? " or @github" : "") + "? I'll send you a quick sign-up link.";
 var OPENING = 3;
 var SUMMARIES = "summaries";
+var DECIDED_MS = 24 * 3600000;
 var PINS = 12;
 var PINNED = 16000;
 var FIND = 200;
@@ -1791,6 +1881,10 @@ function view_act(v, act) {
     }
     case "Drop": {
       return [{ $: "answer", q: act.q }];
+    }
+    case "Decision": {
+      const text = (act.text ?? "").trim();
+      return (v.decided ?? []).some((d) => d.id === act.n) ? [{ $: "decision", n: act.n, undo: act.undo, ...text === "" ? {} : { text } }] : [];
     }
     case "Mode": {
       return [{ $: "mode", mode: act.mode ?? Modes.next(Modes.read(v.mode)) }];
@@ -2165,6 +2259,17 @@ function view_questions(v) {
 }
 function view_notes(v) {
   return [...v.questions ?? []].filter((q) => q.fyi === true).sort((a, b) => a.id - b.id);
+}
+function view_decided(v, now) {
+  return (v.decided ?? []).filter((d) => now - Date.parse(d.date) < DECIDED_MS).sort((a, b) => a.id - b.id);
+}
+function view_tallies_text(v) {
+  const t = v.tallies ?? {};
+  return ASK_KINDS.filter((k) => Object.hasOwn(t, k) && t[k].n > 0).map((k) => {
+    const x = t[k];
+    const how = Modes.FLOOR.includes(k) ? "(always asks)" : Modes.unlocked(k, x) ? "✓ unlocked" : x.n < 20 ? "(needs 20)" : "(needs 85%)";
+    return k + " " + x.took + "/" + x.n + (x.est ? " estimated " : " ") + how;
+  }).join(" · ");
 }
 function undo_ask(name) {
   return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
@@ -2718,11 +2823,22 @@ function needs_html(v) {
 }
 function waiting_html(v) {
   const b = (label, a, cls = "qo") => `<button class="${cls}"${act_html(a)}>${label}</button>`;
-  const plan = v.plan ? [`<div class="q plan"><div class="qh"><b>Plan</b><span class="meta">${esc2(new Date(v.plan.date).toLocaleString())}</span></div><div class="qt">${esc2(v.plan.text)}</div><div class="qos">${b("Approve: auto", { $: "Verdict", yes: true, mode: "auto" })}${b("Approve: full", { $: "Verdict", yes: true, mode: "full" })}</div><form class="qa" data-verdict><input placeholder="Send it back: what to change…" aria-label="send the plan back with feedback"></form></div>`] : [];
+  const plan = v.plan ? [`<div class="q plan"><div class="qh"><b>Plan</b><span class="meta">${esc2(new Date(v.plan.date).toLocaleString())}</span></div><div class="qt">${esc2(v.plan.text)}</div><div class="qos">${b("Approve: super", { $: "Verdict", yes: true, mode: "super" })}${b("Approve: auto", { $: "Verdict", yes: true, mode: "auto" })}${b("Approve: full", { $: "Verdict", yes: true, mode: "full" })}</div><form class="qa" data-verdict><input placeholder="Send it back: what to change…" aria-label="send the plan back with feedback"></form></div>`] : [];
   const calls = (v.calls ?? []).map((c) => `<div class="q call"><div class="qh"><b>${c.id}</b><span class="meta">${esc2(c.who)} wants to run (auto mode's reviewer couldn't check it)</span></div><div class="qt">${esc2(c.what)}</div><div class="qos">${b("Run it", { $: "Consent", n: c.id, yes: true })}${b("Refuse", { $: "Consent", n: c.id, yes: false })}</div></div>`);
   return [...plan, ...calls];
 }
-function questions_html(v) {
+function questions_html(v, now = Date.now()) {
+  const ds = view_decided(v, now);
+  const tallies = view_tallies_text(v);
+  const decided = ds.length === 0 && (tallies === "" || v.mode !== "super") ? [] : [`<div class="q decided"><div class="qh"><b>Decided for you</b><span class="meta">super auto${tallies === "" ? "" : " · " + esc2(tallies)}</span></div></div>`, ...ds.map((d) => {
+    const head = `<div class="qh"><b>${d.id}</b><span class="meta">${esc2(d.kind)} · ${esc2(new Date(d.date).toLocaleString())}</span><button class="x" title="dismiss"${act_html({ $: "Decision", n: d.id, undo: false })}>×</button></div>`;
+    const undo = `<div class="qos"><button class="qo"${act_html({ $: "Decision", n: d.id, undo: true })}>Undo</button></div>`;
+    const box = `<form class="qa" data-decision="${d.id}"><input placeholder="Undo: what to do instead…" aria-label="undo decision ${d.id}, saying what to do instead"></form>`;
+    return `<div class="q decided">${head}<div class="qt">${esc2(d.question)}</div><div class="qt">→ ${esc2(d.answer)}</div>${undo}${box}</div>`;
+  })];
+  return questions_open_html(v).concat(decided);
+}
+function questions_open_html(v) {
   return view_questions(v).map((q) => {
     const quick = (q.options ?? []).map((o) => `<button class="qo"${act_html({ $: "Answer", q: q.id, text: o })}>${esc2(o)}</button>`).join("");
     const head = `<div class="qh"><b>${q.id}</b><span class="meta">${esc2(new Date(q.date).toLocaleString())}</span><button class="x" title="dismiss"${act_html({ $: "Drop", q: q.id })}>×</button></div>`;
@@ -3112,7 +3228,7 @@ function away(v, seen, now, inbox = 0) {
     inbox
   };
 }
-var MARK = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
+var MARK2 = { asking: "?", failed: "✗", working: "●", waiting: "◐", stopped: "■", done: "✓" };
 function picks_acts(sections, picks, claude) {
   const rows = sections.flatMap((s) => s.rows.filter((r) => r.pr !== undefined).map((r) => ({ s: s.id, r, url: r.pr.url })));
   const urls = [...new Set([...picks].flatMap((k) => rows.filter((x) => x.r.key === k).map((x) => x.url)))];
@@ -3194,6 +3310,7 @@ var PAGE_ITEMS = [
   { label: "Focus", hint: "command · hide the side columns", go: { cmd: "focus" } },
   { label: "Plan mode", hint: "command · only reading till a plan is approved", go: { act: { $: "Mode", mode: "plan" } } },
   { label: "Auto mode", hint: "command · a reviewer checks each change", go: { act: { $: "Mode", mode: "auto" } } },
+  { label: "Super auto mode", hint: "command · as auto, and Legion takes its pick where you always would", go: { act: { $: "Mode", mode: "super" } } },
   { label: "Full mode", hint: "command · hooks only", go: { act: { $: "Mode", mode: "full" } } }
 ];
 function palette(v, q) {
@@ -3302,7 +3419,7 @@ function away_html(a) {
   const n = (k, one, many = one + "s") => k + " " + (k === 1 ? one : many);
   const counts = [a.done === 0 ? "" : a.done + " done", a.failed === 0 ? "" : a.failed + " failed"].filter((x) => x !== "");
   const head = `<div class="awh"><b>While you were away</b><span class="meta">${esc2([a.span, ...counts].join(" · "))}</span><button class="pbtn" data-away-seen title="hide this till you are away again">Got it</button></div>`;
-  const agent = (x) => `<a class="awa ${x.status}" href="#crew/${esc2(encodeURIComponent(x.name))}"><span class="mk">${MARK2[x.status]}</span><span class="t">${esc2(x.title)}</span>` + `${x.why === "" ? "" : `<span class="meta">${esc2(x.why)}</span>`}</a>`;
+  const agent = (x) => `<a class="awa ${x.status}" href="#crew/${esc2(encodeURIComponent(x.name))}"><span class="mk">${MARK3[x.status]}</span><span class="t">${esc2(x.title)}</span>` + `${x.why === "" ? "" : `<span class="meta">${esc2(x.why)}</span>`}</a>`;
   const more = a.more === 0 ? "" : `<a class="meta" href="#crew">+${a.more} more</a>`;
   const ran = a.routines.length === 0 ? "" : `<p class="meta">Routines ran: ${esc2(a.routines.join(", "))}</p>`;
   const links = [
@@ -3344,7 +3461,7 @@ function sheet_line(v) {
   return n === 0 ? "Harvest drafts" : n + (n === 1 ? " draft" : " drafts") + " to review";
 }
 var SPACES = 12;
-var MARK2 = MARK;
+var MARK3 = MARK2;
 function side_html(v, mode, now) {
   const here = (m) => m === mode ? ` class="here"` : "";
   const n = (k) => k === 0 ? "" : `<span class="n">${k}</span>`;
@@ -3364,7 +3481,7 @@ function side_html(v, mode, now) {
   ];
   const nav = `<nav class="spages">${pages.map(([m, label, k]) => `<a href="#${m}"${here(m)}>${label}${n(k)}</a>`).join("")}</nav>`;
   const search = `<button class="ssearch" data-palette title="⌘K or Ctrl+P">Search or run… <kbd>⌘K</kbd></button>`;
-  const groups = side_groups(v, now).map((g) => `<div class="sgroup"><div class="sgh">${esc2(g.ticket ?? "–")}</div>${g.agents.map((a) => `<a class="sagent ${a.status}" href="#crew/${esc2(encodeURIComponent(a.name))}"><span class="st">${MARK2[a.status]}</span><span class="t">${esc2(a.title)}</span><span class="age">${esc2(a.age)}</span></a>`).join("")}</div>`).join("");
+  const groups = side_groups(v, now).map((g) => `<div class="sgroup"><div class="sgh">${esc2(g.ticket ?? "–")}</div>${g.agents.map((a) => `<a class="sagent ${a.status}" href="#crew/${esc2(encodeURIComponent(a.name))}"><span class="st">${MARK3[a.status]}</span><span class="t">${esc2(a.title)}</span><span class="age">${esc2(a.age)}</span></a>`).join("")}</div>`).join("");
   const count = v.crew.filter((c) => c.parent === "main").length;
   const agents = `<section class="sagents"><h3>Agents <span class="n">${count}</span></h3>${groups || `<p class="meta">None yet.</p>`}</section>`;
   const all = side_spaces(v);
@@ -4619,7 +4736,7 @@ function crew_bars() {
   const crew = mode === "crew";
   document.body.classList.toggle("crewmode", crew && !P.guest);
   const asked = view_questions(v).length + view_waiting(v);
-  const notes = view_notes(v).length;
+  const notes = view_notes(v).length + view_decided(v, Date.now()).length;
   markup($("#mode"), mode_html(mode, view_pill(v), asked, P.guest ? undefined : v.mode, inbox_badge(v.inbox), notes, (v.assigned ?? []).length));
   side_bars(mode);
   if (page_bars(mode)) {
@@ -4698,7 +4815,7 @@ function answer(ev) {
   }
   ev.preventDefault();
   const input = form.querySelector("input");
-  act(form.dataset.verdict !== undefined ? { $: "Verdict", yes: false, text: input.value } : { $: "Answer", q: Number(form.dataset.q), text: input.value });
+  act(form.dataset.verdict !== undefined ? { $: "Verdict", yes: false, text: input.value } : form.dataset.decision !== undefined ? { $: "Decision", n: Number(form.dataset.decision), undo: true, text: input.value } : { $: "Answer", q: Number(form.dataset.q), text: input.value });
   input.value = "";
 }
 function crew_keys(ev) {

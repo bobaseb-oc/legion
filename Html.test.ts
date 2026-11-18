@@ -266,6 +266,7 @@ test("modes on the web: the chip, the plan card and waiting calls", () => {
   expect(Html.mode_html("chat", "", 0, "plan").join("")).toContain('<button class="perm plan" title="the mode: Shift+Tab in the box cycles it" data-act="' + act({ $: "Mode" }) + '">plan mode</button>');
   const [plan, call] = Html.waiting_html(v);
   expect(plan).toContain('<div class="qt">1. &lt;read&gt;\n2. fix</div>');
+  expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "super" }));
   expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "auto" }));
   expect(plan).toContain(act({ $: "Verdict", yes: true, mode: "full" }));
   expect(plan).toContain('<form class="qa" data-verdict>');
@@ -277,6 +278,32 @@ test("modes on the web: the chip, the plan card and waiting calls", () => {
   expect(needs[1]).toContain("Wkr wants to run");
   View.view_hear(v, { $: "state", ...v, plan: null, calls: [] } as any);
   expect(Html.waiting_html(v)).toEqual([]);
+});
+
+// super auto in the pane: each decision taken for the user (24 h), its
+// question and answer escaped, Undo (a box for what to do instead) and
+// Dismiss; the kinds' progress over them, estimated when imported; the
+// chip shows the mode
+test("super auto: decided for you, with Undo and Dismiss, and the kinds' progress", () => {
+  const v = View.view_new();
+  const now = Date.parse("2026-11-18T12:00:00.000Z");
+  const decided = [{ id: 7, kind: "push", question: "Push <AO-1>?", answer: "Push it", date: "2026-11-18T10:00:00.000Z" }, { id: 2, kind: "retry", question: "Old", answer: "Retry", date: "2026-11-17T10:00:00.000Z" }];
+  const tallies = { push: { n: 20, took: 20, auto: [] }, retry: { n: 21, took: 14, est: true }, access: { n: 3, took: 1 }, merge: { n: 5, took: 5 } };
+  View.view_hear(v, { $: "state", ...v, mode: "super", decided, tallies } as any);
+  const pane = Html.questions_html(v, now).join("");
+  expect(pane).toContain("Decided for you");
+  expect(pane).toContain("Push &lt;AO-1&gt;?");
+  expect(pane).toContain("Push it");
+  expect(pane).not.toContain("Old");
+  expect(pane).toContain(act({ $: "Decision", n: 7, undo: true }));
+  expect(pane).toContain(act({ $: "Decision", n: 7, undo: false }));
+  expect(pane).toContain('<form class="qa" data-decision="7">');
+  expect(pane).toContain("push 20/20 ✓ unlocked · retry 14/21 estimated (needs 85%) · merge 5/5 (needs 20) · access 1/3 (always asks)");
+  expect(View.view_act(v, { $: "Decision", n: 7, undo: true, text: " hold " })).toEqual([{ $: "decision", n: 7, undo: true, text: "hold" }]);
+  expect(View.view_act(v, { $: "Decision", n: 99, undo: true })).toEqual([]);
+  expect(Html.mode_html("chat", "", 0, "super").join("")).toContain('<button class="perm super"');
+  View.view_hear(v, { $: "state", ...v, decided: [], tallies: {} } as any);
+  expect(Html.questions_html(v, now)).toEqual([]);
 });
 
 // the cockpit's pages in the header's switch: Home and Inbox (its count:

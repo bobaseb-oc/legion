@@ -45,14 +45,14 @@ import * as Import from "./Import.ts";
 import { Mcp } from "./Mcp.ts";
 import { Harvest } from "./Harvest.ts";
 import { JOBS, Memory, type Given, type Msg as Log, type Share } from "./Memory.ts";
-import { ABOUT, MODES, type Mode } from "./Modes.ts";
+import { ABOUT, MODES, Modes, type Mode } from "./Modes.ts";
 import { OpenAI, TRANSCRIBER } from "./OpenAI.ts";
 import { Pick } from "./Pick.ts";
 import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
-import { email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type DeviceStatus, type Look, type Looked, type Part, type Server as Out, type Wait } from "./View.ts";
+import { DECIDED_MS, email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type Decided, type DeviceStatus, type Look, type Looked, type Part, type Question, type Server as Out, type Wait } from "./View.ts";
 import * as config from "./Config.ts";
 import hello_md from "./hello.md" with { type: "text" };
 import app_js from "./web/app.js" with { type: "file" };
@@ -324,6 +324,7 @@ export namespace Chat {
       change : () => Chat.change(chat),
       pick   : () => chat.pick,
       halt   : () => chat.halt.signal,
+      note   : (text) => Chat.note(chat, text),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -597,7 +598,7 @@ export namespace Chat {
     chat.eye = Chat.eye(mem, from);
     chat.socks.forEach((sock) => Chat.show(chat, sock));
     const bill = mem.pay?.("chat", String(msgs[0].id));
-    const blocks = [...view, Tools.devices(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
+    const blocks = [...view, Tools.devices(chat.tools), ...Tools.likes(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
     const ask = { ...Chat.share(chat), searches: SEARCHES, server, blocks, imgs, bill };
     chat.model = chat.pick.model;
     chat.asked = true;
@@ -1150,7 +1151,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, assigned: chat.mem.assigned, pins: chat.mem.pinned };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1504,6 +1505,9 @@ export namespace Chat {
       case "assignment": {
         return Chat.assignment(chat, id, device, msg);
       }
+      case "decision": {
+        return Chat.decision(chat, id, device, msg);
+      }
     }
     return { error: "No act " + msg.$ + "." };
   }
@@ -1656,7 +1660,77 @@ export namespace Chat {
       }
       return {};
     }
+    Chat.tally(chat, q, text);
     await Chat.said(chat, id, (q.fyi ? "Reply to your note " : "Answer to your question ") + n + " (" + q.text + "):\n" + text);
+    return {};
+  }
+
+  // RED ZONE (who decides, DRAFT awaiting the user's sign-off): super
+  // auto's record of the user's answer to a question with a kind and a
+  // pick (Modes.counted: took it or not); one not the pick learned as a
+  // preference (Chat.like). Saved
+  export function tally(chat: Chat, q: Question, text: string): void {
+    const pick = q.pick === undefined ? undefined : q.options?.[q.pick];
+    if (q.fyi || q.kind === undefined || pick === undefined) {
+      return;
+    }
+    const took = Modes.took(q, text);
+    chat.mem.tallies = { ...chat.mem.tallies, [q.kind]: Modes.counted(chat.mem.tallies[q.kind], took) };
+    if (!took) {
+      Chat.like(chat, q.kind, text, pick, q.text);
+    }
+    Memory.save(chat.mem);
+  }
+
+  // what the user chose over Legion's pick, a line in its preferences
+  // (Tools.likes): new ones last, the same one once, at most LIKES
+  export function like(chat: Chat, kind: string, chose: string, pick: string, question: string): void {
+    const cut = (x: string, most: number) => {
+      const flat = x.replace(/\s+/g, " ").trim();
+      return flat.length > most ? flat.slice(0, most - 1) + "…" : flat;
+    };
+    const line = "On " + kind + ": user chose '" + cut(chose, 120) + "' over '" + cut(pick, 120) + "' (" + cut(question.split("\n")[0]!, 80) + ")";
+    chat.mem.likes = [...chat.mem.likes.filter((l) => l !== line), line].slice(-LIKES);
+  }
+
+  // RED ZONE (access control and who decides; DRAFT awaiting the user's
+  // sign-off): the user's Undo or Dismiss of a decision super auto took
+  // for them (Tools.decide). A view's act only: a device's socket is
+  // within an agent's reach, and an agent must not undo or clear its own
+  // decisions (refused, as Chat.pin refuses it). Shown DECIDED_MS. It
+  // leaves the list at once, so a resent act finds none and Legion is told
+  // once. Undo: Legion hears "The user reversed decision N (...): <their
+  // answer>" (none given: not to do it, and to ask) and takes a turn
+  // (refused short of credit, the decision kept); an override in its
+  // kind's record (Modes.undone: 2 of its last 10 relock it), and a typed
+  // answer a preference. Dismiss: gone, no turn
+  export async function decision(chat: Chat, id: string, device: string, msg: any): Promise<Answer> {
+    if (device !== "") {
+      return { error: "Decisions are the user's: undo them in a view (the web, or the terminal's Questions page)." };
+    }
+    const fresh = (d: Decided) => Date.now() - Date.parse(d.date) < DECIDED_MS;
+    const d = Number.isInteger(msg.n) && typeof msg.undo === "boolean" ? chat.mem.decided.find((x) => x.id === msg.n && fresh(x)) : undefined;
+    if (d === undefined) {
+      return { error: "No decision " + JSON.stringify(msg.n)?.slice(0, 40) + " to undo." };
+    }
+    const refused = msg.undo ? await Chat.afford(chat) : null;
+    if (refused !== null) {
+      return refused;
+    }
+    chat.mem.decided = chat.mem.decided.filter((x) => x !== d);
+    if (msg.undo) {
+      const text = typeof msg.text === "string" ? msg.text.trim().slice(0, 2000) : "";
+      chat.mem.tallies = { ...chat.mem.tallies, [d.kind]: Modes.undone(chat.mem.tallies[d.kind], d.id) };
+      if (text !== "") {
+        Chat.like(chat, d.kind, text, d.answer, d.question);
+      }
+      Memory.save(chat.mem);
+      Chat.change(chat);
+      await Chat.said(chat, id, "The user reversed decision " + d.id + " (" + d.question + "): " + (text === "" ? "do not do this, ask me" : text));
+      return {};
+    }
+    Memory.save(chat.mem);
+    Chat.change(chat);
     return {};
   }
 
@@ -1957,6 +2031,8 @@ const LOOK_TEXT = 1000;
 const LOOK_SHOWN = 512 * 1024;
 const LOOK_Q = 200; // a find's or a search's text, at most
 const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
+// what the user chose over Legion's picks, kept at most (Chat.like)
+const LIKES = 30;
 
   export async function transcript(chat: Chat, device: string, msg: any): Promise<Answer> {
     const id = typeof msg.id === "string" ? msg.id : "";
@@ -2183,7 +2259,7 @@ const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
     if (plan === null) {
       return { error: "No plan is waiting for approval." };
     }
-    const mode: Mode = yes ? (to === "full" ? "full" : "auto") : "plan";
+    const mode: Mode = yes ? (to === "full" || to === "auto" ? to : "super") : "plan";
     const refused = await Chat.afford(chat);
     if (refused !== null) {
       return refused;

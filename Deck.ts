@@ -255,9 +255,17 @@ function deck_inbox_key(v: View.View, d: Deck, key: string, now: number): Out | 
 // the questions' keys (the web's pane): 1-9 sends that offered answer,
 // Enter leaves with /answer typed in the box, x dismisses (a note too),
 // as /answer and /drop
-function deck_questions_key(v: View.View, d: Deck, key: string, _now: number): Out | null {
+function deck_questions_key(v: View.View, d: Deck, key: string, now: number): Out | null {
   const q = d.sel === null ? undefined : [...View.view_questions(v), ...View.view_notes(v)].find((x) => String(x.id) === d.sel);
   const done = { deck: d, acts: [], sends: [], done: true };
+  // super auto's decision picked: u undoes it, Enter types /reverse (what
+  // to do instead), x dismisses it
+  const decided = d.sel?.startsWith("d") ? View.view_decided(v, now).find((x) => "d" + x.id === d.sel) : undefined;
+  if (decided !== undefined && (/^[1-9]$/.test(key) || ["Enter", "x", "u"].includes(key))) {
+    return key === "Enter" ? { ...done, type: "/reverse " + decided.id + " " }
+      : key === "u" || key === "x" ? act_or_say(d, { $: "Decision", n: decided.id, undo: key === "u" })
+      : act_or_say(d, "A decision: u undoes it, Enter says what instead, x dismisses it.");
+  }
   if (!/^[1-9]$/.test(key) && key !== "Enter" && key !== "x") {
     return null;
   }
@@ -408,7 +416,7 @@ type Ink = Paint.Run["s"];
 
 // the pages with items to pick: their parts
 const PARTS: Partial<Record<Page, (v: View.View, d: Deck, now: number) => Part[]>> = {
-  home: home_parts, inbox: inbox_parts, questions: (v) => questions_parts(v), memory: (v) => memory_parts(v), todo: (v) => todo_parts(v),
+  home: home_parts, inbox: inbox_parts, questions: (v, _d, now) => questions_parts(v, now), memory: (v) => memory_parts(v), todo: (v) => todo_parts(v),
 };
 
 // a page's body: its parts; the file as /look prints it (its code
@@ -444,10 +452,18 @@ function parts_body(parts: Part[], w: number, sel: string | null): Body {
 }
 
 // the questions, as the web's pane: each open one to pick (its number,
-// its lines, the answers offered), then the notes; the keys
-function questions_parts(v: View.View): Part[] {
+// its lines, the answers offered), then the notes, then super auto's
+// decisions (the kinds' progress over them); the keys
+function questions_parts(v: View.View, now: number): Part[] {
   const qs = View.view_questions(v);
   const notes = View.view_notes(v);
+  const ds = View.view_decided(v, now);
+  const tallies = View.view_tallies_text(v);
+  const decided: Part[] = ds.length === 0 && (tallies === "" || v.mode !== "super") ? [] : [
+    { text: "" }, { text: "Decided for you (super auto)", ink: HEAD }, ...(tallies === "" ? [] : [{ text: tallies, ink: Paint.DIM }]),
+    ...ds.map((x): Part => ({ key: "d" + x.id, text: View.decided_text(x) })),
+    ...(ds.length === 0 ? [] : [{ text: "a decision: u undo · Enter /reverse with what instead · x dismiss", ink: Paint.DIM }]),
+  ];
   const item = (q: View.Question): Part[] => {
     const [first, ...more] = q.text.split("\n");
     const offered = q.options === undefined ? [] : [{ text: "    " + q.options.map((o, k) => k + 1 + ") " + o).join(" · "), ink: SAY }];
@@ -457,6 +473,7 @@ function questions_parts(v: View.View): Part[] {
     { text: qs.length === 0 ? "No open questions." : "Your questions (" + qs.length + ")", ink: BOLD },
     ...qs.flatMap(item),
     ...(notes.length === 0 ? [] : [{ text: "" }, { text: "Notes (" + notes.length + ")", ink: HEAD }, ...notes.flatMap(item)]),
+    ...decided,
     { text: "" },
     { text: "↑↓ pick · 1-9 that answer · Enter types /answer in the box · x dismiss · Esc chat", ink: Paint.DIM },
   ];
