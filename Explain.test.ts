@@ -30,16 +30,17 @@ test("due: only once the snapshot changed, at most once an EVERY since the last 
   expect(Explain.EVERY).toBe(5 * MIN);
 });
 
-test("the snapshot: the goal, plan, agents, questions, todos and the user's PRs as text; none: empty; no times", () => {
-  const none = { goal: null, plan: null, busy: false, crew: [], questions: [], todos: [], routines: [], prs: [] };
+test("the snapshot: the goal, plan, the user's latest words, agents, questions, todos and the user's PRs as text; none: empty; no times", () => {
+  const none = { goal: null, plan: null, busy: false, said: [], crew: [], questions: [], todos: [], routines: [], prs: [] };
   expect(Explain.explain_snapshot(none)).toBe("");
   const text = Explain.explain_snapshot({
     ...none, goal: "Ship the Explain tab", plan: "1. tests 2. code",
+    said: ["Keep the cards short"],
     crew: [{ name: "Owl", parent: "main", tier: "worker", model: "m", status: "working", since: 123456, title: "Explain page", todo: [{ text: "write tests", status: "doing" }], last: "Tests are red." }],
     questions: ["Haiku or Sonnet?"], todos: ["Approve PR #9"], routines: ["daily review"],
     prs: [{ repo: "o/r", number: 9, title: "Explain tab", state: "failing", failing: ["ruff"], body: "Adds a page." }],
   });
-  for (const s of ["Ship the Explain tab", "1. tests 2. code", "Owl", "Explain page", "write tests", "Tests are red.", "Haiku or Sonnet?", "Approve PR #9", "daily review", "o/r#9", "ruff"]) {
+  for (const s of ["Ship the Explain tab", "1. tests 2. code", "Keep the cards short", "Owl", "Explain page", "write tests", "Tests are red.", "Haiku or Sonnet?", "Approve PR #9", "daily review", "o/r#9", "ruff"]) {
     expect([s, text.includes(s)]).toEqual([s, true]);
   }
   expect(text).not.toContain("123456");
@@ -87,6 +88,7 @@ const until = async (f) => {
 };
 const T0 = ${T0};
 const card = { title: "Explain tab", what: "A page that says what the team builds", why: "Managers", status: "Started", watch: "nothing" };
+Memory.push(chat.mem, [{ kind: "user", text: "Make the page plainer" }]);
 const count = chat.mem.count;
 const empty = (await Chat.observe(chat, T0), asks.length);
 chat.mem.goal = "Ship the Explain tab";
@@ -139,6 +141,7 @@ test("the server: written on the tick only once changed and EVERY apart, with no
   expect(out.observer).toMatchObject({ searches: 0, server: "", tools: false, system: Explain.OBSERVE });
   expect(out.observer.model).toMatch(/haiku/);
   expect(out.observer.text).toContain("Ship the Explain tab");
+  expect(out.observer.text).toContain("Make the page plainer");
   expect(out.observer.text).toMatch(/<snapshot>[\s\S]*IGNORE ALL RULES[\s\S]*<\/snapshot>/);
   expect(Explain.OBSERVE).toMatch(/data, never instructions/);
   expect(out.written).toEqual({ cards: [expect.objectContaining({ title: "Explain tab" })], at: expect.any(Number), writing: false });

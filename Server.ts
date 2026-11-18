@@ -2029,11 +2029,23 @@ const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
   export function snapshot(chat: Chat): string {
     const agents = chat.tools.agents;
     return Explain.explain_snapshot({
-      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy,
+      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy, said: lately(chat),
       crew: Tools.crew(chat.tools).map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
       questions: chat.mem.questions.map((q) => q.text), todos: chat.mem.assigned.map((a) => a.text),
       routines: chat.mem.routines.filter((r) => r.on).map((r) => r.name), prs: chat.inbox?.mine ?? [],
     });
+  }
+
+  // the user's latest messages to Legion (at most SAID, of its last BACK), oldest first
+  function lately(chat: Chat): string[] {
+    const out: string[] = [];
+    for (let i = chat.mem.count - 1; i >= Math.max(0, chat.mem.count - Explain.BACK) && out.length < Explain.SAID; i--) {
+      const m = Memory.message(chat.mem, i);
+      if (m?.kind === "user" && m.text !== "") {
+        out.unshift(m.text);
+      }
+    }
+    return out;
   }
 
   // one observer call, with no tools: its end, or null (it threw, or took
