@@ -228,6 +228,11 @@ const SPARE      = 2 ** 30;
 // the acts with a body (Chat.post)
 const BODIES     = ["say", "import", "voice"];
 
+// RED ZONE (R1, DRAFT awaiting the user's sign-off): the device an act
+// posted (/api/act) with no browser's session comes from: no view
+// (Cloud.browser), so every act a view only may do is refused it
+const POSTED     = "api";
+
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
 
@@ -2853,7 +2858,7 @@ export namespace Main {
           return Response.json({ error: "Too many requests: wait a moment." }, { status: 429 });
         }
         const msg = { ...Object.fromEntries(new URL(req.url).searchParams), req };
-        const out = await Chat.apply(chat, msg, "");
+        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED);
         return Response.json(out, { status: out.status ?? (out.error === undefined ? 200 : 400) });
       }
       case "/api/imported": {
@@ -2944,11 +2949,19 @@ export namespace Main {
         if ((Main.sockets.get(user.id) ?? 0) >= SOCKETS || !Main.spend(USERS, user.id)) {
           return new Response("too many requests", { status: 429 });
         }
+        // RED ZONE (R1, DRAFT awaiting the user's sign-off): a view is a
+        // browser's socket only (Cloud.browser); a terminal's or device's
+        // (a Bearer session, its token within an agent shell's reach)
+        // names its device, or is refused: it is never a view
         const q    = new URL(req.url).searchParams;
+        const host = q.get("device") || null;
+        if (host === null && !Cloud.browser(cloud, req)) {
+          return new Response("a terminal or device names itself: ?device=", { status: 400 });
+        }
         const who  = Cloud.hash(Cloud.token(req));
         const work = q.get("work") ?? "~/.unii/work";
         const home = q.get("home") || null;
-        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host: q.get("device"), computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
+        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
         return server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
       const chat = Chat.open(user);
