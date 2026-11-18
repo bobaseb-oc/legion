@@ -51,6 +51,8 @@ import { Pick } from "./Pick.ts";
 import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
 import * as Explain from "./Explain.ts";
+import * as Gchat from "./Gchat.ts";
+import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
 import { DECIDED_MS, email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type Decided, type DeviceStatus, type Look, type Looked, type Part, type Question, type Server as Out, type Wait } from "./View.ts";
@@ -138,6 +140,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -357,6 +360,10 @@ export namespace Chat {
     mem.troubled = () => Chat.all(chat, Chat.state(chat));
     chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
+    if (Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "")) {
+      chat.bridging = { busy: false, me: null, timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
+      chat.bridging.timer!.unref?.();
+    }
     mem.wait.add(() => Chat.progress(chat));
     mem.wait.add(() => Chat.free(chat));
     const work = moved === null ? mem.work : [];
@@ -401,6 +408,7 @@ export namespace Chat {
     Chat.cloud.billing.settle(acct.user);
     if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines)) {
       clearInterval(chat.tick);
+      clearInterval(chat.bridging?.timer);
       Tools.close(chat.tools);
       Memory.stop(chat.mem);
       Chat.chats.delete(acct.user);
@@ -2209,6 +2217,85 @@ const LIKES = 30;
     Memory.save(chat.mem);
     Chat.explained(chat);
     return {};
+  }
+
+  // GChat bridge
+  // ------------
+  // The questions pane in a Google Chat space, for the user away (Gchat.ts;
+  // on with config gchat_space and GCHAT_WEBHOOK_URL). Every Gchat.EVERY
+  // while the chat is open: each open item not yet posted is posted (at
+  // most Gchat.POSTS a pass; one that fails, again on the next), the
+  // posted ones closed since forgotten; then, while one is open and
+  // there is a token (gchat_token), the space's replies read and acted on.
+
+  // the user's Google access token for the poll (Google.token's); null:
+  // no poll, the bridge posts only. Open question for the user: the
+  // grant is read by devices only (Google.ts U2), so none is set here yet
+  export let gchat_token: (() => Promise<string>) | null = null;
+
+  export async function bridge(chat: Chat, now: number): Promise<void> {
+    const g = chat.mem.gchat;
+    const url = config.KEYS.gchat ?? "";
+    if (!Gchat.gchat_on(config.GCHAT_SPACE, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
+      return;
+    }
+    const b = (chat.bridging ??= { busy: false, me: null });
+    b.busy = true;
+    try {
+      const items = Gchat.gchat_items(chat.mem, now);
+      const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
+      if (!g.posted.every(open)) {
+        g.posted = g.posted.filter(open);
+        Memory.save(chat.mem);
+      }
+      for (const item of items.filter((x) => !g.posted.some((p) => p.key === x.key)).slice(0, Gchat.POSTS)) {
+        const tk = "legion-" + item.key + "-" + now;
+        const sent = await Gchat.gchat_post(url, tk, item.text);
+        if ("error" in sent) {
+          console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
+          continue;
+        }
+        g.posted.push({ key: item.key, tk, ...sent });
+        Memory.save(chat.mem);
+      }
+      if (g.posted.length > 0 && Chat.gchat_token !== null) {
+        await Chat.bridged(chat, url, Gchat.gchat_items(chat.mem, Date.now()));
+      }
+    } catch (err: any) {
+      console.error("chat " + chat.acct.user + ": gchat: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200));
+    } finally {
+      b.busy = false;
+    }
+  }
+
+  // RED ZONE (access control: who may answer; DRAFT awaiting the user's
+  // sign-off): the space's replies since the oldest open item, those
+  // Gchat.gchat_replies lets through (the signed-in user's, in an open
+  // item's thread, newer than it, not acted on), each kept as acted on
+  // before it acts (once, even if it fails), then sent as a view's act
+  // (device ""): the bridge is the user's view, the sender checked here,
+  // so Chat.act's own checks (an open question, credit) apply as for the
+  // web; what it refuses, or a reply not understood, said in the thread
+  export async function bridged(chat: Chat, url: string, items: Gchat.Item[]): Promise<void> {
+    const g = chat.mem.gchat;
+    const token = await Chat.gchat_token!();
+    const b = chat.bridging!;
+    b.me ??= await Google.me(token);
+    const since = Math.min(...g.posted.map((p) => p.at));
+    const replies = Gchat.gchat_replies(await Google.replies(token, config.GCHAT_SPACE, since), b.me, config.GCHAT_SPACE, g, items);
+    for (const r of replies) {
+      Gchat.gchat_acted(g, r.name);
+      Memory.save(chat.mem);
+      const act = Gchat.gchat_act(r);
+      const done = act === null ? { error: "Not understood: " + (r.item.kind === "todo" ? "reply done or drop." : "reply undo (and what instead), or keep.") } : await Chat.act(chat, "gchat-" + r.name.split("/").at(-1), act, "");
+      if (done.error !== undefined) {
+        const tk = g.posted.find((p) => p.key === r.item.key)?.tk;
+        const said = tk === undefined ? null : await Gchat.gchat_post(url, tk, done.error);
+        if (said !== null && "error" in said) {
+          console.error("chat " + chat.acct.user + ": gchat: " + said.error);
+        }
+      }
+    }
   }
 
   // Routines
