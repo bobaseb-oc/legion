@@ -233,6 +233,14 @@ const BODIES     = ["say", "import", "voice"];
 // (Cloud.browser), so every act a view only may do is refused it
 const POSTED     = "api";
 
+// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// what agents may do: the mode, the plan, a waiting call's yes, a Claude
+// Code worker's start, a question's answer. A view's acts only (Chat.act):
+// a device's socket is within an agent's reach, so an agent must not
+// approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
+// device too: its /mode, /plan, /allow, /approve, /answer are refused
+const SAYS       = ["mode", "plan", "consent", "approve", "answer"];
+
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
 
@@ -1345,6 +1353,9 @@ export namespace Chat {
   export async function act(chat: Chat, id: string, msg: any, device: string): Promise<Answer> {
     if ("req" in msg && BODIES.includes(msg.$)) {
       return Chat.post(chat, id, msg);
+    }
+    if (device !== "" && SAYS.includes(msg.$)) {
+      return { error: "That is the user's say: give it in a view (the web)." };
     }
     switch (msg.$) {
       case "stop": {

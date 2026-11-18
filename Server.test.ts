@@ -986,6 +986,51 @@ test("the user switches the mode, and approves or rejects the orchestrator's pla
   });
 });
 
+// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// what agents may do (the mode, the plan, a waiting call, a worker's
+// start, a question's answer) is a view's act only: one from a device's
+// socket (within an agent's reach) is refused, nothing changed
+const VIEW_ONLY = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const go = new AbortController().signal;
+chat.mem.mode = "plan";
+await Tools.call(chat.tools, "main", "plan", { plan: "1. ship" }, go, "t1");
+await Tools.call(chat.tools, "main", "ask", { question: "Ship on Friday?" }, go, "q1");
+Tools.ask_user(chat.tools, "Wkr", "shell", { device: "mac", command: "make deploy" }, go);
+const call = Chat.state(chat).calls[0].id;
+const acts = [
+  { $: "mode", mode: "full" },
+  { $: "plan", yes: true, mode: "full" },
+  { $: "consent", n: call, yes: true },
+  { $: "approve", name: "Wkr", yes: true },
+  { $: "answer", q: 1, text: "yes" },
+];
+const refused = [];
+for (const [k, msg] of acts.entries()) {
+  refused.push((await Chat.act(chat, "d" + k, msg, "mac")).error ?? null);
+}
+const s = Chat.state(chat);
+console.log(JSON.stringify({ refused, mode: s.mode, plan: s.plan?.text ?? null, calls: s.calls.length, questions: s.questions.length }));
+process.exit(0);
+`;
+
+test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts only, refused from a device", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/views.ts", VIEW_ONLY);
+  const proc = Bun.spawn([process.execPath, dir + "/views.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.refused).toHaveLength(5);
+  for (const why of out.refused) {
+    expect(why).toMatch(/in a view/);
+  }
+  expect(out).toMatchObject({ mode: "plan", plan: "1. ship", calls: 1, questions: 1 });
+});
+
 // The question backlog: the orchestrator's open questions in the state;
 // an answer is the user's message quoting the question, and a turn; no
 // text dismisses it (a note, no turn); an unknown one is refused
