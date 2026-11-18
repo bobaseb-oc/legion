@@ -45,7 +45,9 @@ How it works
   rings; your reply in its thread answers it (a question's option by
   number or your words; a todo `done` or `drop`; a decision `undo [what
   instead]` or `keep`), and only yours counts. On with config
-  `gchat_space` (`spaces/...`) and the webhook's URL in the login
+  `gchat_space` (`spaces/...`), `gchat_user` (your id, as in
+  `~/.unii/users/<id>`: only that chat is bridged; unset, none is) and the
+  webhook's URL in the login
   Keychain (service `GCHAT_WEBHOOK_URL`), a key (never logged): the
   server `legion` starts reads it there itself (`UNII_GCHAT_KEYCHAIN=1`,
   set by the launcher), so it is never in the server's environment, which
