@@ -2,7 +2,8 @@
 // =====
 // Claude Code's hooks, gating Legion's device tools as they gate Claude
 // Code's: the PreToolUse and PostToolUse hooks of its settings files
-// (managed, the user's, the project's), each run with the stdin JSON
+// (managed, the user's, the project's) and of the plugins in HOOKED
+// (hooks/hooks.json, $CLAUDE_PLUGIN_ROOT set), each run with the stdin JSON
 // Claude Code gives it, under the tool's Claude Code name and input shape
 // (calls), so a hook written for Claude Code (the OnCorps guard) works
 // unchanged. A hook refuses a call by exit 2 (its stderr the reason) or by
@@ -23,8 +24,9 @@ import type { Job } from "./Machine.ts";
 // =====
 
 // a settings file, whether it is the org's (managed), whether a project's
-// (its .claude/settings*.json, which an agent working there can write)
-export type Source = { file: string; managed: boolean; project?: boolean };
+// (its .claude/settings*.json, which an agent working there can write);
+// plugin: a plugin's hooks.json, its root (its hooks' $CLAUDE_PLUGIN_ROOT)
+export type Source = { file: string; managed: boolean; project?: boolean; plugin?: string };
 
 // a tool call as Claude Code names it: its tool, its input
 export type Call = { tool: string; input: Record<string, unknown> };
@@ -33,7 +35,7 @@ export type Call = { tool: string; input: Record<string, unknown> };
 export type Gate = { deny: string | null; warn: string[] };
 
 // a hook to run: its shell command, its timeout (s), whether managed
-type Hook = { command: string; timeout: number; managed: boolean };
+type Hook = { command: string; timeout: number; managed: boolean; plugin?: string };
 
 // a hook's run: its exit code (null: it never ran or was killed), its
 // output, and why it failed to run
@@ -46,6 +48,13 @@ type Event = "PreToolUse" | "PostToolUse";
 
 // where Claude Code's managed settings live
 const MANAGED = process.platform === "darwin" ? "/Library/Application Support/ClaudeCode" : "/etc/claude-code";
+
+// RED ZONE (a new gate source, DRAFT awaiting the user's sign-off): the
+// plugins whose hooks gate Legion's tools as Claude Code's: the OnCorps
+// coding flows (oncorps-shared-skills), whose PreToolUse hook refuses
+// `gh pr create` until pre-ship polish has run for the commit. Others'
+// hooks (claude-mem's memory capture, ...) are left to Claude Code
+export const HOOKED = ["oc-coding-assistant"];
 
 // a hook's timeout when its settings give none, as Claude Code's (s)
 const TIMEOUT = 60;
@@ -78,7 +87,27 @@ export namespace Hooks {
       { file: Hooks.home() + "/settings.json", managed: false },
       { file: project + "/.claude/settings.json", managed: false, project: true },
       { file: project + "/.claude/settings.local.json", managed: false, project: true },
+      ...Hooks.plugins(Hooks.home()).filter((p) => HOOKED.includes(p.name)).map((p) => ({ file: p.root + "/hooks/hooks.json", managed: false, plugin: p.root })),
     ];
+  }
+
+  // the plugins enabled for the user (settings.json enabledPlugins) at
+  // their user-scoped installed version (installed_plugins.json), as
+  // Claude Code loads them: none disabled, local to a project, or old
+  export function plugins(dir: string): { name: string; root: string }[] {
+    const json = (file: string): any => {
+      try {
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch {
+        return {};
+      }
+    };
+    const enabled = json(dir + "/settings.json").enabledPlugins ?? {};
+    const installed = json(dir + "/plugins/installed_plugins.json").plugins ?? {};
+    return Object.entries(installed).flatMap(([key, entries]) => {
+      const user = (Array.isArray(entries) ? entries : [entries]).find((e: any) => e?.scope === "user");
+      return enabled[key] === true && typeof user?.installPath === "string" ? [{ name: key.split("@")[0]!, root: user.installPath as string }] : [];
+    });
   }
 
   // RED ZONE (security review follow-up, DRAFT awaiting the user's
@@ -231,7 +260,7 @@ export namespace Hooks {
         }
         for (const h of Array.isArray(g?.hooks) ? g.hooks : []) {
           if (h?.type === "command" && typeof h.command === "string") {
-            hooks.push({ command: h.command, timeout: Number(h.timeout) > 0 ? Number(h.timeout) : TIMEOUT, managed: s.managed });
+            hooks.push({ command: h.command, timeout: Number(h.timeout) > 0 ? Number(h.timeout) : TIMEOUT, managed: s.managed, plugin: s.plugin });
           } else if (s.managed) {
             // a managed hook of a kind not run here (prompt, http): can't run
             return { hooks: [], broken: "a managed " + String(h?.type) + " hook can't run here" };
@@ -261,7 +290,7 @@ export namespace Hooks {
   async function exec(h: Hook, told: object, cwd: string, signal: AbortSignal): Promise<Ran> {
     let proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
     try {
-      proc = Bun.spawn(["/bin/sh", "-c", h.command], { cwd, env: { ...process.env, CLAUDE_PROJECT_DIR: Hooks.project(cwd) }, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true });
+      proc = Bun.spawn(["/bin/sh", "-c", h.command], { cwd, env: { ...process.env, CLAUDE_PROJECT_DIR: Hooks.project(cwd), ...(h.plugin !== undefined ? { CLAUDE_PLUGIN_ROOT: h.plugin } : {}) }, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true });
     } catch (err: any) {
       return { code: null, out: "", err: "", failed: "can't start: " + say(String(err?.message ?? err)) };
     }

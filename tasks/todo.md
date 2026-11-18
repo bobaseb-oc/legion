@@ -1152,3 +1152,18 @@ baseline: proposal on:true, no Unii-only, no device guard, stop keeps timers, cl
 Unii's timer no turn. Full suite 581 pass, 2 fail (the known log-staging pair). tsc (strict, 6.0.3
 from another repo's node_modules, no install) on changed lines: only environment noise after
 adding View State.timers. Timer granularity is the 60 s tick.
+
+## Legion uses oc-coding-assistant for PR work (feat/oc-coding-flows)
+
+Intent: Legion's agents open, review, fix and rebase PRs only through oc-coding-assistant's own flows (source: oncorps-shared-skills, 0.x), enforced by the plugin's own gate, not a copy of it.
+Constraints: Legion side only, plugin untouched; resolve the plugin via installed_plugins.json (no hardcoded version); oc only (coding-assistant@home left out of Legion).
+Success: an unpolished `gh pr create` by a Legion agent is refused by the plugin's PreToolUse hook; the review/fix-pr/rebase commands and pr-reviewer agent are in the index; the rules send PR review through /oc-coding-assistant:review.
+
+- [x] Red: Hooks.test.ts: an enabled, allowlisted plugin's hooks.json is a source with its root; a disabled, unlisted or excluded one is not; its hook runs with CLAUDE_PLUGIN_ROOT; a user's disableAllHooks drops it; the installed oc gate refuses unpolished `gh pr create` and allows after mark-polished
+- [x] Red: local/skills.test.ts: commands/*.md and agents/*.md indexed; coding-assistant@home excluded
+- [x] Hooks.ts: Hooks.plugins + HOOKED allowlist, plugin sources, CLAUDE_PLUGIN_ROOT (RED ZONE: a new gate source, DRAFT awaiting sign-off) → verify: Hooks tests green
+- [x] skills.ts: commands and agents, EXCLUDE coding-assistant → verify: skills tests green
+- [x] local/rules.md: "PR work: oc-coding-assistant" section
+- [x] Mutation check on the plugin-source and allowlist lines; full suite
+
+Review: Hooks.ts runs oc-coding-assistant's own hooks.json (HOOKED allowlist, enabled + user-scoped via installed_plugins.json, CLAUDE_PLUGIN_ROOT set; a failing plugin hook only warns, the user's disableAllHooks drops it). The real installed gate refuses an unpolished `gh pr create` through Hooks.pre and allows it after mark-polished (Hooks.test.ts). skills.ts indexes plugin commands/agents ([command]/[agent]) and excludes coding-assistant@home; real index: 85 entries, 32 oc. rules.md routes all PR review through /oc-coding-assistant:review. Mutants 7/7 killed. Full suite 583 pass; 2 known logs.test.ts failures, plus Cloud.test.ts link_ask flaky under load (passes 3/3 alone, Cloud.ts untouched). Cost: two python3 spawns per Legion shell call (Pre + Post hooks). RED ZONE: the new gate source awaits the user's sign-off. Review itself is rule-enforced only: no hook can tell an improvised review from the command's.

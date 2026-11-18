@@ -128,7 +128,7 @@ test("a project's disableAllHooks drops no hook; the project's settings are mark
   const proj = script("pown.sh", `echo project >&2; exit 2`);
   const repo = fs.mkdtempSync(DIR + "/proj-");
   expect(Hooks.sources(repo).filter((s) => s.project === true).map((s) => s.file)).toEqual([repo + "/.claude/settings.json", repo + "/.claude/settings.local.json"]);
-  expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed).map((s) => s.file)).toEqual([os.homedir() + "/.claude/settings.json"]);
+  expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed && s.plugin === undefined).map((s) => s.file)).toEqual([os.homedir() + "/.claude/settings.json"]);
   const src: Source[] = [
     { file: settings("puser", [group("Bash", deny)]), managed: false },
     { file: settings("pproj", [], [], { disableAllHooks: true }), managed: false, project: true },
@@ -187,7 +187,7 @@ test("the user's settings come from $CLAUDE_CONFIG_DIR, and write and edit refus
   const repo = fs.mkdtempSync(DIR + "/cproj-");
   try {
     process.env.CLAUDE_CONFIG_DIR = DIR + "/conflink";
-    expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed).map((s) => s.file)).toEqual([DIR + "/conflink/settings.json"]);
+    expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed && s.plugin === undefined).map((s) => s.file)).toEqual([DIR + "/conflink/settings.json"]);
     for (const p of [conf + "/settings.json", conf.toUpperCase() + "/hooks/x.sh", DIR + "/conflink/agents/x.md", os.homedir() + "/.claude/x.md"]) {
       expect([p, Machine.gating(p)]).toEqual([p, true]);
     }
@@ -196,8 +196,81 @@ test("the user's settings come from $CLAUDE_CONFIG_DIR, and write and edit refus
     expect(fs.readdirSync(conf)).toEqual([]);
     expect(Machine.gating(repo + "/notes.md")).toBe(false);
     process.env.CLAUDE_CONFIG_DIR = "";
-    expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed).map((s) => s.file)).toEqual([os.homedir() + "/.claude/settings.json"]);
+    expect(Hooks.sources(repo).filter((s) => s.project !== true && !s.managed && s.plugin === undefined).map((s) => s.file)).toEqual([os.homedir() + "/.claude/settings.json"]);
   } finally {
     was === undefined ? delete process.env.CLAUDE_CONFIG_DIR : (process.env.CLAUDE_CONFIG_DIR = was);
   }
+});
+
+// a Claude Code dir with plugins: each [name@market, enabled, scope], its
+// hooks.json giving a PreToolUse Bash hook that runs `body`
+function plugged(list: [string, boolean, string][], body = "exit 0", more: object = {}): string {
+  const conf = fs.mkdtempSync(DIR + "/plug-");
+  const enabled: Record<string, boolean> = {};
+  const installed: Record<string, object[]> = {};
+  for (const [key, on, scope] of list) {
+    const root = conf + "/plugins/cache/" + key.replace("@", "/") + "/1.0";
+    fs.mkdirSync(root + "/hooks", { recursive: true });
+    fs.writeFileSync(root + "/hooks/hooks.json", JSON.stringify({ hooks: { PreToolUse: [group("Bash", body)] } }));
+    enabled[key] = on;
+    installed[key] = [{ scope, installPath: root }];
+  }
+  fs.writeFileSync(conf + "/settings.json", JSON.stringify({ enabledPlugins: enabled, ...more }));
+  fs.writeFileSync(conf + "/plugins/installed_plugins.json", JSON.stringify({ version: 2, plugins: installed }));
+  return conf;
+}
+async function within<T>(conf: string, f: () => Promise<T> | T): Promise<T> {
+  const was = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = conf;
+  try {
+    return await f();
+  } finally {
+    was === undefined ? delete process.env.CLAUDE_CONFIG_DIR : (process.env.CLAUDE_CONFIG_DIR = was);
+  }
+}
+
+test("only an enabled, user-installed oc-coding-assistant's hooks join the sources, with its root", async () => {
+  const conf = plugged([["oc-coding-assistant@oss", true, "user"], ["coding-assistant@home", true, "user"], ["claude-mem@m", true, "user"], ["other@m", true, "user"]]);
+  const plugs = await within(conf, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined));
+  const root = conf + "/plugins/cache/oc-coding-assistant/oss/1.0";
+  expect(plugs).toEqual([{ file: root + "/hooks/hooks.json", managed: false, plugin: root }]);
+  // disabled, or installed only for a project: none
+  for (const off of [plugged([["oc-coding-assistant@oss", false, "user"]]), plugged([["oc-coding-assistant@oss", true, "local"]])]) {
+    expect(await within(off, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined))).toEqual([]);
+  }
+});
+
+test("a plugin's hook runs with CLAUDE_PLUGIN_ROOT and refuses; the user's disableAllHooks drops it", async () => {
+  const deny = `echo "{\\"hookSpecificOutput\\":{\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"root=$CLAUDE_PLUGIN_ROOT\\"}}"`;
+  const conf = plugged([["oc-coding-assistant@oss", true, "user"]], deny);
+  const gate = await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(gate.deny).toBe("root=" + conf + "/plugins/cache/oc-coding-assistant/oss/1.0");
+  const off = plugged([["oc-coding-assistant@oss", true, "user"]], deny, { disableAllHooks: true });
+  expect((await within(off, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBeNull();
+});
+
+// the real oc-coding-assistant, where it is installed: its gate refuses a
+// PR from a Legion agent until pre-ship polish has run for the commit
+const OC = (() => {
+  const all = (() => { try { return JSON.parse(fs.readFileSync(os.homedir() + "/.claude/plugins/installed_plugins.json", "utf8")).plugins ?? {}; } catch { return {}; } })();
+  const key = Object.keys(all).find((k) => k.startsWith("oc-coding-assistant@"));
+  return key ? (all[key] as any[]).find((e) => e?.scope === "user")?.installPath as string | undefined : undefined;
+})();
+test.skipIf(OC === undefined || !fs.existsSync(OC + "/hooks/hooks.json"))("the installed oc-coding-assistant refuses an unpolished gh pr create through Legion, and allows a polished one", async () => {
+  const repo = fs.mkdtempSync(DIR + "/ocrepo-");
+  const git = (...a: string[]) => Bun.spawnSync(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);
+  git("init", "-q", "-b", "main");
+  fs.writeFileSync(repo + "/a.py", "x = 1\n");
+  git("add", "."); git("commit", "-qm", "base");
+  git("switch", "-qc", "feat/x");
+  fs.writeFileSync(repo + "/a.py", "x = 2\n");
+  git("commit", "-qam", "change");
+  const conf = fs.mkdtempSync(DIR + "/occonf-");
+  fs.mkdirSync(conf + "/plugins");
+  fs.writeFileSync(conf + "/settings.json", JSON.stringify({ enabledPlugins: { "oc-coding-assistant@x": true } }));
+  fs.writeFileSync(conf + "/plugins/installed_plugins.json", JSON.stringify({ plugins: { "oc-coding-assistant@x": [{ scope: "user", installPath: OC }] } }));
+  const pr = () => within(conf, () => Hooks.pre(Hooks.sources(repo).filter((s) => s.plugin !== undefined), "Bash", { command: "gh pr create --base main --fill" }, repo, "A", live()));
+  expect((await pr()).deny).toContain("Pre-ship polish has not run");
+  expect(Bun.spawnSync(["python3", OC + "/scripts/ca_telemetry.py", "mark-polished", "--cwd", repo]).exitCode).toBe(0);
+  expect((await pr()).deny).toBeNull();
 });
