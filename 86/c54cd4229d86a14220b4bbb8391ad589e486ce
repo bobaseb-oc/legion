@@ -1,0 +1,36 @@
+web/src/main.ts
+  s_f610e34a306ba7::t_9f72087e14af28 1270-1271
+  s_f610e34a306ba7::t_472db43d80a286 1366-1368
+Html.test.ts
+  s_f610e34a306ba7::t_02e4ddf1d94ffe 302
+  s_f610e34a306ba7::t_79424b6f0640df 282-301,303-306
+  s_f610e34a306ba7::t_272b8180426bd9 281
+web/style.css
+  s_f610e34a306ba7::t_5c0b1090527155 182-183
+web/app.js
+  s_f610e34a306ba7::t_bcb04b1e41000a 520-529,630,656,673-752,1523,1885-1888,2263-2273,2830-2841,3231,3313,3422,3464,3484,4739,4818
+web/src/Html.ts
+  s_f610e34a306ba7::t_af49a4ca1ffd2e 246
+  s_f610e34a306ba7::t_0d706e62d172f3 242
+  s_f610e34a306ba7::t_936d0673d8e41f 236-241,243-245,247-251
+Cockpit.ts
+  s_f610e34a306ba7::t_d7f4029f8a7743 612
+View.ts
+  s_f610e34a306ba7::t_aabaaae3f52c45 864
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "86c54cd4229d86a14220b4bbb8391ad589e486ce",
+  "prompts": {},
+  "sessions": {
+    "s_f610e34a306ba7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b4fcd35-e705-4b53-b4c5-e8443bde3971",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
