@@ -67,8 +67,10 @@ How it works
   or device is left, the space is told "Legion stopped listening".
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
-  PostToolUse hooks in your managed, user and project settings (so the
-  OnCorps guard blocks here too). `!cmd` runs a shell command yourself.
+  PostToolUse hooks in your managed, user and project settings and of
+  oc-coding-assistant (so the OnCorps guard blocks here too; a managed
+  or oc-coding-assistant hook that crashes or times out refuses the
+  call). `!cmd` runs a shell command yourself.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
   checks each change; anything it can't decide comes to you), super
   auto (the default: as auto, and a question of a kind you answered with
@@ -132,7 +134,10 @@ Run it
 
 You need [Bun](https://bun.sh), the gateway's `LITELLM_API_BASE` and
 `LITELLM_API_KEY` in your environment, and optionally Docker (for web
-search through a local SearXNG).
+search through a local SearXNG). The launcher hands the server the key
+on fd 3 (`UNII_ANTHROPIC_KEY_FD=3`), never in its environment, which any
+process of yours can read (`ps -wwE`); so no workers then. A server run
+by hand (`bun Server.ts`) reads `ANTHROPIC_API_KEY` instead.
 
     local/legion              # starts the server if needed, opens the chat
     local/legion web          # the web UI, signed in as your terminal

@@ -115,9 +115,29 @@ const GCHAT_KEYCHAIN = process.env.UNII_GCHAT_KEYCHAIN === "1";
 // RED ZONE (R8, signed off by the user 2026-11-19): the one user whose
 // chat it bridges (their id, as in users/<id>); none: no one's
 export const GCHAT_USER  = config_get("gchat_user", "");
+// RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+// the gateway's key (KEYS.anthropic) read once, here, from the file
+// descriptor UNII_ANTHROPIC_KEY_FD names (3-9; the launcher's server_exec
+// sets 3, a pipe its printf builtin writes the key into), then the fd
+// closed, so it is in neither this server's environment nor its arguments
+// (`ps -wwE` shows both to any process of this user). Then an
+// ANTHROPIC_API_KEY in the environment is not used, and no worker can be
+// given the key (config_env would put it in their environment): workers
+// refuse to start. Unset (tests, `bun Server.ts` by hand), ANTHROPIC_API_KEY
+// is read like the other keys. No key on it, or no such fd: no start,
+// said without a key
+const KEY_FD = process.env.UNII_ANTHROPIC_KEY_FD;
+delete process.env.UNII_ANTHROPIC_KEY_FD;
+
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
 if (GCHAT_KEYCHAIN && GCHAT_SPACE !== "") {
   KEYS.gchat = await config_keychain(VARS.gchat!);
+}
+if (KEY_FD !== undefined) {
+  KEYS.anthropic = config_fd(KEY_FD);
+  if (WORKERS > 0) {
+    throw new Error("config: workers get the keys in their environment, and the gateway's key came on a file descriptor (UNII_ANTHROPIC_KEY_FD): run with no workers");
+  }
 }
 
 // Config
@@ -178,6 +198,29 @@ function config_key(name: string): string {
   return key;
 }
 
+// a key read whole from the file descriptor named (3-9), which is then
+// closed; refused (thrown, never with the key) if none is on it
+function config_fd(text: string): string {
+  if (!/^[3-9]$/.test(text)) {
+    throw new Error("config: UNII_ANTHROPIC_KEY_FD is no file descriptor 3-9");
+  }
+  const fd = Number(text);
+  let key = "";
+  try {
+    key = fs.readFileSync(fd, "utf8").trim();
+  } catch {
+    throw new Error("config: can't read the gateway's key on file descriptor " + fd);
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {}
+  }
+  if (key === "") {
+    throw new Error("config: no gateway key on file descriptor " + fd);
+  }
+  return key;
+}
+
 // a key kept in the login Keychain as the generic password of service
 // name (the README's `security add-generic-password`); "" if none or
 // refused, said without it (Auth.security: the value never in an argument
@@ -193,8 +236,9 @@ async function config_keychain(name: string): Promise<string> {
 
 // the environment a worker of this server starts with: this one, with
 // the keys back (the GChat webhook not, read from the Keychain: a worker
-// reads it again, with UNII_GCHAT_KEYCHAIN)
+// reads it again, with UNII_GCHAT_KEYCHAIN; nor the gateway's, if it came
+// on a file descriptor: no workers then)
 export function config_env(): Record<string, string | undefined> {
-  const keys = Object.entries(VARS).filter(([name]) => !(GCHAT_KEYCHAIN && name === "gchat")).map(([name, v]) => [v, KEYS[name]]);
+  const keys = Object.entries(VARS).filter(([name]) => !(GCHAT_KEYCHAIN && name === "gchat") && !(KEY_FD !== undefined && name === "anthropic")).map(([name, v]) => [v, KEYS[name]]);
   return { ...process.env, ...Object.fromEntries(keys) };
 }

@@ -49,13 +49,21 @@ test("the launcher sees the server up over its socket, not the TCP port", () => 
 // its plist holds paths and settings only, never a key: the server reads
 // the gateway's key at its start from the helper named (UNII_KEY_HELPER,
 // e.g. Claude Code's apiKeyHelper). launchctl and plutil are fakes here,
-// so nothing is installed
+// so nothing is installed. The fake bun tells the names of its
+// environment; started on Server.ts, also its arguments and the length
+// of what it reads on fd 3 (the gateway's key: never its value)
+const BUN = `#!/bin/sh
+env | cut -d= -f1
+case "$1" in
+  */Server.ts) echo "ARGS=$*"; n=$( { cat <&3; } 2>/dev/null | wc -c | tr -d ' '); echo "KEYLEN=$n" ;;
+esac
+`;
 function fakes(): { bin: string; home: string; dir: string; said: string; helper: string } {
   const bin = fs.mkdtempSync(os.tmpdir() + "/legion-bin-");
   const said = bin + "/launchctl.args";
   fs.writeFileSync(bin + "/launchctl", "#!/bin/sh\necho \"$@\" >>" + JSON.stringify(said) + "\n");
   fs.writeFileSync(bin + "/plutil", "#!/bin/sh\nexit 0\n");
-  fs.writeFileSync(bin + "/bun", "#!/bin/sh\nenv | cut -d= -f1\n");
+  fs.writeFileSync(bin + "/bun", BUN);
   const helper = bin + "/key-helper";
   fs.writeFileSync(helper, "#!/bin/sh\necho fake-key-from-helper\n");
   for (const f of ["launchctl", "plutil", "bun", "key-helper"]) {
@@ -104,8 +112,20 @@ test("legion server-run (the agent's) takes the gateway's key from its helper, a
   const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env });
   expect(out.exitCode).toBe(0);
   const names = out.stdout.toString().split("\n");
-  expect(names).toContain("ANTHROPIC_API_KEY");
   expect(names).toContain("UNII_ANTHROPIC_URL");
+  // RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+  // the key reaches the server on fd 3, never in its environment or
+  // arguments (and not in those of the launcher's other bun runs)
+  expect(names).toContain("KEYLEN=" + "fake-key-from-helper".length);
+  expect(names).toContain("UNII_ANTHROPIC_KEY_FD");
+  expect(names).not.toContain("ANTHROPIC_API_KEY");
+  expect(names).not.toContain("LITELLM_API_KEY");
+  expect(out.stdout.toString()).not.toContain("fake-key-from-helper");
+  // the launcher's own bun runs before it (skills, MCP: their output on
+  // stderr) don't get it either: it is not exported
+  const before = out.stderr.toString().split("\n");
+  expect(before).toContain("UNII_KEY_HELPER");
+  expect(["LITELLM_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => before.includes(k))).toEqual([]);
   // RED ZONE (security review R6, signed off by the user 2026-11-19):
   // the GChat webhook's URL never in the server's environment (any
   // process of this user reads it: ps -E); the server reads the Keychain
@@ -114,4 +134,27 @@ test("legion server-run (the agent's) takes the gateway's key from its helper, a
   const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env: { ...env, UNII_KEY_HELPER: "" } });
   expect(none.exitCode).not.toBe(0);
   expect(none.stdout.toString()).not.toContain("ANTHROPIC_API_KEY");
+});
+
+// RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off): the
+// server started from a shell (`legion serve`; `legion` and `legion start`
+// run the same server_exec) gets the gateway's key on fd 3, with neither
+// ANTHROPIC_API_KEY nor LITELLM_API_KEY in its environment, which any
+// process of this user reads (ps -wwE); with no key it doesn't start
+test("legion serve hands the server the gateway's key on fd 3, none in its environment", () => {
+  const f = fakes();
+  const key = "sk-fake-gateway-key-0123";
+  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", LITELLM_API_KEY: key, ANTHROPIC_API_KEY: "sk-stray", LITELLM_KEY: "sk-stray", ANTHROPIC_AUTH_TOKEN: "sk-stray" };
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "serve"], { env });
+  expect(out.exitCode).toBe(0);
+  const text = out.stdout.toString();
+  const names = text.split("\n");
+  expect(names).toContain("KEYLEN=" + key.length);
+  expect(names).toContain("UNII_ANTHROPIC_KEY_FD");
+  expect(SECRETS.filter((k) => names.includes(k))).toEqual([]);
+  expect(text).not.toContain(key);
+  expect(text).not.toContain("sk-stray");
+  const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "serve"], { env: { ...env, LITELLM_API_KEY: "" } });
+  expect(none.exitCode).not.toBe(0);
+  expect(none.stdout.toString()).not.toContain("ARGS=");
 });

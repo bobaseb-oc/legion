@@ -104,3 +104,53 @@ test("gchat webhook: read from the Keychain by the server, never kept in its env
   const off = keychain({ UNII_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://dev.example/hook" });
   expect(off.out).toEqual({ hook: false, other: true, empty: false, calls: [], env: false, worker: true });
 });
+
+// RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+// with UNII_ANTHROPIC_KEY_FD=3 (the launcher's server_exec) the gateway's
+// key is read once, at the start, from fd 3 (a pipe), then the fd closed;
+// never from the environment (any process of this user reads that: ps
+// -wwE), nor put in a worker's (so no workers then: refused). Without it
+// (tests, a server run by hand) ANTHROPIC_API_KEY is read as before. The
+// key's length is told, never its value
+const FD = `
+import * as fs from "node:fs";
+const c = await import("./Config.ts");
+const env = c.config_env();
+let open = true;
+try { fs.fstatSync(3); } catch { open = false; }
+console.log(JSON.stringify({ len: c.KEYS.anthropic.length, env: "ANTHROPIC_API_KEY" in process.env, told: "UNII_ANTHROPIC_KEY_FD" in process.env, worker: "ANTHROPIC_API_KEY" in env, worker_told: "UNII_ANTHROPIC_KEY_FD" in env, open }));
+`;
+
+// Config imported with `key` piped to its fd 3 (null: fd 3 not open)
+function piped(key: string | null, env: Record<string, string | undefined>): { code: number; out: any; text: string } {
+  const all = { ...process.env, UNII_DIR: DIR, ANTHROPIC_API_KEY: undefined, UNII_ANTHROPIC_KEY_FD: undefined, UNII_WORKERS: undefined, PIPED: key ?? "", ...env };
+  const run = key === null ? 'exec "$0" -e "$1" 3<&-' : 'printf "%s" "$PIPED" | exec "$0" -e "$1" 3<&0 </dev/null';
+  const out = Bun.spawnSync(["/bin/sh", "-c", run, process.execPath, FD], { cwd: import.meta.dir, env: all });
+  const stdout = out.stdout.toString().trim();
+  return { code: out.exitCode, out: stdout === "" ? null : JSON.parse(stdout), text: stdout + out.stderr.toString() };
+}
+
+test("gateway key: read from fd 3 when told (the launcher's), never from or into an environment", () => {
+  const key = "sk-fake-fd-key-0123456789";
+  const on = piped(key, { UNII_ANTHROPIC_KEY_FD: "3", ANTHROPIC_API_KEY: "sk-stray-env" });
+  expect(on.code).toBe(0);
+  expect(on.out).toEqual({ len: key.length, env: false, told: false, worker: false, worker_told: false, open: false });
+  expect(on.text).not.toContain(key);
+  // a trailing newline is not the key's
+  expect(piped(key + "\n", { UNII_ANTHROPIC_KEY_FD: "3" }).out.len).toBe(key.length);
+  // none on it, fd 3 not open, or no fd 3-9: no start, said without a key
+  for (const [k, fd] of [["", "3"], [null, "3"], [key, "0"], [key, "1"], [key, "abc"], [key, ""]] as [string | null, string][]) {
+    const out = piped(k, { UNII_ANTHROPIC_KEY_FD: fd });
+    expect([fd, k === null, out.code === 0]).toEqual([fd, k === null, false]);
+    expect(out.text).toContain("config: ");
+    expect(out.text).not.toContain(key);
+  }
+  // workers would need it in their environment: refused
+  const workers = piped(key, { UNII_ANTHROPIC_KEY_FD: "3", UNII_WORKERS: "2" });
+  expect(workers.code).not.toBe(0);
+  expect(workers.text).toContain("config: workers");
+  expect(workers.text).not.toContain(key);
+  // not told (tests, a server run by hand): the environment's, as before (fd 3, closed at the start, is then bun's own: not asked)
+  const off = piped(null, { ANTHROPIC_API_KEY: "sk-env-key" });
+  expect({ ...off.out, open: undefined }).toEqual({ len: "sk-env-key".length, env: false, told: false, worker: true, worker_told: false, open: undefined });
+}, 30_000);

@@ -83,11 +83,17 @@ searxng_start() {
 # rules live (local/rules.md), no mail or push keys, and (RED ZONE,
 # security review R6, signed off by the user 2026-11-19) no GChat
 # webhook: the server reads it from the Keychain (UNII_GCHAT_KEYCHAIN=1),
-# as its environment is readable by any process of this user (ps -wwE)
+# as its environment is readable by any process of this user (ps -wwE).
+# RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+# for the same reason the gateway's key is in neither its environment
+# nor its arguments: it is written by the printf builtin into a pipe the
+# server reads once, at its start, as fd 3 (UNII_ANTHROPIC_KEY_FD, Config.ts)
 server_exec() {
+  local key="${LITELLM_API_KEY:?set LITELLM_API_KEY}"
   exec env -u RESEND_API_KEY -u APNS_KEY -u OPENAI_API_KEY -u GCHAT_WEBHOOK_URL \
+    -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
     UNII_GCHAT_KEYCHAIN=1 \
-    ANTHROPIC_API_KEY="${LITELLM_API_KEY:?set LITELLM_API_KEY}" \
+    UNII_ANTHROPIC_KEY_FD=3 \
     UNII_ANTHROPIC_URL="${LITELLM_API_BASE:?set LITELLM_API_BASE}" \
     UNII_PICK="${UNII_PICK:-claude-api:opus-5.5:high:slow}" \
     UNII_COMPACTOR="${UNII_COMPACTOR:-claude-api:haiku-5.5:high:slow}" \
@@ -96,13 +102,14 @@ server_exec() {
     UNII_MCP="$DIR/mcp.json" \
     UNII_RULES="${UNII_RULES:-$ROOT/local/rules.md}" \
     UNII_SITE="$URL" \
-    bun "$ROOT/Server.ts" "$PORT"
+    bun "$ROOT/Server.ts" "$PORT" 3< <(printf '%s' "$key")
 }
 
 # the server as launchd runs it (`legion server --install`): the gateway's
 # key, never in its plist, is read at each start from the helper named
 # (an absolute path to an executable that prints it, as Claude Code's
-# apiKeyHelper). A server already up (one `legion` started) is waited on
+# apiKeyHelper), kept in a shell variable only (not exported: the bun runs
+# before the server's don't get it) for server_exec. A server already up (one `legion` started) is waited on
 # for 10 s, then this one ends and launchd starts it again later: one
 # server per user (Server.ts Main.lock)
 server_run() {
@@ -110,7 +117,6 @@ server_run() {
     key_helper_check || return 1
     LITELLM_API_KEY="$("$UNII_KEY_HELPER")" || { echo "legion: $UNII_KEY_HELPER failed: no key for the server" >&2; return 1; }
     [[ -n "$LITELLM_API_KEY" ]] || { echo "legion: $UNII_KEY_HELPER printed no key" >&2; return 1; }
-    export LITELLM_API_KEY
   fi
   searxng_start
   skills_make

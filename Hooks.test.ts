@@ -351,3 +351,38 @@ test("a plugin's disableAllHooks drops no hook", async () => {
   fs.writeFileSync(file, JSON.stringify({ disableAllHooks: true, hooks: { PreToolUse: [group("Bash", "exit 0")] } }));
   expect((await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBe("user");
 });
+
+// RED ZONE (security review 3 H1, DRAFT awaiting the user's sign-off): an
+// allowlisted plugin's hook that can't run (crashed, an unexpected exit,
+// missing, timed out) refuses the call, as a managed one: the PR gate fails
+// closed. Its exit 0, exit 2 and deny mean what they always did
+test("an allowlisted plugin's hook that crashes or times out refuses the call, through Hooks.pre and Machine.run", async () => {
+  const hooked = (command: string, timeout?: number) => {
+    const conf = plugged([[OCKEY, true, "user"]]);
+    fs.writeFileSync(conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0/hooks/hooks.json", JSON.stringify({ hooks: { PreToolUse: [group("Bash", command, timeout)] } }));
+    return conf;
+  };
+  const pre = (conf: string) => within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  for (const cmd of ["exit 7", "kill -9 $$", DIR + "/no-such-plugin-hook"]) {
+    const gate = await pre(hooked(cmd));
+    expect([cmd, gate.deny]).toEqual([cmd, expect.stringContaining("the hook of " + OCKEY)]);
+  }
+  const t0 = Date.now();
+  const slow = hooked("sleep 5", 0.3);
+  const timed = await pre(slow);
+  expect(timed.deny).toContain("the hook of " + OCKEY);
+  expect(timed.deny).toContain("timed out");
+  expect(Date.now() - t0).toBeLessThan(3000);
+  // through Machine.run, the shell never runs, crashed or timed out
+  fs.mkdirSync(DIR + "/P", { recursive: true });
+  for (const conf of [hooked("exit 7"), slow]) {
+    const mark = DIR + "/plugcrash-ran";
+    const run = await within(conf, () => Machine.run({ name: "shell", input: { command: "touch " + mark }, cwd: "P" }, DIR, live()));
+    expect(run.fail).toBe(true);
+    expect(run.text).toContain("Refused by a hook: the hook of " + OCKEY);
+    expect(fs.existsSync(mark)).toBe(false);
+  }
+  // unchanged: exit 0 allows, exit 2 refuses with its stderr
+  expect((await pre(hooked("exit 0"))).deny).toBeNull();
+  expect((await pre(hooked("echo nope >&2; exit 2"))).deny).toBe("nope");
+});
