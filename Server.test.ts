@@ -381,7 +381,7 @@ process.exit(0);
 `;
 
 // A person's !command: the user's own shell command (RED ZONE, DRAFT),
-// from a view only (Chat.user_says: never a device's socket, an act posted
+// from what speaks for the user only (a view or the terminal's own key: never a device's key, an act posted
 // with no browser's session, an agent's tool call), run ungated as a
 // user_shell job on the device named (else the only one open), told to
 // the views as it starts; its command and output (capped) a note the AI
@@ -437,8 +437,13 @@ const unknown = await Chat.act(chat, "b9", { $: "bang", command: "ls", device: "
 const picked = await Chat.act(chat, "b10", { $: "bang", command: "ls", device: "mac", dir: "/r/it's here" }, "");
 const there = jobs.mac.at(-1);
 const baddir = await Chat.act(chat, "b11", { $: "bang", command: "ls", device: "mac", dir: "x".repeat(2000) }, "");
+// the terminal's own key (says): its socket speaks for the user, so its
+// !command runs, on its own device
+const tbefore = jobs.pc.length;
+const termed = await Chat.act(chat, "b12", { $: "bang", command: "echo t" }, "pc", true);
+const termjob = jobs.pc.length === tbefore + 1 ? jobs.pc.at(-1).job : null;
 console.log(JSON.stringify({ none, one, first: first && first.job, empty, device, posted, refused, ran, job: job && job.job, note, capped, agent: agent.fail, agented, late, told: told.slice(0, 2), busy: chat.busy,
-  several: several.error ?? null, unknown: unknown.error ?? null, picked, there: there && there.job.input.command, baddir: "error" in baddir }));
+  several: several.error ?? null, unknown: unknown.error ?? null, picked, there: there && there.job.input.command, baddir: "error" in baddir, termed, termjob: termjob && termjob.input.command }));
 process.exit(0);
 `;
 
@@ -1216,7 +1221,7 @@ test("!command: the user's own, from a view only, run ungated on the device name
   fs.writeFileSync(dir + "/bang.ts", BANG);
   const proc = Bun.spawn([process.execPath, dir + "/bang.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
-  const yours = "Only you run a !command, from a view (the web): a terminal's or device's socket is within an agent's reach, so it can't speak for you.";
+  const yours = "Only you run a !command: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you.";
   expect(out).toEqual({
     none: { error: "No device is open: run legion (or legion device) on one." }, one: {},
     first: { name: "user_shell", input: { command: "ls" }, cwd: "main" }, empty: { error: "No command." },
@@ -1227,6 +1232,7 @@ test("!command: the user's own, from a view only, run ungated on the device name
     told: ["Running on mac: $ ls", "Running on pc: $ echo hi"], busy: false,
     several: "Several devices are open (mac, pc): name one, as !@mac <command>.",
     unknown: "No device nas is open: mac, pc.", picked: {}, there: "cd '/r/it'\\''s here' && ls", baddir: true,
+    termed: {}, termjob: "echo t",
   });
 });
 

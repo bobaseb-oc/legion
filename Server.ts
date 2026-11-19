@@ -1524,7 +1524,7 @@ export namespace Chat {
         return Chat.reply(chat, id, Number(msg.q), msg.text === undefined || msg.text === null ? "" : String(msg.text).trim());
       }
       case "bang": {
-        return Chat.bang(chat, id, String(msg.command ?? "").trim(), device, msg.device, msg.dir);
+        return Chat.bang(chat, id, String(msg.command ?? "").trim(), device, says, msg.device, msg.dir);
       }
       case "tell": {
         // the person's message to an agent, as Unii's tell; refused as a
@@ -2647,28 +2647,15 @@ const LIKES = 30;
     return {};
   }
 
-  // RED ZONE (DRAFT awaiting the user's sign-off): whether an act's
-  // origin speaks for the user, so may do what only they may (their own
-  // !command, run past every gate: Chat.bang). THE one place this is
-  // decided. Today a view only: a browser's socket or act posted with a
-  // browser's session (device "": R1). Never a device's socket (a
-  // terminal's too: its token is within an agent shell's reach), an act
-  // posted with no browser's session (POSTED), an agent's tool call (it
-  // never reaches Chat.act), a routine or timer (they post words, not
-  // acts). The GChat bridge acts as a view too, but makes only answers,
-  // assignments and decisions (Gchat.gchat_act). The terminal's own key
-  // (a socket proven the user's, not an agent's) is to be accepted here
-  // too, once it lands
-  export function user_says(device: string): boolean {
-    return device === "";
-  }
-
   // how long the user's !command may run before it is stopped (ms); a
   // test's shorter
   export let bang_ms = BANG_MS;
 
   // RED ZONE (DRAFT awaiting the user's sign-off): the user's own
-  // !command, from what speaks for them only (Chat.user_says), run as
+  // !command, from what speaks for them only (says: a view, or the
+  // terminal's own key, Cloud.speaks; never a device's key, an act posted
+  // with neither, an agent's tool call, a routine, a timer or the GChat
+  // bridge, whose acts are answers, assignments and decisions), run as
   // they would in their own shell: a user_shell job, past the hooks, the
   // reviewer and Legion's gating (Machine.ts), never through an agent's
   // tool path; in the chat's dir (Unii's: the home repo, else its work
@@ -2677,9 +2664,9 @@ const LIKES = 30;
   // there first). Told to the views as it starts; stopped after bang_ms;
   // its command and output (CAP, head and tail) a note the AI reads,
   // starting no turn. Answered at once; the note comes when it ends
-  export function bang(chat: Chat, id: string, command: string, from: string, named?: unknown, dir?: unknown): Answer {
-    if (!Chat.user_says(from)) {
-      return { error: "Only you run a !command, from a view (the web): a terminal's or device's socket is within an agent's reach, so it can't speak for you." };
+  export function bang(chat: Chat, id: string, command: string, from: string, says: boolean, named?: unknown, dir?: unknown): Answer {
+    if (!says) {
+      return { error: "Only you run a !command: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you." };
     }
     if (command === "") {
       return { error: "No command." };

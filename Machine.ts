@@ -87,8 +87,8 @@ const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
 
 // RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
-// own !command (Chat.bang makes it, only from what the user sent: Chat.
-// user_says), run as they would in their own shell: no hook, no gate.
+// own !command (Chat.bang makes it, only from what speaks for the user:
+// says, Cloud.speaks), run as they would in their own shell: no hook, no gate.
 // No agent's tool has this name (TOOLS), and Tools.dispatch refuses it
 export const USER_SHELL = "user_shell";
 
