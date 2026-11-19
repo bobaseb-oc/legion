@@ -10,7 +10,9 @@
 // shows (in no link). An emailed link's GET (mail apps open it first) only
 // shows a button, whose POST signs in, once. `legion web`: a signed-in
 // terminal (its Bearer token, never a cookie) gets a one-minute, one-use
-// link for its own account.
+// link for its own account. A terminal signs in two keys with one code:
+// its device key (a file: jobs, `legion device`) and its terminal key
+// (the Keychain, every read asked), whose session speaks for the user.
 // Tokens are kept as hashes. With phones on (UNII_PHONE=1), the iOS app's
 // links open it (AASA), its phones get each turn's last message (APNs).
 
@@ -29,8 +31,9 @@ export type User = { id: string; name: string };
 
 // a sign-in begun: an email or "@" and a GitHub login; the hash of the
 // session a terminal waits for; or (`legion web`) the account a signed-in
-// terminal opens the site as (who "": not a mailed link, uncounted)
-type Ticket = { who: string; session: string | null; user?: User };
+// terminal opens the site as (who "": not a mailed link, uncounted); the
+// hash of the terminal key signed in with the session, if any (K1)
+type Ticket = { who: string; session: string | null; user?: User; terminal?: string | null };
 
 // a user's account, in the accounts
 export type Account = { cloud: Cloud; user: string };
@@ -66,8 +69,19 @@ const SEEN = 60 * 60 * 1000;
 // drops a Secure cookie an http one (a server on 127.0.0.1) sets
 const KEEP = "; Path=/; HttpOnly; SameSite=Lax; Max-Age=" + AGE / 1000 + (config.SITE.startsWith("https:") ? "; Secure" : "");
 
-// a session live now, by its row (made, seen, term: Cloud.open's columns)
-const LIVE = "made >= ?1 - (case when term = 1 then " + TERM + " else " + AGE + " end) and seen >= ?1 - " + IDLE;
+// a session live now, by its row (made, seen, term: Cloud.open's columns;
+// a terminal's, its device key's or its terminal key's, lasts TERM)
+const LIVE = "made >= ?1 - (case when term <> 0 then " + TERM + " else " + AGE + " end) and seen >= ?1 - " + IDLE;
+
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): whose a session is
+// (sessions.term): a browser's (a cookie), a terminal's device key (a
+// file, within an agent shell's reach), a terminal's terminal key (only
+// in the Keychain, every read the user allows): the browser's and the
+// terminal key's speak for the user (Cloud.speaks), a device key's never
+const BROWSER  = 0;
+const DEVICE   = 1;
+const TERMINAL = 2;
+export type Term = typeof BROWSER | typeof DEVICE | typeof TERMINAL;
 
 // how long an act's answer with words is kept (ms)
 const ACTS = 7 * 864e5;
@@ -137,7 +151,7 @@ export namespace Cloud {
         }
       }
     }
-    db.query("update sessions set made = ?1, seen = ?1, term = 1 where made is null").run(Date.now());
+    db.query("update sessions set made = ?1, seen = ?1, term = ?2 where made is null").run(Date.now(), DEVICE);
     const base = { db, wal: file + "-wal", change, signed, post, waits: new Map() };
     return { ...base, billing: Billing.open(base), phone: config.PHONE };
   }
@@ -171,7 +185,17 @@ export namespace Cloud {
   // a cookie is no browser's)
   export function browser(cloud: Cloud, req: Request): boolean {
     const row = cloud.db.query("select term from sessions where hash = ?").get(Cloud.hash(Cloud.token(req))) as { term: number } | null;
-    return row?.term === 0;
+    return row?.term === BROWSER;
+  }
+
+  // RED ZONE (K1, DRAFT awaiting the user's sign-off): whether a request
+  // speaks for the user: its session live (LIVE) and a browser's or a
+  // terminal key's (BROWSER, TERMINAL), never a device key's (DEVICE: a
+  // file an agent's shell can read), however its token is sent
+  export function speaks(cloud: Cloud, req: Request): boolean {
+    const sql = "select term from sessions where hash = ?2 and " + LIVE;
+    const row = cloud.db.query(sql).get(Date.now(), Cloud.hash(Cloud.token(req))) as { term: number } | null;
+    return row?.term === BROWSER || row?.term === TERMINAL;
   }
 
   // the user of a session live now (LIVE), its use marked (once a SEEN)
@@ -261,10 +285,11 @@ export namespace Cloud {
     return null;
   }
 
-  // term: a terminal's session (TERM), not a browser's
-  export function login(cloud: Cloud, user: User, hash: string, term = false): void {
+  // term: whose the session is (Term: a browser's, or a terminal's
+  // device key or terminal key, those lasting TERM)
+  export function login(cloud: Cloud, user: User, hash: string, term: Term = BROWSER): void {
     const sql = "insert or ignore into sessions (hash, id, name, made, seen, term) values (?1, ?2, ?3, ?4, ?4, ?5)";
-    cloud.db.query(sql).run(hash, user.id, user.name, Date.now(), term ? 1 : 0);
+    cloud.db.query(sql).run(hash, user.id, user.name, Date.now(), term);
   }
 
   // whether a link not expired still waits for the terminal of a session
@@ -422,7 +447,11 @@ export namespace Cloud {
           return Response.json({ error: refused }, { status: 429 });
         }
         const session = body.key ? Cloud.hash(String(body.key)) : null;
-        const link = config.SITE + "/auth?t=" + Cloud.ticket(cloud, { who, session }, LINK);
+        // RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's
+        // terminal key, signed in with its device key by the one code (only
+        // its hash kept; one no other key)
+        const terminal = session !== null && body.term && String(body.term) !== String(body.key) ? Cloud.hash(String(body.term)) : null;
+        const link = config.SITE + "/auth?t=" + Cloud.ticket(cloud, { who, session, terminal }, LINK);
         const code = session === null ? {} : { code: Cloud.code(session) };
         if (github !== null && who.startsWith("@")) {
           return Response.json({ url: github(link, who.slice(1)), ...code });
@@ -567,7 +596,8 @@ export namespace Cloud {
 
   // the code typed on the confirm page: right, the terminal signs in: the
   // account (the email's, or the GitHub code's: Billing account), the
-  // session, and the terminal waiting on /api/wait woken
+  // session (its device key's) and its terminal key's (K1), and the
+  // terminal waiting on /api/wait woken
   export async function confirm(cloud: Cloud, req: Request): Promise<Response> {
     const text = await Cloud.small(req);
     if (text === null) {
@@ -591,7 +621,10 @@ export namespace Cloud {
     if (account === null) {
       return Cloud.expired();
     }
-    Cloud.login(cloud, account, link.session, true);
+    Cloud.login(cloud, account, link.session, DEVICE);
+    if (link.terminal) {
+      Cloud.login(cloud, account, link.terminal, TERMINAL);
+    }
     Cloud.ticket_read(cloud, t, true);
     cloud.signed(link.session);
     return Response.redirect(config.SITE + "/?terminal=1", 302);

@@ -1064,6 +1064,74 @@ test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts o
   expect(out).toMatchObject({ mode: "plan", plan: "1. ship", calls: 1, questions: 1 });
 });
 
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): a socket on the
+// terminal's terminal key (Keychain, every read asked; Cloud.speaks)
+// speaks for the user: every act a device's socket is refused is done
+// from it; the same device's socket on its device key stays refused
+const TERMINAL_KEY = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+AskAI.ask = (ask, on) => {
+  const [call] = AskAI.tie(on, ask.bill, () => {}, () => {});
+  call.send = () => {};
+  return call;
+};
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const go = new AbortController().signal;
+chat.mem.mode = "plan";
+await Tools.call(chat.tools, "main", "plan", { plan: "1. ship" }, go, "t1");
+await Tools.call(chat.tools, "main", "ask", { question: "Ship on Friday?" }, go, "q1");
+await Tools.call(chat.tools, "main", "assign", { text: "Approve PR #9" }, go, "a1");
+await Tools.call(chat.tools, "main", "timer", { minutes: 30, note: "check CI" }, go, "x1");
+Tools.ask_user(chat.tools, "Wkr", "shell", { device: "mac", command: "make deploy" }, go);
+const call = Chat.state(chat).calls[0].id;
+const timer = chat.mem.timers.at(-1).id;
+const todo = chat.mem.assigned.at(-1).n;
+const acts = [
+  { $: "plan", yes: true, mode: "full" },
+  { $: "consent", n: call, yes: true },
+  { $: "approve", name: "Wkr", yes: true },
+  { $: "answer", q: 1, text: "yes" },
+  { $: "mode", mode: "full" },
+  { $: "routine", op: "add", routine: { name: "R", task: "t", when: { $: "every", hours: 1 } } },
+  { $: "timer", n: timer },
+  { $: "assignment", n: todo, done: false },
+  { $: "pin", i: 0, on: true },
+  { $: "decision", n: 1, undo: false },
+  { $: "explain", q: "why?" },
+  { $: "look", what: { kind: "save", path: "/r/a.txt", text: "x", base: "0".repeat(64) } },
+  { $: "undo", name: "Nobody" },
+];
+const pairs = [];
+for (const [k, msg] of acts.entries()) {
+  const dev = (await Chat.act(chat, "d" + k, msg, "mac", false)).error ?? null;
+  // (an act at work, as explain's call, is no refusal: refusals answer at once)
+  const term = (await Promise.race([Chat.act(chat, "t" + k, msg, "mac", true), Bun.sleep(500).then(() => ({ error: "at work" }))])).error ?? null;
+  pairs.push([msg.$, dev, term]);
+}
+const s = Chat.state(chat);
+console.log(JSON.stringify({ pairs, mode: s.mode, plan: s.plan?.text ?? null, calls: s.calls.length, questions: s.questions.filter((q) => !q.fyi).length, timers: chat.mem.timers.length, routines: chat.mem.routines.length, todos: chat.mem.assigned.length }));
+process.exit(0);
+`;
+
+test("a terminal-key socket speaks for the user: every act refused a device's is done from it; its device key's stays refused", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/term.ts", TERMINAL_KEY);
+  const proc = Bun.spawn([process.execPath, dir + "/term.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.pairs).toHaveLength(13);
+  for (const [act, dev, term] of out.pairs) {
+    expect([act, dev]).toEqual([act, expect.stringMatching(/in a view|the web|Ask to see/)]);
+    expect([act, term]).not.toEqual([act, dev]);
+    expect([act, term ?? ""]).not.toEqual([act, expect.stringMatching(/in a view|the web|user's say/)]);
+  }
+  expect(out).toMatchObject({ mode: "full", plan: null, calls: 0, questions: 0, timers: 0, routines: 1, todos: 0 });
+});
+
 // The question backlog: the orchestrator's open questions in the state;
 // an answer is the user's message quoting the question, and a turn; no
 // text dismisses it (a note, no turn); an unknown one is refused

@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { WIRE } from "./View.ts";
 
 const PORT = 9591;
 const SITE = "http://127.0.0.1:" + PORT;
@@ -151,6 +152,70 @@ test("only a browser's session is a view: a terminal's token, as Bearer or cooki
   expect((await tick(bearer)).error).toMatch(/in a view/);
   expect((await tick({ cookie: "unii=" + key })).error).toMatch(/in a view/);
 });
+
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's sign-in
+// approves two keys with its one code: the device key (a file) and the
+// terminal key (the Keychain). A socket on the terminal key still names
+// its device (it runs jobs) and speaks for the user: its /mode is done,
+// its typed todo tick is a view's; the device key's are refused as ever.
+// A terminal key not signed in opens nothing; logging one out leaves the other
+test("the terminal key's socket speaks for the user; the device key's stays a device's", async () => {
+  const key = crypto.randomUUID();
+  const term = crypto.randomUUID();
+  const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "keys@x.com", key, term }) });
+  const { code } = await asked.json();
+  for (let k = 0; k < 50 && !/keys@x\.com[\s\S]*\/auth\?t=/.test(printed); k++) {
+    await Bun.sleep(20);
+  }
+  const t = [...printed.matchAll(/\/auth\?t=(\S+)/g)].at(-1)?.[1] ?? "";
+  const form = new URLSearchParams({ t, code }).toString();
+  const done = await fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE }, body: form, redirect: "manual" });
+  expect(done.status).toBe(302);
+  // a socket: opened, or refused; an act sent on it, its ack
+  const sock = (q: string, token: string) => new Promise<WebSocket | null>((ok) => {
+    const ws = new WebSocket(SITE.replace(/^http/, "ws") + "/ws?wire=" + WIRE + q, { headers: { authorization: "Bearer " + token } } as any);
+    ws.onopen = () => ok(ws);
+    ws.onerror = () => ok(null);
+  });
+  const ack = (ws: WebSocket, msg: object) => new Promise<any>((ok) => {
+    const id = crypto.randomUUID();
+    ws.addEventListener("message", (ev) => {
+      const got = JSON.parse(String(ev.data));
+      if (got.$ === "ack" && got.id === id) {
+        ok(got);
+      }
+    });
+    ws.send(JSON.stringify({ id, ...msg }));
+  });
+  expect(await sock("&device=box", nobody())).toBeNull();
+  expect(await sock("", term)).toBeNull();
+  const dev = (await sock("&device=box", key))!;
+  const mine = (await sock("&device=box2", term))!;
+  expect(dev).not.toBeNull();
+  expect(mine).not.toBeNull();
+  expect((await ack(dev, { $: "mode", mode: "full" })).error).toMatch(/user's say/);
+  expect((await ack(dev, { $: "routine", op: "add", routine: { name: "R", task: "t", when: { $: "every", hours: 1 } } })).error).toMatch(/in a view/);
+  expect((await ack(mine, { $: "mode", mode: "full" })).error).toBeUndefined();
+  expect((await ack(mine, { $: "routine", op: "add", routine: { name: "R", task: "t", when: { $: "every", hours: 1 } } })).error).toBeUndefined();
+  expect((await ack(mine, { $: "timer", n: 999 })).error).toMatch(/^No timer/);
+  dev.close();
+  mine.close();
+  // a post (/api/act) on the terminal key is the user's too
+  const tick = (token: string) => fetch(SITE + "/api/act?$=assignment&id=" + crypto.randomUUID() + "&n=1&done=true", { method: "POST", headers: { authorization: "Bearer " + token } }).then((r) => r.json());
+  expect((await tick(key)).error).toMatch(/in a view/);
+  expect((await tick(term)).error).toMatch(/^No todo/);
+  // signed out, the terminal key's session ends alone
+  const me = (token: string) => fetch(SITE + "/api/me", { headers: { authorization: "Bearer " + token } }).then((r) => r.status);
+  expect((await fetch(SITE + "/api/logout", { method: "POST", headers: { authorization: "Bearer " + term } })).status).toBe(204);
+  expect(await me(term)).toBe(401);
+  expect(await me(key)).toBe(200);
+  expect(await sock("&device=box2", term)).toBeNull();
+});
+
+// a random token, signed in nowhere
+function nobody(): string {
+  return crypto.randomUUID() + crypto.randomUUID();
+}
 
 // what's read before anyone is signed in is small: /api/delete's
 test("/api/delete reads at most a small body", async () => {

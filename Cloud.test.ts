@@ -81,6 +81,59 @@ test("terminal sign-in needs the code the terminal shows", async () => {
   expect(cloud.db.query("select term from sessions where hash = ?").get(session)).toEqual({ term: 1 });
 });
 
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's sign-in
+// makes two keys, both approved by the one code: the device key (a file,
+// term 1) and the terminal key (the Keychain, term 2), each lasting TERM.
+// Cloud.speaks: only a browser's session or a terminal key's speaks for
+// the user, never a device key's, nor one not live
+test("a terminal sign-in approves its device key and its terminal key with one code; only a browser or the terminal key speaks", async () => {
+  const cloud = cloud_new();
+  const login = (body: object) => Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify(body) }));
+  const key = Cloud.random();
+  const termkey = Cloud.random();
+  const asked = (await (await login({ who: "k@x.com", key, term: termkey }))!.json()) as { code: string };
+  expect(asked.code).toBe(Cloud.code(Cloud.hash(key)));
+  const row = cloud.db.query("select hash from tickets order by expires desc").get() as { hash: string };
+  const data = JSON.parse((cloud.db.query("select data from tickets where hash = ?").get(row.hash) as { data: string }).data);
+  expect(data.terminal).toBe(Cloud.hash(termkey));
+  expect(JSON.stringify(data)).not.toContain(termkey);
+  const t = Cloud.ticket(cloud, { who: "k@x.com", session: Cloud.hash(key), terminal: Cloud.hash(termkey) }, 60000);
+  const post = (c: string) => new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t, code: c }).toString() });
+  const terms = () => cloud.db.query("select term from sessions where hash in (?, ?) order by term").all(Cloud.hash(key), Cloud.hash(termkey));
+  await Cloud.confirm(cloud, post(asked.code === "000000" ? "111111" : "000000"));
+  expect(terms()).toEqual([]);
+  await Cloud.confirm(cloud, post(asked.code));
+  expect(terms()).toEqual([{ term: 1 }, { term: 2 }]);
+  const bearer = (token: string) => new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + token } });
+  const cookie = Cloud.session(cloud, { id: "u9", name: "b@x.com" });
+  expect(Cloud.speaks(cloud, bearer(termkey))).toBe(true);
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + cookie } }))).toBe(true);
+  expect(Cloud.speaks(cloud, bearer(key))).toBe(false);
+  expect(Cloud.speaks(cloud, bearer(Cloud.random()))).toBe(false);
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/"))).toBe(false);
+  expect(Cloud.browser(cloud, bearer(termkey))).toBe(false);
+  // the terminal key lasts a terminal's TERM, and speaks only while live
+  const age = (days: number) => cloud.db.query("update sessions set made = made - ?, seen = ? where hash = ?").run(days * 864e5, Date.now(), Cloud.hash(termkey));
+  age(60);
+  expect(Cloud.who(cloud, bearer(termkey))).not.toBeNull();
+  age(31);
+  expect(Cloud.who(cloud, bearer(termkey))).toBeNull();
+  expect(Cloud.speaks(cloud, bearer(termkey))).toBe(false);
+  // a terminal key the same as the device key makes no second session
+  const same = Cloud.random();
+  await login({ who: "s@x.com", key: same, term: same });
+  const sdata = JSON.parse((cloud.db.query("select data from tickets where data ->> 'who' = 's@x.com'").get() as { data: string }).data);
+  expect(sdata.terminal ?? null).toBeNull();
+  // logout-all ends both
+  const k2 = Cloud.random();
+  const tk2 = Cloud.random();
+  Cloud.login(cloud, { id: "u7", name: "z@x.com" }, Cloud.hash(k2), 1);
+  Cloud.login(cloud, { id: "u7", name: "z@x.com" }, Cloud.hash(tk2), 2);
+  await Cloud.http(cloud, new Request("http://127.0.0.1/api/logout-all", { method: "POST", headers: { authorization: "Bearer " + tk2 } }));
+  expect(Cloud.who(cloud, bearer(k2))).toBeNull();
+  expect(Cloud.who(cloud, bearer(tk2))).toBeNull();
+});
+
 // An emailed link's GET only shows a page with a button: a mail app's
 // preview (or a scanner) opening it signs no one in and uses nothing up.
 // The button's POST signs in, once: the ticket goes with it.
@@ -141,7 +194,7 @@ test("sessions expire by age and idleness; old rows migrate; logout-all ends the
   expect(bearer("oldidle")).toBeNull();
   const cookie = Cloud.session(cloud, { id: "u1", name: "me@x.com" });
   const term = Cloud.random();
-  Cloud.login(cloud, { id: "u1", name: "me@x.com" }, Cloud.hash(term), true);
+  Cloud.login(cloud, { id: "u1", name: "me@x.com" }, Cloud.hash(term), 1);
   age(cookie, 29);
   age(term, 89);
   expect(as(cookie)).not.toBeNull();

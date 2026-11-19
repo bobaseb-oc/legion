@@ -138,15 +138,19 @@ c3.socks.delete(view);
 const stillno = await t3("main", { minutes: 5, note: "unseen" }, "z6");
 await Chat.said(c3, "z7", "keep checking CI");
 const spoke = await t3("main", { minutes: 5, note: "asked" }, "z8");
-// a message the user typed (a body: Chat.text) counts as speaking too
+// a message the user typed (a post's body: Chat.text) counts as speaking
+// too, from a view or the terminal key's socket (K3, RED ZONE); one a
+// device key's socket posts (an agent's shell can type it) does not
 c3.tools.rung = true;
 const rungagain = await t3("main", { minutes: 5, note: "x" }, "z9");
-const bodyf = c3.mem.dir + "/body.txt";
-await Bun.write(bodyf, "hi there");
-const fh = await (await import("node:fs/promises")).open(bodyf, "r");
-await Chat.text(c3, { fh, size: 8 }, 0, [], "z10");
-await fh.close();
+const typing = (text) => ({ $: "say", sizes: "", req: new Request("http://127.0.0.1/api/act", { method: "POST", body: text }) });
+const devsaid = await Chat.act(c3, "z10", typing("hi, an agent here"), "mac", false);
+const devtyped = await t3("main", { minutes: 5, note: "devtyped" }, "z10b");
+await Chat.act(c3, "z10c", typing("hi there"), "mac", true);
 const typed = await t3("main", { minutes: 5, note: "typed" }, "z11");
+c3.tools.rung = true;
+await Chat.act(c3, "z12", typing("hi from the web"), "");
+const webtyped = await t3("main", { minutes: 5, note: "webtyped" }, "z13");
 
 // with no view, a pending timer keeps a chat (a fresh one: nothing runs); none, it goes
 const c2 = Chat.open({ id: "u2", name: "c@d.e" });
@@ -160,7 +164,7 @@ const kept = Chat.chats.get("u2") === c2;
 c2.mem.timers = [];
 Chat.free(c2);
 const gone = Chat.chats.get("u2") !== c2;
-const r4 = { shown, closedev: closedev.error ?? null, stilldev, closeview, goneview, closenone: closenone.error ?? null, stopped, before3, chained, chainedsub, viewed, stillno, spoke, rungagain, typed };
+const r4 = { shown, closedev: closedev.error ?? null, stilldev, closeview, goneview, closenone: closenone.error ?? null, stopped, before3, chained, chainedsub, viewed, stillno, spoke, rungagain, devsaid, devtyped, typed, webtyped };
 console.log(JSON.stringify({ r4, w0, w9, w1, waited, w2, cutms, tools, m1, s1, bad, notyours, each, closed, open, state, saved, turned, work, told, left, afterstop, sub, p1, review, proposed, noted, ran, bydevice: bydevice.error ?? null, adddevice: adddevice.error ?? null, offstill, byview, onnow, pending, kept, gone }));
 process.exit(0);
 `;
@@ -236,5 +240,8 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   expect(r4.stillno.fail).toBe(true);
   expect(r4.spoke.fail).toBe(false);
   expect(r4.rungagain.fail).toBe(true);
+  expect(r4.devsaid).toEqual({});
+  expect(r4.devtyped.fail).toBe(true);
   expect(r4.typed.fail).toBe(false);
+  expect(r4.webtyped.fail).toBe(false);
 }, 30_000);
