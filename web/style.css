@@ -113,6 +113,22 @@ body.account footer > :not(#toast) { display: none; }
 /* the status line under the box, as the terminal's (View.view_status) */
 #status { width: min(var(--col), 100%); margin: 4px auto 0; color: var(--mid); font: 12px/18px var(--mono); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #status:empty { display: none; }
+/* B2: shell commands running (Html.shells_html) and the background's (Html.bgs_html) */
+#shells, #bgs { width: min(var(--col), 100%); margin: 0 auto 6px; font: 12.5px/18px var(--mono); color: var(--mid); }
+#shells:empty, #bgs:empty { display: none; }
+#shells .shell { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; margin-bottom: 4px; }
+#shells .shead, #bgs .bg { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#shells code, #bgs code { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#shells .swho, #bgs .swho { flex: none; color: var(--soft); }
+#shells .slines { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--mid); font: inherit; max-height: 5.4em; overflow: hidden; }
+#shells button, #bgs button { flex: none; border: 1px solid var(--frame); border-radius: 999px; padding: 0 8px; font: 12px/18px var(--sans); color: var(--mid); }
+#shells button:hover, #bgs button:hover { color: var(--ink); border-color: var(--soft); }
+#shells .sbg { margin-left: auto; }
+#shells .shint { color: var(--soft); font-size: 11.5px; }
+#bgs summary { cursor: pointer; color: var(--soft); }
+#bgs .bgn { color: var(--accent); }
+#bgs .bg button { margin-left: auto; }
+#bgs .failed .swho { color: var(--red); }
 #pick { width: min(var(--col), 100%); margin: 0 auto 6px; display: flex; align-items: center; gap: 6px; font: 12.5px/20px var(--sans); color: var(--mid); }
 #pick .rule { flex: 1; height: 1px; background: var(--hair); margin-right: 4px; }
 #pick button { padding: 0 6px; border-radius: 6px; }

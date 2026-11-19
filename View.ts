@@ -86,6 +86,7 @@ export type State = {
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
   decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
   tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
+  shells?   : Shell[];      // the shell commands running, then the background ones ended (Tools.shells)
 };
 
 // a question super auto answered with Legion's pick (Tools.question),
@@ -122,6 +123,12 @@ export const SHOWN  = 200;
 // ("main": Unii), what it is, its model, how it is, since when its run
 // began (ms since 1970)
 export type Crew = { name: string; parent: string; tier: "manager" | "worker" | "computer" | "claude"; model: string; status: Status; since: number; title?: string; repos?: string[]; todo?: Todo[]; spent?: number; files?: string[] }; // spent: est. USD (Tools.spent); files: touched, newest first (Tools.touched)
+// a shell command running (B2), an agent's call or the user's !command (who
+// "user"; Unii's "main"; an agent's name): its job, its background
+// number (null: in the foreground, its caller waiting), its device and
+// command, since when (ms), its last lines as printed (drawn cleaned:
+// Paint, Html's esc); a background one ended: when, and whether it failed
+export type Shell = { job: string; n: number | null; who: string; device: string; command: string; since: number; lines: string[]; ended?: number; fail?: boolean };
 // a call waiting for the user's yes (Tools.ask_user): its number, who
 // calls, its tool, what it does
 export type Waiting = { id: number; who: string; tool: string; what: string };
@@ -240,6 +247,7 @@ export type Server =
   | { $: "note"; text: string }
   | ({ $: "ack"; id: string } & Answer)
   | { $: "jobs"; ids: string[] }
+  | { $: "shells"; shells: Shell[] }    // to views: the shell commands running (Tools.shells), as they change
   | { $: "job"; id: string; job: unknown }
   | { $: "inbox"; inbox: Inbox | null } // the cockpit's inbox, a device's latest report (Inbox.ts)
   | { $: "fetch" }                        // to devices: read the inbox now
@@ -292,6 +300,8 @@ export type Client =
   | { $: "go"; on: boolean } // the import's: resume (true) or pause
   | { $: "pick"; to: Pick }
   | { $: "out"; job: string; out: object }
+  | { $: "tail"; job: string; text: string } // a device: what a running shell command printed since its last tail (Device.device_run)
+  | { $: "shell"; op: "bg" | "stop"; job: string } // a view, the terminal key: a shell command sent to the background, or stopped (the user's only: Chat.shell)
   | { $: "zoom"; part: Part }
   | { $: "root" }
   | { $: "agent"; name: string }
@@ -397,6 +407,7 @@ export type Act =
   | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
   | { $: "Search"; q: string }                  // the chat searched (the Memory page's box)
   | { $: "Explain"; q: string }                 // a question about the Explain page (its box, /explain)
+  | { $: "Shell"; op: "bg" | "stop"; job?: string } // B2: a shell command (none: each in sight in the foreground) sent to the background (Ctrl+B), or stopped (Esc, Stop)
 
 // what a page draws, top to bottom
 export type Row =
@@ -731,6 +742,10 @@ export function view_hear(v: View, msg: Server): Client[] {
       Object.assign(v, state, { crew: state.crew ?? [] });
       return [];
     }
+    case "shells": {
+      v.shells = msg.shells;
+      return [];
+    }
     case "agent": {
       const page = v.pages.get(msg.name);
       if (page === undefined) {
@@ -857,6 +872,11 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Stop": {
       return [{ $: "stop", name: act.name }];
+    }
+    case "Shell": {
+      const jobs = act.job === undefined ? view_fore(v).map((s) => s.job) : [act.job];
+      v.notes.push(...(jobs.length === 0 ? ["No command is running here."] : []));
+      return jobs.map((job) => ({ $: "shell", op: act.op, job }));
     }
     case "Undo": {
       return [{ $: "undo", name: act.name }];
@@ -1135,6 +1155,66 @@ export function view_typing(_v: View): boolean {
 // !command: view_act); a Backspace over the ! leaves it
 export function view_shell(text: string): boolean {
   return text.trimStart().startsWith("!");
+}
+
+// Shell commands (B2)
+// -------------------
+// As Claude Code's: a command running shows in a status block over the
+// input (its command, who, where, how long, its last lines, the keys);
+// Ctrl+B sends those in sight to the background, Esc stops them (the
+// user's only: Chat.shell); the background list shows every one sent
+// there. Their text is as printed: drawn cleaned (Paint, Html's esc)
+
+export const RUN_HINT = "ctrl+b to run in background · esc to stop";
+
+// the commands in sight running in the foreground: the chat's (the
+// user's !commands, Legion's calls) or, on an agent's page, its own
+export function view_fore(v: View): Shell[] {
+  const here = v.page === null ? ["user", "main"] : [v.page.name];
+  return (v.shells ?? []).filter((s) => s.n === null && s.ended === undefined && here.includes(s.who));
+}
+
+// every command sent to the background, running or ended
+export function view_bgs(v: View): Shell[] {
+  return (v.shells ?? []).filter((s) => s.n !== null);
+}
+
+// whose a command is, as a line says it
+export function shell_who(s: Shell): string {
+  return s.who === "user" ? "you" : s.who === "main" ? "Legion" : s.who;
+}
+
+// a time running, ticking: 12s, 1m 05s, 1h 02m
+export function shell_time(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + pad(s % 60) + "s" : Math.floor(s / 3600) + "h " + pad(Math.floor(s / 60) % 60) + "m";
+}
+
+// a command's head line: "$ make · you on mac · 12s"
+export function shell_head(s: Shell, now: number): string {
+  return "$ " + s.command + " · " + shell_who(s) + " on " + s.device + " · " + shell_time(now - s.since);
+}
+
+// the status block: each command in sight, its last lines under it, then
+// the keys; none running: none
+export function view_shell_lines(v: View, now: number): string[] {
+  const fore = view_fore(v);
+  return fore.length === 0 ? [] : [...fore.flatMap((s) => [shell_head(s, now), ...s.lines.map((l) => "  " + l)]), RUN_HINT];
+}
+
+// how a background command is: running so long, or done/failed and how
+export function shell_state(s: Shell, now: number): string {
+  if (s.ended === undefined) {
+    return "running " + shell_time(now - s.since);
+  }
+  const last = s.lines.at(-1);
+  return (s.fail ? "failed" : "done") + (last === undefined ? "" : " " + last);
+}
+
+// the background list (/shells): "1 · running 2m 05s · Ada on mac · $ cmd"
+export function view_bg_lines(v: View, now: number): string[] {
+  return view_bgs(v).map((s) => s.n + " · " + shell_state(s, now) + " · " + shell_who(s) + " on " + s.device + " · $ " + s.command);
 }
 
 // the last code block of Legion's newest message that has one (/copy);

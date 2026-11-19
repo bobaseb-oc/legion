@@ -214,6 +214,11 @@ const PULSE      = 1000;
 const WATCH      = 16;
 // the agents of a chat with a pulse due
 const PULSES     = new WeakMap<object, Set<string>>();
+// the shell commands running (B2: Tools.shells) go to every view at most
+// once a SHELLS ms while they change (a device tails each a second); the
+// chats with them due
+const SHELLS     = 500;
+const SHELLED    = new WeakSet<object>();
 // how a call ends whose process ended first (a crash)
 const ENDED      = "the server process that ran it ended";
 // a turn's head, as a summary's is "Compaction:": one prompt serves both
@@ -353,6 +358,7 @@ export namespace Chat {
       halt   : () => chat.halt.signal,
       note   : (text) => Chat.note(chat, text),
       viewed : () => Chat.viewed(chat),
+      shells : () => Chat.shelled(chat),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -1180,6 +1186,19 @@ export namespace Chat {
     }, PULSE);
   }
 
+  // the shell commands running to every view (B2), once SHELLS ms after
+  // the first change since the last: as they are then
+  export function shelled(chat: Chat): void {
+    if (SHELLED.has(chat)) {
+      return;
+    }
+    SHELLED.add(chat);
+    setTimeout(() => {
+      SHELLED.delete(chat);
+      Chat.all(chat, { $: "shells", shells: Tools.shells(chat.tools) });
+    }, SHELLS);
+  }
+
   export function send(sock: Sock, msg: object): void {
     sock.send(JSON.stringify(msg));
   }
@@ -1191,7 +1210,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, shells: Tools.shells(chat.tools) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1396,6 +1415,15 @@ export namespace Chat {
           Memory.save(chat.mem);
           Chat.change(chat);
         }
+        // RED ZONE (B2, DRAFT awaiting the user's sign-off): the user's
+        // Stop of all work (from what speaks for them: says) ends every
+        // shell command too, the background's (Tools.halt_shells); a
+        // device key's stops the agents as ever, so their calls, not
+        // what was sent to the background
+        const shells = name === null && says ? Tools.halt_shells(chat.tools, null, true) : 0;
+        if (shells > 0) {
+          Chat.note(chat, "Stopped by the user: " + shells + (shells === 1 ? " shell command." : " shell commands."));
+        }
         if (what.length === 0) {
           return {};
         }
@@ -1448,6 +1476,14 @@ export namespace Chat {
       case "out": {
         Tools.done(chat.tools, device, String(msg.job), msg.out);
         return {};
+      }
+      // a device's shell command's output so far (B2: its own jobs only)
+      case "tail": {
+        Tools.tail(chat.tools, device, String(msg.job), String(msg.text ?? ""));
+        return {};
+      }
+      case "shell": {
+        return Chat.shell(chat, msg.op, msg.job, says);
       }
       case "spawn": {
         // refused as a post is, short of credit
@@ -2645,6 +2681,31 @@ const LIKES = 30;
       : "The user didn't approve your plan: " + (text || "no reason given") + "\nStill in plan mode: revise it and file it again with plan.";
     await Chat.said(chat, id, said);
     return {};
+  }
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's Ctrl+B or
+  // Stop on a shell command running (B2: an agent's call, Unii's, their
+  // own !command): sent to the background (op "bg": Tools.background,
+  // within its caps) or stopped ("stop": Tools.halt_shells); job: that
+  // one, none: each in the foreground. Only from what speaks for the
+  // user (says: a view, or the terminal's own key, Cloud.speaks; never a
+  // device's key, which an agent's shell can read, nor an act posted with
+  // neither): so no agent sends another's command away or stops it, or
+  // the user's
+  export function shell(chat: Chat, op: unknown, job: unknown, says: boolean): Answer {
+    if (!says) {
+      return { error: "Only you send a command to the background or stop it: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you." };
+    }
+    const one = job === undefined || job === null ? null : String(job);
+    if (op === "bg") {
+      const out = Tools.background(chat.tools, one, Date.now());
+      return out.fail ? { error: out.text } : { text: out.text };
+    }
+    if (op === "stop") {
+      const n = Tools.halt_shells(chat.tools, one, false);
+      return n === 0 ? { error: "No such command is running." } : {};
+    }
+    return { error: "No such op: bg or stop." };
   }
 
   // how long the user's !command may run before it is stopped (ms); a

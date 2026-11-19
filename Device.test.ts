@@ -51,8 +51,16 @@ const until = async (f: () => boolean) => {
   return f();
 };
 const runs: Array<{ job: any; work: string; home?: string; signal: AbortSignal }> = [];
-const run = async (job: any, work: string, signal: AbortSignal, _away?: AbortSignal, home?: string) => {
+const run = async (job: any, work: string, signal: AbortSignal, _away?: AbortSignal, home?: string, _hooks?: unknown, live?: (text: string) => void) => {
   runs.push({ job, work, home, signal });
+  if (job.input === "talk") {
+    live?.("one\n");
+    live?.("two\n");
+    await Bun.sleep(Device.TAIL_EVERY + 300);
+    live?.("three\n");
+    await Bun.sleep(Device.TAIL_EVERY + 300);
+    return { text: "one\ntwo\nthree\n(exit 0 in 2.6 s)", fail: false };
+  }
   if (job.input === "big") {
     return { text: "x".repeat(View.FRAME), fail: false };
   }
@@ -699,4 +707,32 @@ test("device_look: find ranks a file's name before its path", async () => {
   fs.writeFileSync(repo + "/src/deep/er/config_scan.py", "");
   const rules = { work: top, computer: false, spaces: [repo] };
   expect(((await Device.device_look(rules, "r", { kind: "find", path: repo, q: "cfgscan" } as any)) as any).text).toBe("src/deep/er/config_scan.py\nconfigs/scanners/x.py");
+});
+
+// B2: a shell command tells the server what it printed as it runs (a
+// "tail" a TAIL_EVERY, what came since the last), so the status line
+// shows its last lines and a background command's output can be read;
+// a device that sends none (an old one) still runs it, only no live lines
+test("a running shell sends what it printed since its last tail, then its output", async () => {
+  const tails = () => got.filter((m) => m.$ === "tail" && m.job === "j9").map((m) => m.text);
+  sock!.send(JSON.stringify({ $: "job", id: "j9", job: { name: "shell", input: "talk", cwd: "" } }));
+  expect((await until(() => outs().some((o) => o.job === "j9"))) || (await until(() => outs().some((o) => o.job === "j9")))).toBe(true);
+  expect(tails()).toEqual(["one\ntwo\n", "three\n"]);
+  sock!.send(JSON.stringify({ $: "job", id: "j10", job: { name: "read", input: "talk", cwd: "" } }));
+  expect((await until(() => outs().some((o) => o.job === "j10"))) || (await until(() => outs().some((o) => o.job === "j10")))).toBe(true);
+  expect(got.some((m) => m.$ === "tail" && m.job === "j10")).toBe(false);
+}, 10_000);
+
+// B2 (B1's note): a terminal on its device key only (no terminal key: the
+// server can't take its Ctrl+B as the user's) sends its own running shell
+// commands to the background where they run, the user's !command too:
+// each answers now, its output to a file; any other job stays
+test("a terminal's own Ctrl+B sends its shell commands here away, the user's !command too, nothing else", () => {
+  const run = (name: string) => ({ abort: new AbortController(), away: new AbortController(), name });
+  const jobs = new Map([["a", run("shell")], ["b", run("user_shell")], ["c", run("read")]]);
+  const [a, b, c] = [jobs.get("a")!, jobs.get("b")!, jobs.get("c")!];
+  expect(Device.device_away(jobs)).toBe(2);
+  expect([a.away.signal.aborted, b.away.signal.aborted, c.away.signal.aborted]).toEqual([true, true, false]);
+  expect([...jobs.keys()]).toEqual(["c"]);
+  expect(Device.device_away(jobs)).toBe(0);
 });

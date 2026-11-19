@@ -168,3 +168,23 @@ test("copy_osc: the text as OSC 52, base64, whatever it holds", () => {
   expect(out).toBe("\x1b]52;c;" + Buffer.from(odd).toString("base64") + "\x07");
   expect(/^\x1b\]52;c;[A-Za-z0-9+/=]*\x07$/.test(out)).toBe(true);
 });
+
+// B2, RED ZONE (DRAFT): the status block of shell commands running: the
+// head in the shell's color, the last lines and the keys dim, each cut to
+// the width; what a command prints (escapes: a screen clear, a title, a
+// bell) never reaches the terminal as one: only the painter's own codes
+test("the shell status block: head, last lines, keys; a command's escapes never written", () => {
+  const v = View.view_new();
+  expect(Paint.shell_lines(v, 40, 0)).toEqual([]);
+  const evil = "\x1b[2J\x1b]0;pwned\x07done\x1b[31m";
+  View.view_hear(v, { $: "shells", shells: [{ job: "b", n: null, who: "user", device: "mac", command: "make \x1b[2J", since: 0, lines: [evil, "y".repeat(80)] }] });
+  const lines = Paint.shell_lines(v, 40, 3000);
+  expect(lines.map(text)).toEqual(["$ make [2J · you on mac · 3s", "  [2J]0;pwneddone[31m", "  " + "y".repeat(37) + "…", "ctrl+b to run in background · esc to st…"]);
+  expect(lines[0][0].s.c).toBe(Theme.ANSI.shell);
+  expect(lines.slice(1).every((l) => l[0].s.d)).toBe(true);
+  const ansi = lines.map(Paint.line_ansi).join("\n");
+  expect(ansi).not.toContain("\x1b[2J");
+  expect(ansi).not.toContain("\x1b]");
+  expect(ansi).not.toContain("\x07");
+  expect(ansi).not.toContain("\x1b[31m");
+});

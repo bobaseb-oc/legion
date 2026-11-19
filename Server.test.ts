@@ -447,6 +447,55 @@ console.log(JSON.stringify({ none, one, first: first && first.job, empty, device
 process.exit(0);
 `;
 
+// B2: shell commands running like Claude Code's. A device's tails (its
+// own jobs only) give each command's last lines, in the state and in
+// "shells" messages; RED ZONE (DRAFT): sending one to the background or
+// stopping it is the user's only (a view, or the terminal's own key),
+// never a device key's socket or an act posted with neither; the user's
+// Stop of all work ends every one, the background's too
+const SHELL = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const heard = [];
+chat.socks.add({ send: (m) => { const x = JSON.parse(m); if (x.$ === "shells") heard.push(x.shells); }, data: { seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
+const until = async (f) => { for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10); return f(); };
+const ids = { mac: [], pc: [] };
+const link = (k) => ({ send: (x) => { if (x.$ === "jobs") ids[k] = x.ids; }, live: () => true, computer: false, work: "~/w" });
+Tools.attach(chat.tools, "t1", "mac", "u1", link("mac"));
+Tools.attach(chat.tools, "t2", "pc", "u1", link("pc"));
+await Chat.act(chat, "b1", { $: "bang", command: "make", device: "mac" }, "");
+const job = ids.mac[0];
+await Chat.act(chat, "x1", { $: "tail", job, text: "compiling\\n" }, "mac");
+await Chat.act(chat, "x2", { $: "tail", job, text: "<b>pc</b>\\n" }, "pc");
+const lines = Chat.state(chat).shells[0].lines;
+await until(() => heard.length > 0);
+const told = heard.at(-1)[0].lines;
+const yours = "Only you send a command to the background or stop it: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you.";
+const device = await Chat.act(chat, "s1", { $: "shell", op: "stop", job }, "mac");
+const posted = await Chat.act(chat, "s2", { $: "shell", op: "bg", job }, "api");
+const kept = ids.mac.length;
+const bg = await Chat.act(chat, "s3", { $: "shell", op: "bg", job }, "mac", true);
+const n = Chat.state(chat).shells[0].n;
+// an agent's call (Unii's), sent away from a view; then the user's Stop
+// from a device key: the agents stop, not what runs in the background
+const agent = Tools.job(chat.tools, "pc", { name: "shell", input: { command: "sleep 9" }, cwd: "main" }, new AbortController().signal, "a1");
+const sent = await Chat.act(chat, "s4", { $: "shell", op: "bg", job: "a1" }, "");
+const back = await agent;
+await Chat.act(chat, "s5", { $: "stop" }, "mac");
+const after = ids.mac.length + ids.pc.length;
+await Chat.act(chat, "s6", { $: "stop" }, "");
+const stopped = ids.mac.length + ids.pc.length;
+const bad = await Chat.act(chat, "s7", { $: "shell", op: "rm" }, "");
+console.log(JSON.stringify({ lines, told, device, posted: posted.error === yours, kept, bg, n, sent, back: back.text.includes("background command 2"), after, stopped, bad }));
+process.exit(0);
+`;
+
 // A device's status (Device.device_status): its folder, branch and today's
 // spend, kept as the latest and told every view in the state; only from a
 // device, its fields checked
@@ -494,7 +543,7 @@ const web = await Chat.act(chat, "i0", { $: "inbox", inbox }, "");
 const ok = await Chat.act(chat, "i1", { $: "inbox", inbox: { ...inbox, extra: 1 } }, "mac");
 const bad = await Chat.act(chat, "i2", { $: "inbox", inbox: { ...inbox, merged: "many" } }, "mac");
 const none = await Chat.act(chat, "i3", { $: "fetch" }, "");
-chat.tools.devices.set("mac", { terms: new Set(["t1"]) });
+chat.tools.devices.set("mac", { terms: new Set(["t1"]), jobs: new Map() });
 const fetch = await Chat.act(chat, "i4", { $: "fetch" }, "");
 console.log(JSON.stringify({ web: "error" in web, ok, bad: "error" in bad, none: none.error ?? null, fetch, kept: chat.inbox, sent: sent.filter((m) => m.$ === "inbox" || m.$ === "fetch") }));
 process.exit(0);
@@ -523,7 +572,7 @@ Chat.chats.set("u1", chat);
 const sent = [];
 chat.socks.add({ send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set() } });
 const none = await Chat.act(chat, "l0", { $: "look", what: { kind: "file", path: "a.ts" } }, "");
-chat.tools.devices.set("mac", { terms: new Set(["t1"]) });
+chat.tools.devices.set("mac", { terms: new Set(["t1"]), jobs: new Map() });
 const bad = [
   await Chat.act(chat, "l1", { $: "look", what: { kind: "rm", path: "a" } }, ""),
   await Chat.act(chat, "l2", { $: "look", what: { kind: "file", path: "x".repeat(2000) } }, ""),
@@ -538,7 +587,7 @@ const before = sent.length;
 // the explorer: a folder to every device as a look; a file opened in an
 // editor by ONE device only (each would open a window); answers as looks'
 const links = [];
-chat.tools.devices.set("mac", { terms: new Map([["t1", { send: (m) => links.push(["t1", m]) }], ["t2", { send: (m) => links.push(["t2", m]) }]]) });
+chat.tools.devices.set("mac", { terms: new Map([["t1", { send: (m) => links.push(["t1", m]) }], ["t2", { send: (m) => links.push(["t2", m]) }]]), jobs: new Map() });
 await Chat.act(chat, "l9", { $: "look", what: { kind: "dir", path: "/r", x: 1 } }, "");
 await Chat.act(chat, "l10", { $: "look", what: { kind: "open", path: "/r/.env" } }, "");
 const opened = await Chat.act(chat, "l11", { $: "looked", id: "l10", kind: "open", path: "/r/.env", text: "Opened .env in VS Code." }, "mac");
@@ -605,8 +654,8 @@ chat.tools.agents.set("Owl", agent("Owl", { device: "box", title: "Fix $(it)" })
 chat.tools.agents.set("Busy", agent("Busy", { device: "box", runs: true }));
 chat.tools.agents.set("Far", agent("Far", { device: "gone" }));
 const none = await Chat.act(chat, "c0", { $: "undo", name: "Nobody" }, "");
-chat.tools.devices.set("mac", { terms: new Map([["m1", { send: (m) => links.push(["m1", m]) }]]) });
-chat.tools.devices.set("box", { terms: new Map([["b1", { send: (m) => links.push(["b1", m]) }], ["b2", { send: (m) => links.push(["b2", m]) }]]) });
+chat.tools.devices.set("mac", { terms: new Map([["m1", { send: (m) => links.push(["m1", m]) }]]), jobs: new Map() });
+chat.tools.devices.set("box", { terms: new Map([["b1", { send: (m) => links.push(["b1", m]) }], ["b2", { send: (m) => links.push(["b2", m]) }]]), jobs: new Map() });
 const busy = await Chat.act(chat, "c1", { $: "undo", name: "Busy" }, "");
 const far = await Chat.act(chat, "c2", { $: "undo", name: "Far" }, "");
 const undo = await Chat.act(chat, "c3", { $: "undo", name: "Owl" }, "");
@@ -657,7 +706,7 @@ chat.socks.add({ send: (s) => views.push(JSON.parse(s)), data: { watch: new Set(
 const d = (n, state) => ({ n, project_id: 7, task_id: 70, project: "P", task: "T", date: "2026-11-12", hours: 1, notes: "x", why: "w", by: "main", state });
 chat.mem.drafts = [d(1, "draft"), d(2, "draft"), d(3, "sent"), d(4, "failed")];
 const none = await Chat.act(chat, "h0", { $: "timesheet", op: "submit", ns: [1] }, "");
-chat.tools.devices.set("mac", { terms: new Map([["t1", { send: (m) => one.push(m) }], ["t2", { send: (m) => two.push(m) }]]) });
+chat.tools.devices.set("mac", { terms: new Map([["t1", { send: (m) => one.push(m) }], ["t2", { send: (m) => two.push(m) }]]), jobs: new Map() });
 const bad = await Chat.act(chat, "h1", { $: "timesheet", op: "submit", ns: [3] }, "");
 const ok = await Chat.act(chat, "h2", { $: "timesheet", op: "submit", ns: [1, 3, 4, 99] }, "");
 const again = await Chat.act(chat, "h3", { $: "timesheet", op: "submit", ns: [1] }, "");
@@ -1233,6 +1282,19 @@ test("!command: the user's own, from a view only, run ungated on the device name
     several: "Several devices are open (mac, pc): name one, as !@mac <command>.",
     unknown: "No device nas is open: mac, pc.", picked: {}, there: "cd '/r/it'\\''s here' && ls", baddir: true,
     termed: {}, termjob: "echo t",
+  });
+});
+
+test("shell commands: their last lines told the views; background and stop only the user's, a device key's refused; the user's Stop ends them all", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/shell.ts", SHELL);
+  const proc = Bun.spawn([process.execPath, dir + "/shell.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  const yours = "Only you send a command to the background or stop it: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you.";
+  expect(out).toEqual({
+    lines: ["compiling"], told: ["compiling"], device: { error: yours }, posted: true, kept: 1,
+    bg: { text: "Sent to the background: 1." }, n: 1, sent: { text: "Sent to the background: 2." }, back: true,
+    after: 2, stopped: 0, bad: { error: "No such op: bg or stop." },
   });
 });
 

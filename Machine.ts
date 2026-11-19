@@ -32,6 +32,9 @@ import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
 // repos it changes first, once a turn (Undo.ts, Device.device_snap)
 export type Job = { name: string; input: any; cwd: string; snap?: number };
 
+// told a shell command's output as it comes, a piece at a time
+export type Live = (text: string) => void;
+
 // a tool as the vendors see it: its name, what it does, its input's
 // JSON Schema
 export type Spec = { name: string; info: string; schema: object };
@@ -123,7 +126,7 @@ export const INT = { type: "integer" };
 const EDIT = { type: "object", properties: { path: STR, old: STR, new: STR, all: { type: "boolean" } }, required: ["path", "old", "new"] };
 
 export const TOOLS: Spec[] = [
-  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. Background jobs live only while unii is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
+  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. The user may send a call still running to the background (Ctrl+B): it then answers at once with its number, and shell_output reads it. Background jobs live only while unii is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
   spec("read", "Read a text file. offset: the first line to show (from 1); limit: how many lines; at: the character of the first line to start from. It ends saying the lines shown, as [lines 4-7 of 15]; output past " + CAP + " characters comes in pages, saying where to go on.", { path: STR, offset: INT, limit: INT, at: INT }, ["path"]),
   spec("write", "Write a whole file, making its directories. Answers a unified diff of what changed (a new file: all its lines added).", { path: STR, content: STR }, ["path", "content"]),
   spec("glob", "Find files by a glob pattern (\"**/*.ts\", \"src/**/test_*.py\") under path (a dir; by default the agent's), newest first, as paths from path; hidden files and node_modules are left out.", { pattern: STR, path: STR }, ["pattern"]),
@@ -192,14 +195,16 @@ export namespace Machine {
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
   // by default Claude Code's own for the dir's project); the user's own
   // !command (USER_SHELL) asks none
-  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[]): Promise<Out> {
+  // live: told what a shell command prints as it comes (Device.ts sends
+  // it on: the status line's last lines, a background command's output)
+  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[], live?: Live): Promise<Out> {
     const cwd = Machine.dir(job, work, home);
     const input = job.input;
     const file = path.resolve(cwd, String(input.path));
     try {
       fs.mkdirSync(cwd, { recursive: true });
       if (job.name === USER_SHELL) {
-        return await Machine.shell(cwd, String(input.command), signal, away);
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
       }
       const calls = Hooks.calls(job, cwd);
       const why   = calls.map(Machine.guard).find((w) => w !== null);
@@ -207,7 +212,7 @@ export namespace Machine {
         return { text: why, fail: true };
       }
       if (calls.length === 0) {
-        return await tool(job, cwd, file, signal, away);
+        return await tool(job, cwd, file, signal, away, live);
       }
       const src   = hooks ?? Hooks.sources(Hooks.project(cwd));
       const gates = await Promise.all(calls.map((c) => Hooks.pre(src, c.tool, c.input, cwd, job.cwd, signal)));
@@ -215,7 +220,7 @@ export namespace Machine {
       if (deny) {
         return { text: "Refused by a hook: " + deny, fail: true };
       }
-      const out   = await tool(job, cwd, file, signal, away);
+      const out   = await tool(job, cwd, file, signal, away, live);
       const notes = (await Promise.all(calls.map((c) => Hooks.post(src, c.tool, c.input, out, cwd, job.cwd, signal)))).flat();
       const warn  = gates.flatMap((g) => g.warn).map((w) => "[hook] " + w);
       const text  = [...warn, out.text, ...notes.map((n) => "[hook] " + n)].join("\n");
@@ -318,12 +323,12 @@ export namespace Machine {
   }
 
   // runs a job's tool, ungated
-  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
     const input = job.input;
     switch (job.name) {
       case "shell": {
-        return await Machine.shell(cwd, String(input.command), signal, away);
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
       }
       case "read": {
         return Machine.read(file, Number(input.offset ?? 1), Number(input.limit ?? Infinity), Number(input.at ?? 0));
@@ -447,8 +452,8 @@ export namespace Machine {
   // still holds its output. Sent `away` (the person's Ctrl+B), it answers
   // at once and goes on: what it printed so far, then the rest and its
   // exit, go to bg-<pid>.log in cwd (the head and tail kept so far, if
-  // it was cut)
-  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  // it was cut); told as it comes to live (till sent away)
+  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     SHELLS.forEach((p) => Machine.group(p) || SHELLS.delete(p));
     const start = performance.now();
     const proc = Bun.spawn([SHELL, "-c", "exec 2>&1\n" + command], {
@@ -472,7 +477,12 @@ export namespace Machine {
     const ran = (async (): Promise<Out> => {
       try {
         for (let got = await reader.read(); !got.done; got = await reader.read()) {
-          gone ? fs.appendFileSync(file, got.value) : out.add(got.value);
+          if (gone) {
+            fs.appendFileSync(file, got.value);
+          } else {
+            out.add(got.value);
+            live?.(got.value);
+          }
         }
       } catch {}
       signal.removeEventListener("abort", kill);
