@@ -190,18 +190,39 @@ with the one code the browser asks for. The device key is a file
 on it, and since an agent's shell can read it, its acts that are the
 user's say (mode, plan, approvals, answers, routines, timers, todos,
 pins, decisions) are refused. The terminal key is kept only in the
-Keychain (service `legion-terminal-<host>`, every read prompts): the
-full-screen `legion` reads it once as it starts (Allow), and with it
-those acts work from the terminal. A terminal signed in before 2026-11-19
-has no terminal key and says so: run `legion login` once. `/logout` ends
-both keys' sessions and deletes the Keychain item.
+Keychain (service `legion-terminal-<host>`), read only by legion-key
+(below): the full-screen `legion` reads it once as it starts (Touch ID
+or your password), and with it those acts work from the terminal. A
+terminal signed in before 2026-11-19 has no terminal key and says so:
+run `legion login` once. `/logout` ends both keys' sessions and deletes
+the Keychain item.
+
+legion-key (local/legion-key/main.swift; draft, awaiting sign-off) is
+the one program the terminal key's and the sign-in secret's Keychain
+items trust. The launcher builds it with `swiftc` into
+~/.unii/bin/legion-key (0700, ad hoc signed, hardened runtime) before
+`legion`, `legion login` and `legion web` run, and again only when its
+source changes. Before every read it asks for Touch ID (or your login
+password), with nothing remembered: once per `legion` start, `legion
+login` on a local Legion, and `legion web`. macOS may also ask whether
+legion-key may use a key (the first read after a new build): "Always
+Allow" there is fine for a build you expect, since it trusts only that
+exact build, which still asks for Touch ID each time (see the known
+limitation below). Never click "Always Allow" on a
+prompt naming `security` for these items: that trusts
+/usr/bin/security, which any agent can run to read them unasked. Items
+kept before legion-key (by `security`) are read that way once (one
+`security` prompt: Allow) and kept by legion-key from then on. With no
+`swiftc` the launcher says so loudly (get it with `xcode-select
+--install`), and until then approving from the terminal is off and a
+local sign-in is refused; nothing falls back to `security`.
 
 A local Legion (no `RESEND_API_KEY`) mails no sign-in link and never
 prints one (an agent's shell reads the log, and could start a sign-in
 itself, knowing its code). There `legion login` confirms the sign-in
 itself, with the code and the sign-in secret: a token kept only in the
-Keychain (service `legion-signin-<host>`, every read prompts: Allow,
-never Always Allow), sent over the server's socket. The server keeps only
+Keychain (service `legion-signin-<host>`, read by legion-key after Touch
+ID), sent over the server's socket. The server keeps only
 its sha256, in ~/.unii/signin-hash ($UNII_DIR, 0600). The first
 `legion login` makes and registers it (trust on first use, once: run it
 yourself right away); after that a sign-in without it is refused, and so
@@ -216,14 +237,15 @@ as you, though: a disguised command in full mode can still reach those
 files; the reviewer, the hooks and these refusals are the boundary, not
 the disk.
 
-The Google grant, the terminal key and the Harvest token sit behind macOS
-Keychain prompts (no app is trusted to read them). Allow the Google one
-when you start a terminal or `legion device` yourself, the terminal key's
-when you start `legion`, and the Harvest one when you press
-Submit or an agent reads your timesheet; Deny any other, and never click
-Always Allow. An agent can't read either without a prompt, but it could
-restart the device to make one appear at a time you'd expect: if a prompt
-comes and you didn't just start Legion, Deny it.
+The Google grant and the Harvest token sit behind macOS Keychain
+prompts (no app is trusted to read them). Allow the Google one when you
+start a terminal or `legion device` yourself, and the Harvest one when
+you press Submit or an agent reads your timesheet; Deny any other, and
+never click Always Allow on those. The terminal key and the sign-in
+secret ask for Touch ID through legion-key instead (above). An agent
+can't read any of them without a prompt, but it could restart the device
+or run legion-key to make one appear at a time you'd expect: if a prompt
+or a Touch ID request comes and you didn't just start Legion, Deny it.
 
     bun run test              # the tests, each file on its own
     bun run web               # rebuilds web/app.js from web/src
@@ -294,9 +316,15 @@ Gaps
 What is known not to work, or not checked yet:
 
 - **Local sign-in rests on the Keychain.** No SSO, no mail: `legion
-  login` proves it is you by the sign-in secret (the Keychain's prompt).
+  login` proves it is you by the sign-in secret (legion-key's Touch ID).
   Its first registration is trust on first use, and an agent in full mode
   running disguised commands as you can still forge Legion's files.
+- **legion-key is built from a file an agent can edit.** Agents run as
+  you, so one could change local/legion-key/main.swift (or Term.ts);
+  the next start rebuilds it, and its first read of each key then asks
+  whether this new build may use it. Always Allow there is safe only
+  for a build you expect: if that prompt comes when you didn't just pull
+  a change to legion-key, Deny it and check `git diff local/legion-key`.
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
 - **Web fetch has a DNS-rebinding window.** Bun's fetch resolves the

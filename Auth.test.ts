@@ -8,6 +8,8 @@
 
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import { Auth, type Store } from "./Auth.ts";
 import { Mcp } from "./Mcp.ts";
 
@@ -240,4 +242,91 @@ test("logout deletes the grant; the Keychain store round-trips (UNII_TEST_KEYCHA
     expect(await kc.delete("web")).toBe(true);
     expect(await kc.get("web")).toBe(null);
   }
+});
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): a key behind
+// legion-key (local/legion-key), the one program its Keychain item
+// trusts, which asks for Touch ID or the password before every read.
+// A fake helper (Run) here: no real Keychain, no Touch ID
+function helper_fake() {
+  const items = new Map<string, string>();
+  const old = new Map<string, string>();
+  const calls: { args: string[]; input?: string }[] = [];
+  let code = 0;
+  const run = async (args: string[], input?: string) => {
+    calls.push({ args, input });
+    const [verb, service] = args;
+    if (code !== 0) {
+      return { code, out: "" };
+    }
+    if (verb === "get") {
+      return items.has(service) ? { code: 0, out: items.get(service) + "\n" } : old.has(service) ? { code: 45, out: "" } : { code: 44, out: "" };
+    }
+    if (verb === "set") {
+      old.delete(service);
+      items.set(service, input!.replace(/\n$/, ""));
+      return { code: 0, out: "" };
+    }
+    const had = items.delete(service) || old.delete(service);
+    return { code: had ? 0 : 44, out: "" };
+  };
+  return { items, old, calls, run, code: (c: number) => (code = c) };
+}
+
+test("the present store: set, get, delete through legion-key, the value on its stdin only, never an argument", async () => {
+  const h = helper_fake();
+  const store = Auth.present("legion-terminal", h.run);
+  await store.set("h:1", "tok-0123_abc.def");
+  expect(h.calls.at(-1)).toEqual({ args: ["set", "legion-terminal-h:1", "oauth"], input: "tok-0123_abc.def\n" });
+  expect(await store.get("h:1")).toBe("tok-0123_abc.def");
+  expect(h.calls.at(-1)).toEqual({ args: ["get", "legion-terminal-h:1", "oauth"], input: undefined });
+  expect(h.calls.every((c) => !c.args.join(" ").includes("tok-0123"))).toBe(true);
+  expect(await store.delete("h:1")).toBe(true);
+  expect(await store.get("h:1")).toBe(null);
+  expect(await store.delete("h:1")).toBe(false);
+  await expect(store.set("h:1", "not a token\n-w x")).rejects.toThrow("not a token");
+  expect(h.items.size).toBe(0);
+});
+
+test("the present store fails closed: presence refused, no helper, or a broken one, and no value; never the old store", async () => {
+  const h = helper_fake();
+  h.items.set("legion-terminal-h", "tok");
+  const asked: string[][] = [];
+  const store = Auth.present("legion-terminal", h.run, { get: async (n) => (asked.push([n]), "tok"), set: async () => {}, delete: async () => true });
+  for (const code of [1, 2, 127]) {
+    h.code(code);
+    await expect(store.get("h")).rejects.toThrow();
+    await expect(store.set("h", "tok")).rejects.toThrow();
+  }
+  expect(asked).toEqual([]);
+});
+
+test("the present store moves an item made the old way (45: not legion-key's) once: read from the old store, kept by legion-key", async () => {
+  const h = helper_fake();
+  h.old.set("legion-signin-h", "oldsecret");
+  const reads: string[] = [];
+  const old = { get: async (n: string) => (reads.push(n), "oldsecret"), set: async () => {}, delete: async () => true };
+  const store = Auth.present("legion-signin", h.run, old);
+  expect(await store.get("h")).toBe("oldsecret");
+  expect(reads).toEqual(["h"]);
+  expect(h.items.get("legion-signin-h")).toBe("oldsecret");
+  expect(h.old.has("legion-signin-h")).toBe(false);
+  expect(await store.get("h")).toBe("oldsecret");
+  expect(reads).toEqual(["h"]);
+  // with no old store to read, an old item is refused
+  const h2 = helper_fake();
+  h2.old.set("legion-signin-h", "oldsecret");
+  await expect(Auth.present("legion-signin", h2.run).get("h")).rejects.toThrow("legion login");
+});
+
+test("keybin runs legion-key only from a file of this user's, written by no one else; else none (127), nothing run", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-keybin-");
+  const bin = dir + "/legion-key";
+  expect((await Auth.keybin(bin)(["get", "legion-terminal-h", "oauth"])).code).toBe(127);
+  fs.writeFileSync(bin, "#!/bin/sh\necho \"$1 $2 $3\"; cat\n", { mode: 0o700 });
+  expect(await Auth.keybin(bin)(["set", "legion-terminal-h", "oauth"], "v\n")).toEqual({ code: 0, out: "set legion-terminal-h oauth\nv\n" });
+  fs.chmodSync(bin, 0o722);
+  expect((await Auth.keybin(bin)(["get", "legion-terminal-h", "oauth"])).code).toBe(127);
+  fs.chmodSync(bin, 0o600);
+  expect((await Auth.keybin(bin)(["get", "legion-terminal-h", "oauth"])).code).toBe(127);
 });
