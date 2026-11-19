@@ -1,0 +1,19 @@
+web/app.js
+  s_c9059582292f4d::t_7c53b11f0cec69 540-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c54533cfca6f77ee784b5b52c33c943a0f669d1",
+  "prompts": {},
+  "sessions": {
+    "s_c9059582292f4d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a13863b8-a06e-4286-9ed0-d89bc7cd1aac",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
