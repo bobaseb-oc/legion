@@ -153,7 +153,7 @@ by hand (`bun Server.ts`) reads `ANTHROPIC_API_KEY` instead.
     local/legion              # starts the server if needed, opens the chat
     local/legion web          # the web UI, signed in as your terminal
     local/legion stop         # stops the server and SearXNG
-    local/legion log          # the server's log (sign-in links print here)
+    local/legion log          # the server's log (no sign-in link prints there)
 
 The header of local/unii-local.sh lists the rest (device, knowledge,
 mcp-login). Symlink it onto your PATH as `legion`. The server only
@@ -179,6 +179,26 @@ full-screen `legion` reads it once as it starts (Allow), and with it
 those acts work from the terminal. A terminal signed in before 2026-11-19
 has no terminal key and says so: run `legion login` once. `/logout` ends
 both keys' sessions and deletes the Keychain item.
+
+A local Legion (no `RESEND_API_KEY`) mails no sign-in link and never
+prints one (an agent's shell reads the log, and could start a sign-in
+itself, knowing its code). There `legion login` confirms the sign-in
+itself, with the code and the sign-in secret: a token kept only in the
+Keychain (service `legion-signin-<host>`, every read prompts: Allow,
+never Always Allow), sent over the server's socket. The server keeps only
+its sha256, in ~/.unii/signin-hash ($UNII_DIR, 0600). The first
+`legion login` makes and registers it (trust on first use, once: run it
+yourself right away); after that a sign-in without it is refused, and so
+is registering another. To start over (a new Mac, a lost Keychain item),
+delete ~/.unii/signin-hash yourself, then run `legion login`. A browser
+signs in there by `legion web`; a server with a mail key mails links as
+before. Agents' tools refuse Legion's trust state (cloud.db and its
+-wal/-shm, signin-hash, server.log, the token files): no read, grep or
+write, and a shell command naming one by its path is refused in every
+mode (one naming the dir or the file is reviewed in auto mode). They run
+as you, though: a disguised command in full mode can still reach those
+files; the reviewer, the hooks and these refusals are the boundary, not
+the disk.
 
 The Google grant, the terminal key and the Harvest token sit behind macOS
 Keychain prompts (no app is trusted to read them). Allow the Google one
@@ -257,8 +277,10 @@ Gaps
 
 What is known not to work, or not checked yet:
 
-- **Sign-in is a magic link printed to the server log.** No SSO. It is
-  safe only because the server is loopback-only and single-user.
+- **Local sign-in rests on the Keychain.** No SSO, no mail: `legion
+  login` proves it is you by the sign-in secret (the Keychain's prompt).
+  Its first registration is trust on first use, and an agent in full mode
+  running disguised commands as you can still forge Legion's files.
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
 - **Web fetch has a DNS-rebinding window.** Bun's fetch resolves the
