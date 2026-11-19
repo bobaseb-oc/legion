@@ -409,4 +409,15 @@ test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, ser
   for (const c of ["grep -n cloud.db Cloud.ts", "tail server.log", "ls ~/.unii", "legion login"]) {
     expect([c, shell(c)]).toEqual([c, null]);
   }
+  // a $UNII_DIR of another name, written out in the command
+  const was = process.env.UNII_DIR;
+  const other = os.tmpdir() + "/legion-trust-dir";
+  process.env.UNII_DIR = other;
+  try {
+    expect(shell("sqlite3 " + other + "/cloud.db .dump")).toContain("Refused");
+    expect(shell("cat " + other + "/notes.txt")).toBeNull();
+    expect(Machine.secret(other + "/server.log")).toBe(true);
+  } finally {
+    process.env.UNII_DIR = was;
+  }
 });

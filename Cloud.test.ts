@@ -382,6 +382,14 @@ test("a local Legion's sign-in needs the sign-in secret: registered once, then r
     expect((await confirm(a.t, a.code, {})).status).toBe(403);
     expect(live(a.key)).toBe(false);
     expect((await confirm(a.t, a.code, { secret: Cloud.random(), register: "1" })).headers.get("location")).toContain("expired=1");
+    // a well-formed secret, none registered: refused; a weak one never
+    // registers
+    for (const more of [{ secret: Cloud.random() }, { secret: "short", register: "1" }]) {
+      const n = await begin();
+      expect((await confirm(n.t, n.code, more)).status).toBe(403);
+      expect(live(n.key)).toBe(false);
+    }
+    expect(fs.existsSync(config.DIR + "/signin-hash")).toBe(false);
     // the first registers it: signed in, only its hash kept, 0600
     const secret = Cloud.random();
     const b = await begin();
@@ -409,6 +417,11 @@ test("a local Legion's sign-in needs the sign-in secret: registered once, then r
     expect((await confirm(e.t, e.code, { secret })).status).toBe(200);
     expect(live(e.key)).toBe(true);
     expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + e.term } }))).toBe(true);
+    // an emailed link's ticket (one from before, or forged) signs no
+    // browser in there
+    const mailed = Cloud.ticket(cloud, { who: "me@x.com", session: null }, 60000);
+    const pressed = await Cloud.http(cloud, new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t: mailed }).toString() }));
+    expect(pressed?.headers.get("set-cookie") ?? "").toBe("");
     // nothing printed, no link, no ticket
     expect(said).toEqual([]);
   } finally {
