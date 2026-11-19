@@ -22,6 +22,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
+import { Auth } from "./Auth.ts";
 import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Deck from "./Deck.ts";
@@ -108,6 +109,18 @@ const HOME   = process.env.UNII_HOME || os.homedir() + "/.unii";
 const OURS   = "http://127.0.0.1:8788";
 const SERVER = (ARGS.find((a) => WEB.test(a)) ?? process.env.UNII_URL ?? OURS).replace(/\/$/, "");
 const TOKEN  = HOME + "/" + new URL(SERVER).host + "/token";
+// RED ZONE (K1, K2, DRAFT awaiting the user's sign-off): the terminal
+// key: signed in with the device key (TOKEN, a file: jobs, `legion
+// device`, launchd's) by the one code, its session speaks for the user
+// (Cloud.speaks: /mode, /plan, /allow, /approve, /answer, routines,
+// timers, todos...). Kept only in the Keychain, as the generic password
+// of service "legion-terminal-<host>" (Auth.asking: every read the user
+// allows, the value on security's stdin), never in a file, the
+// environment, an argument nor anything sent to a job. The full-screen
+// terminal reads it once as it starts (TERMKEY: in this process only);
+// none (signed in before it) or refused, it runs on the device key
+const KEYCHAIN = "legion-terminal";
+let TERMKEY: string | null = null;
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // server's own dir, as Config.DIR reads it ($UNII_DIR, default ~/.unii),
 // where its socket is; every request and socket to the server goes over
@@ -367,6 +380,12 @@ function term_connect(t: Term): void {
 // never opened, if the server refuses this terminal's session, quits
 async function term_lost(t: Term, up: boolean): Promise<boolean> {
   term_draw(t);
+  // a terminal key the server refuses (signed out): the device key's from
+  // then on, and approving from here off (K2)
+  if (!up && TERMKEY !== null && (await Device.device_fetch(term_wire(t.url), "/api/me", { headers: term_auth() }).catch(() => null))?.status === 401) {
+    TERMKEY = null;
+    term_note(t, KEYLESS);
+  }
   if (!up && !await term_signed(t.url)) {
     term_note(t, "This terminal is signed out: run legion again to sign in.");
     process.exitCode = 1;
@@ -1208,16 +1227,30 @@ async function term_delete(t: Term, arg: string): Promise<void> {
     term_note(t, out.error ?? "No connection.");
     return;
   }
-  fs.rmSync(TOKEN, { force: true });
+  await term_forget(t);
   term_note(t, "Your account and chat are deleted.");
   term_quit(t);
 }
 
+// signs this terminal out: both its keys' sessions (RED ZONE K1: the
+// terminal key's, held, and the device key's), its Keychain item and
+// its file gone
 async function term_logout(t: Term): Promise<void> {
   await term_post(t, "/api/logout", {});
-  fs.rmSync(TOKEN, { force: true });
+  if (TERMKEY !== null) {
+    await Device.device_fetch(term_wire(t.url), "/api/logout", { method: "POST", headers: term_file() }).catch(() => null);
+  }
+  await term_forget(t);
   term_note(t, "Signed out. Run unii to sign in again.");
   term_quit(t);
+}
+
+// this terminal's keys gone: the terminal key from the Keychain (and
+// memory), the device key's file
+async function term_forget(t: Term): Promise<void> {
+  TERMKEY = null;
+  await Auth.asking(KEYCHAIN).delete(new URL(t.url).host).catch(() => false);
+  fs.rmSync(TOKEN, { force: true });
 }
 
 // a GET of the server; failing, a note says it could not do `what`
@@ -1562,8 +1595,10 @@ function term_bg(t: Term): void {
 // server takes one) begins a sign-in for a token made here, kept in TOKEN
 // once its link was opened; where the server bills, it accepts its terms.
 // A server that says nothing of itself (/api/hello) bills, as one of
-// before it did
-async function login_run(url: string): Promise<void> {
+// before it did. RED ZONE (K1, DRAFT awaiting the user's sign-off): the
+// one code signs in a terminal key too (TERMKEY), kept in the Keychain
+// only; one it won't keep is signed out again. The terminal key, if kept
+async function login_run(url: string): Promise<string | null> {
   // RED ZONE U1: the new session's key, and the link it opens, over the
   // server's socket only (Device.device_fetch); none: nothing is sent
   const res = await Device.device_fetch(term_wire(url), "/api/hello").catch(() => null);
@@ -1575,8 +1610,10 @@ async function login_run(url: string): Promise<void> {
   if (bills) {
     console.log("Signing in, you accept the terms (" + url + "/terms.html) and the privacy policy (" + url + "/privacy.html).");
   }
-  const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
-  const out = await login_ask(url, key, github);
+  const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+  const key = random();
+  const term = random();
+  const out = await login_ask(url, key, term, github);
   if (out.url) {
     browse(out.url);
   }
@@ -1600,16 +1637,25 @@ async function login_run(url: string): Promise<void> {
   }
   fs.writeFileSync(TOKEN, key, { mode: 0o600 });
   console.log("Signed in.");
+  const kept = await Auth.asking(KEYCHAIN).set(new URL(url).host, term).then(() => true, () => false);
+  if (!kept) {
+    await Device.device_fetch(term_wire(url), "/api/logout", { method: "POST", headers: { authorization: "Bearer " + term } }).catch(() => null);
+    console.log("The Keychain didn't keep the terminal's key, so approving from the terminal stays off (the web still can).");
+    return null;
+  }
+  console.log("Approving from the terminal is on: its key is in the Keychain, which asks you each time legion starts (Allow, never Always Allow).");
+  return term;
 }
 
 // asks for an address (a GitHub login too, where the server takes one)
 // until the server takes one (it says why it doesn't): the address, and
-// the server's answer
-async function login_ask(url: string, key: string, github: boolean): Promise<{ who: string; url?: string; code: string }> {
+// the server's answer. key: the device key's; term: the terminal key's
+// (K1), both signed in by the one code
+async function login_ask(url: string, key: string, term: string, github: boolean): Promise<{ who: string; url?: string; code: string }> {
   while (true) {
     process.stdout.write(github ? "Email or @github: " : "Email: ");
     const who  = (await login_line()).trim();
-    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who, key }) };
+    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who, key, term }) };
     const res  = await Device.device_fetch(term_wire(url), "/api/login", init).catch(() => null);
     if (res === null) {
       login_fail("no connection to " + url);
@@ -1652,13 +1698,36 @@ function update_run(url: string): void {
 // Main
 // ====
 
-// the session's header, if signed in
-function term_auth(): Record<string, string> {
+// the device key's header (TOKEN), if signed in: `legion device`'s and
+// `legion web`'s, and the full-screen terminal's with no terminal key
+function term_file(): Record<string, string> {
   if (!fs.existsSync(TOKEN)) {
     return {};
   }
   return { authorization: "Bearer " + fs.readFileSync(TOKEN, "utf8").trim() };
 }
+
+// the session's header: the terminal key's while this terminal holds one
+// (TERMKEY, RED ZONE K1), else the device key's
+function term_auth(): Record<string, string> {
+  return TERMKEY === null ? term_file() : { authorization: "Bearer " + TERMKEY };
+}
+
+// RED ZONE (K2, DRAFT awaiting the user's sign-off): the terminal key,
+// read once as the full-screen terminal starts (one Keychain prompt);
+// null: none kept (signed in before it), the read refused, or a session
+// the server refuses (one it can't reach is kept: the chat waits for it)
+async function term_key(url: string): Promise<string | null> {
+  const key = await Auth.asking(KEYCHAIN).get(new URL(url).host).catch(() => null);
+  if (key === null || key === "") {
+    return null;
+  }
+  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: { authorization: "Bearer " + key } }).catch(() => null);
+  return res === null || res.ok ? key : null;
+}
+
+// the note a terminal with no terminal key shows once (K2)
+const KEYLESS = "Approving from this terminal (/mode, /plan, /allow, /approve, /answer, routines, timers, todos) is off: run legion login once to turn it on.";
 
 // whether this terminal is signed in: it holds a session the server
 // doesn't refuse (one it can't reach may: the chat waits for it). The
@@ -1668,7 +1737,7 @@ async function term_signed(url: string): Promise<boolean> {
   if (!fs.existsSync(TOKEN)) {
     return false;
   }
-  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: term_auth() }).catch(() => null);
+  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: term_file() }).catch(() => null);
   return res === null || res.status !== 401;
 }
 
@@ -1686,7 +1755,7 @@ async function device_run(url: string): Promise<void> {
     console.error("legion device: offline, trying again");
     return true;
   };
-  Device.device_open(term_wire(url), term_auth(), term_device(), RULES, (line) => console.error("legion device: " + line), lost);
+  Device.device_open(term_wire(url), term_file(), term_device(), RULES, (line) => console.error("legion device: " + line), lost);
   console.log("legion device: " + DEVICE + " runs the agents' jobs from " + url + " in " + WORK + (COMPUTER ? ", computer use on" : "") + ". Ctrl+C stops.");
 }
 
@@ -1696,7 +1765,7 @@ async function web_run(url: string): Promise<void> {
   if (!await term_signed(url)) {
     await login_run(url);
   }
-  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: term_auth() }).catch(() => null);
+  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: term_file() }).catch(() => null);
   const body = (await res?.json().catch(() => ({})) ?? {}) as { url?: string; error?: string };
   if (res === null || !res.ok || body.url === undefined) {
     login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with unii" : "the server refused (" + res.status + ")"));
@@ -1727,9 +1796,10 @@ if (HELP || ODD !== undefined) {
 } else if (DEVICED) {
   await device_run(SERVER);
 } else {
-  if (!await term_signed(SERVER)) {
-    await login_run(SERVER);
-  }
+  TERMKEY = await term_signed(SERVER) ? await term_key(SERVER) : await login_run(SERVER);
   const t = term_new(SERVER);
+  if (TERMKEY === null) {
+    term_note(t, KEYLESS);
+  }
   term_connect(t);
 }

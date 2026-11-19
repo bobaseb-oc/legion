@@ -152,9 +152,22 @@ One server runs per user on a computer, whatever its `$UNII_DIR`: a second
 one ends, naming the one that runs (pid, port, dir). `UNII_ANOTHER=1` runs
 one beside it on its own dir (the tests do).
 
-The Google grant and the Harvest token sit behind macOS Keychain prompts
-(no app is trusted to read them). Allow the Google one when you start a
-terminal or `legion device` yourself, and the Harvest one when you press
+Signing in (`legion login`, or `legion` the first time) makes two keys
+with the one code the browser asks for. The device key is a file
+(~/.unii/<host>/token): jobs, `legion device` and the launchd device run
+on it, and since an agent's shell can read it, its acts that are the
+user's say (mode, plan, approvals, answers, routines, timers, todos,
+pins, decisions) are refused. The terminal key is kept only in the
+Keychain (service `legion-terminal-<host>`, every read prompts): the
+full-screen `legion` reads it once as it starts (Allow), and with it
+those acts work from the terminal. A terminal signed in before 2026-11-19
+has no terminal key and says so: run `legion login` once. `/logout` ends
+both keys' sessions and deletes the Keychain item.
+
+The Google grant, the terminal key and the Harvest token sit behind macOS
+Keychain prompts (no app is trusted to read them). Allow the Google one
+when you start a terminal or `legion device` yourself, the terminal key's
+when you start `legion`, and the Harvest one when you press
 Submit or an agent reads your timesheet; Deny any other, and never click
 Always Allow. An agent can't read either without a prompt, but it could
 restart the device to make one appear at a time you'd expect: if a prompt

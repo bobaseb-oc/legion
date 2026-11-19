@@ -72,8 +72,10 @@ import style_css from "./web/style.css" with { type: "file" };
 // =====
 
 // a socket: its user, sign-in (hashed), its query's fields, its device,
-// the parts it was shown (Chat.teach), the agents whose pages it asked for
-type Sock = ServerWebSocket<{ user: User; who: string; tab: string; wire: string | null; host: string | null; computer: boolean; work: string; home: string | null; device: string | null; seen: Set<string>; watch: Set<string> }>;
+// the parts it was shown (Chat.teach), the agents whose pages it asked for;
+// says: it speaks for the user (Cloud.speaks: a browser's, or a terminal
+// key's; none said: it doesn't)
+type Sock = ServerWebSocket<{ user: User; who: string; tab: string; wire: string | null; host: string | null; computer: boolean; work: string; home: string | null; device: string | null; seen: Set<string>; watch: Set<string>; says?: boolean }>;
 
 // a body: its file, its size so far
 type Body = { fh: fs.promises.FileHandle; size: number };
@@ -244,7 +246,8 @@ const POSTED     = "api";
 // Code worker's start, a question's answer. A view's acts only (Chat.act):
 // a device's socket is within an agent's reach, so an agent must not
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
-// device too: its /mode, /plan, /allow, /approve, /answer are refused
+// device too: its /mode, /plan, /allow, /approve, /answer are refused,
+// unless its socket is on its terminal key (K1, Chat.act's `says`)
 const SAYS       = ["mode", "plan", "consent", "approve", "answer"];
 
 // a read of a body: a buffer, no limit
@@ -459,7 +462,7 @@ export namespace Chat {
 
   // a message (its body: its images, sizes given, then its text), logged
   // and taken
-  export async function say(chat: Chat, id: string, sizes: number[], body: Body): Promise<Answer> {
+  export async function say(chat: Chat, id: string, sizes: number[], body: Body, says = false): Promise<Answer> {
     const images: string[] = [];
     let at = 0;
     for (const size of sizes) {
@@ -470,7 +473,7 @@ export namespace Chat {
       images.push(name);
       at += size;
     }
-    await Chat.writing(chat, async () => Chat.take(chat, await Chat.text(chat, body, at, images, id)));
+    await Chat.writing(chat, async () => Chat.take(chat, await Chat.text(chat, body, at, images, id, says)));
     return {};
   }
 
@@ -482,10 +485,15 @@ export namespace Chat {
   }
 
   // a body's text from byte `at`, logged as the user's message, a read
-  // at a time, the last with the images and the act's record (the user
-  // is here: timers may be set again, Tools.timer)
-  export async function text(chat: Chat, body: Body, at: number, images: string[], act: string): Promise<Msg> {
-    chat.tools.rung = false;
+  // at a time, the last with the images and the act's record. RED ZONE
+  // (K3, DRAFT awaiting the user's sign-off): one that speaks for the user
+  // (says: a view's, or the terminal key's) tells the user is here, so
+  // timers may be set again (Tools.timer); a device key's (an agent's
+  // shell can type it) does not
+  export async function text(chat: Chat, body: Body, at: number, images: string[], act: string, says = false): Promise<Msg> {
+    if (says) {
+      chat.tools.rung = false;
+    }
     const id = chat.mem.count;
     for await (const [pages, more] of Chat.pieces(body, at, clip_pages)) {
       Chat.push(chat, null, "user", pages.join(""), more ? [] : images, more, more ? undefined : act);
@@ -1258,7 +1266,7 @@ export namespace Chat {
     let msg: any = null;
     const out = await Promise.try(() => {
       msg = JSON.parse(data);
-      return Chat.ask(chat, sock, msg) ?? Chat.apply(chat, msg, sock.data.device ?? "");
+      return Chat.ask(chat, sock, msg) ?? Chat.apply(chat, msg, sock.data.device ?? "", sock.data.says === true);
     }).catch(Chat.fail);
     chat.posts -= 1;
     Chat.send(sock, { $: "ack", id: msg?.id, ...out });
@@ -1335,14 +1343,14 @@ export namespace Chat {
   // THE apply point: every change is done here once, however often it
   // comes. An act being done, or recorded done (its record's answer, kept
   // by Cloud.act_put as the log indexes it), gets that answer; else
-  // Chat.act does it, answered once on disk
-  export function apply(chat: Chat, msg: any, device: string): Promise<Answer> {
+  // Chat.act does it, answered once on disk (says: as Chat.act's)
+  export function apply(chat: Chat, msg: any, device: string, says = device === ""): Promise<Answer> {
     const id = String(msg.id);
     const was = chat.acts.get(id) ?? (Cloud.act_get(chat.acct, id) as Answer | null);
     if (was !== null) {
       return Promise.resolve(was);
     }
-    const run = Chat.act(chat, id, msg, device).catch(Chat.fail).then(async (out) => {
+    const run = Chat.act(chat, id, msg, device, says).catch(Chat.fail).then(async (out) => {
       await Disk.synced();
       chat.acts.delete(id);
       return out;
@@ -1358,13 +1366,19 @@ export namespace Chat {
   // set state (a pick: view.json; an import's hold: its file) or end a
   // job, so done again they change nothing, and only that state is kept,
   // written over; a stop with nothing to stop is one (so one a client
-  // sends again, its answer lost, may end what runs by then)
-  export async function act(chat: Chat, id: string, msg: any, device: string): Promise<Answer> {
+  // sends again, its answer lost, may end what runs by then).
+  // device: the device whose socket sent it ("": a view's). RED ZONE (K1,
+  // DRAFT awaiting the user's sign-off): says: the act speaks for the user
+  // (Cloud.speaks: a browser's, or the terminal key's socket, a device
+  // too), so the acts only the user may do take it as a view's (asker
+  // ""); one on a device key (a file an agent's shell can read) is refused
+  export async function act(chat: Chat, id: string, msg: any, device: string, says = device === ""): Promise<Answer> {
     if ("req" in msg && BODIES.includes(msg.$)) {
-      return Chat.post(chat, id, msg);
+      return Chat.post(chat, id, msg, says);
     }
-    if (device !== "" && SAYS.includes(msg.$)) {
-      return { error: "That is the user's say: give it in a view (the web)." };
+    const asker = says ? "" : device;
+    if (asker !== "" && SAYS.includes(msg.$)) {
+      return { error: "That is the user's say: give it in a view (the web), or in the terminal once legion login signed it in." };
     }
     switch (msg.$) {
       case "stop": {
@@ -1462,10 +1476,10 @@ export namespace Chat {
         return Chat.review(chat, id, msg);
       }
       case "routine": {
-        return Chat.routine(chat, id, msg, device);
+        return Chat.routine(chat, id, msg, asker);
       }
       case "timer": {
-        return Chat.untimed(chat, device, msg);
+        return Chat.untimed(chat, asker, msg);
       }
       case "themes": {
         return Chat.themes(chat);
@@ -1474,7 +1488,7 @@ export namespace Chat {
         return Chat.transcript(chat, device, msg);
       }
       case "look": {
-        return Chat.look(chat, id, msg.what, device);
+        return Chat.look(chat, id, msg.what, asker);
       }
       case "timesheet": {
         return Chat.timesheet(chat, id, msg);
@@ -1487,7 +1501,7 @@ export namespace Chat {
       }
       case "undo":
       case "handoff": {
-        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""), device);
+        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""), asker);
       }
       case "did": {
         return Chat.did(chat, device, msg);
@@ -1547,16 +1561,16 @@ export namespace Chat {
         return {};
       }
       case "pin": {
-        return Chat.pin(chat, device, msg);
+        return Chat.pin(chat, asker, msg);
       }
       case "assignment": {
-        return Chat.assignment(chat, id, device, msg);
+        return Chat.assignment(chat, id, asker, msg);
       }
       case "explain": {
-        return Chat.explain(chat, device, msg);
+        return Chat.explain(chat, asker, msg);
       }
       case "decision": {
-        return Chat.decision(chat, id, device, msg);
+        return Chat.decision(chat, id, asker, msg);
       }
     }
     return { error: "No act " + msg.$ + "." };
@@ -1649,7 +1663,7 @@ export namespace Chat {
   // without credit stores none: under SPARE free, 507; refused by the
   // billing, asked again after a balance read (a top-up lands there). Else
   // its body goes to a file unlinked once open, then its act is done
-  export async function post(chat: Chat, id: string, msg: any): Promise<Answer> {
+  export async function post(chat: Chat, id: string, msg: any, says = false): Promise<Answer> {
     const disk = fs.statfsSync(config.DIR);
     if (disk.bavail * disk.bsize < SPARE) {
       return { error: FULL, status: 507 };
@@ -1673,7 +1687,7 @@ export namespace Chat {
       }
       switch (msg.$) {
         case "say": {
-          return await Chat.say(chat, id, msg.sizes.split(",").filter(Boolean).map(Number), body);
+          return await Chat.say(chat, id, msg.sizes.split(",").filter(Boolean).map(Number), body, says);
         }
         case "import": {
           return await Chat.writing(chat, () => Chat.ingest(chat, id, body));
@@ -2984,7 +2998,7 @@ export namespace Main {
           return Response.json({ error: "Too many requests: wait a moment." }, { status: 429 });
         }
         const msg = { ...Object.fromEntries(new URL(req.url).searchParams), req };
-        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED);
+        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED, Cloud.speaks(Chat.cloud, req));
         return Response.json(out, { status: out.status ?? (out.error === undefined ? 200 : 400) });
       }
       case "/api/imported": {
@@ -3087,7 +3101,7 @@ export namespace Main {
         const who  = Cloud.hash(Cloud.token(req));
         const work = q.get("work") ?? "~/.unii/work";
         const home = q.get("home") || null;
-        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
+        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>(), says: Cloud.speaks(cloud, req) };
         return server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
       const chat = Chat.open(user);
