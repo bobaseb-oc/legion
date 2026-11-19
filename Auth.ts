@@ -14,6 +14,7 @@
 // at a time; any failure throws, so the server is skipped (fail closed).
 
 import { timingSafeEqual } from "node:crypto";
+import * as os from "node:os";
 
 // Types
 // =====
@@ -120,6 +121,72 @@ export namespace Auth {
         }
       },
       delete: async (name) => (await run(["delete-generic-password", ...at(name)])).code === 0,
+    };
+  }
+
+  // RED ZONE (T1, DRAFT awaiting the user's sign-off): a key that only
+  // legion-key reads (local/legion-key/main.swift: built by local/legion,
+  // ad hoc signed): its item, the login keychain's generic password of
+  // service "<prefix>-<name>", account "oauth", trusts that one binary,
+  // not `security` nor bun, and it asks for the user's presence (Touch
+  // ID, or the login password) before every read. So "Always Allow" on
+  // its prompt is harmless, where on a `security` prompt (Auth.asking)
+  // it let any agent read the key unasked. The value goes on its stdin,
+  // never an argument nor the environment. An item made the old way
+  // (Auth.asking's: legion-key says 45, it reads none) is read once from
+  // `old` (security's prompt) and made again by legion-key, which drops
+  // the old item and whatever it trusted; with no `old`, refused. No
+  // helper, a refusal, anything else: an error, never a value (fail
+  // closed: the caller runs as if there were no key)
+  export function present(prefix: string, run: Run, old?: Store): Store {
+    const at = (name: string) => [prefix + "-" + name, "oauth"];
+    const refused = (what: string, code: number) => new Error(code === 127 ? "no legion-key (local/legion builds it; it needs swiftc: xcode-select --install)." : "legion-key refused to " + what + " (Touch ID or the password not given?).");
+    const store: Store = {
+      get: async (name) => {
+        const r = await run(["get", ...at(name)]);
+        if (r.code === 44) {
+          return null;
+        }
+        if (r.code === 45 && old !== undefined) {
+          const value = await old.get(name);
+          if (value !== null) {
+            await store.set(name, value);
+          }
+          return value;
+        }
+        if (r.code === 45) {
+          throw new Error("the " + name + " key was kept the old way: run legion login.");
+        }
+        if (r.code !== 0) {
+          throw refused("read the " + name, r.code);
+        }
+        return r.out.replace(/\n$/, "");
+      },
+      set: async (name, value) => {
+        if (!/^[\w.-]{1,400}$/.test(value)) {
+          throw new Error("not a token: kept nowhere.");
+        }
+        const r = await run(["set", ...at(name)], value + "\n");
+        if (r.code !== 0) {
+          throw refused("keep the " + name, r.code);
+        }
+      },
+      delete: async (name) => (await run(["delete", ...at(name)])).code === 0,
+    };
+    return store;
+  }
+
+  // legion-key at path as a Run, if it is a file of this user's that no
+  // one else may write (else 127, nothing run): its stdout, its exit code
+  export function keybin(path: string): Run {
+    return async (args, input) => {
+      const st = await Bun.file(path).stat().catch(() => null);
+      if (st === null || !st.isFile() || st.uid !== process.getuid!() || (st.mode & 0o022) !== 0 || (st.mode & 0o100) === 0) {
+        return { code: 127, out: "" };
+      }
+      const p = Bun.spawn([path, ...args], { stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "inherit", env: { HOME: os.homedir() } });
+      const out = await new Response(p.stdout).text();
+      return { code: await p.exited, out };
     };
   }
 

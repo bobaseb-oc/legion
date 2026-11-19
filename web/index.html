@@ -42,10 +42,13 @@
   <div id="toast" hidden></div>
   <nav id="pick"></nav>
   <div id="pics" class="pics"></div>
+  <!-- B2: the shell commands running in sight, and those in the background (Html.shells_html, bgs_html) -->
+  <div id="shells"></div>
+  <div id="bgs"></div>
   <form class="composer">
     <button class="attach" type="button" aria-label="attach images"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
     <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
-    <textarea rows="1" inputmode="email" autocomplete="email" enterkeyhint="send"></textarea><div class="voice"><canvas></canvas><span>0:00</span></div><button class="mic" type="button" aria-label="dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><button class="send" type="submit" aria-label="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></button>
+    <span class="bang" title="Shell mode: a command run on your device, as you. Backspace over the ! leaves it.">! shell</span><textarea rows="1" inputmode="email" autocomplete="email" enterkeyhint="send"></textarea><div class="voice"><canvas></canvas><span>0:00</span></div><button class="mic" type="button" aria-label="dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><button class="send" type="submit" aria-label="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></button>
   </form>
   <div id="status"></div>
   <div id="bar"></div>

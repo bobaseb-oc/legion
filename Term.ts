@@ -22,6 +22,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
+import { Auth, type Store } from "./Auth.ts";
 import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Deck from "./Deck.ts";
@@ -90,7 +91,7 @@ type Cmd = [use: string, keys: string, text: string, run: (t: Term, arg: string)
 
 // this unii's version: each release ships one, a new one for every
 // change to Term.ts or what it imports
-const VERSION = "1.0.144";
+const VERSION = "1.0.145";
 
 const ARGS   = process.argv.slice(2);
 const LOGIN  = ARGS.includes("login");
@@ -108,6 +109,21 @@ const HOME   = process.env.UNII_HOME || os.homedir() + "/.unii";
 const OURS   = "http://127.0.0.1:8788";
 const SERVER = (ARGS.find((a) => WEB.test(a)) ?? process.env.UNII_URL ?? OURS).replace(/\/$/, "");
 const TOKEN  = HOME + "/" + new URL(SERVER).host + "/token";
+// RED ZONE (K1, K2, DRAFT awaiting the user's sign-off): the terminal
+// key: signed in with the device key (TOKEN, a file: jobs, `legion
+// device`, launchd's) by the one code, its session speaks for the user
+// (Cloud.speaks: /mode, /plan, /allow, /approve, /answer, routines,
+// timers, todos...). Kept only in the Keychain, as the generic password
+// of service "legion-terminal-<host>" (term_keys: legion-key's, every
+// read after Touch ID, the value on its stdin), never in a file, the
+// environment, an argument nor anything sent to a job. The full-screen
+// terminal reads it once as it starts (TERMKEY: in this process only);
+// none (signed in before it) or refused, it runs on the device key
+const KEYCHAIN = "legion-terminal";
+let TERMKEY: string | null = null;
+// RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local Legion's
+// sign-in secret, the Keychain's "legion-signin-<host>" (login_local)
+const SIGNIN = "legion-signin";
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // server's own dir, as Config.DIR reads it ($UNII_DIR, default ~/.unii),
 // where its socket is; every request and socket to the server goes over
@@ -125,6 +141,18 @@ try {
 // the wire to the server at url (its socket in SOCKDIR)
 function term_wire(url: string): Device.Wire {
   return Device.device_wire(url, SOCKDIR);
+}
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): where the terminal
+// key (KEYCHAIN) and the sign-in secret (SIGNIN) are kept: by legion-key
+// only (Auth.present), the helper local/legion builds into the server's
+// dir (<SOCKDIR>/bin, 0700), which asks for Touch ID or the password
+// before every read; an item made by `security` before it (Auth.asking)
+// is read once that way and kept by legion-key from then on. No
+// legion-key (no swiftc): every read and write fails, so the terminal
+// runs keyless and a local sign-in is refused, never weaker
+function term_keys(prefix: string): Store {
+  return Auth.present(prefix, Auth.keybin(SOCKDIR + "/bin/legion-key"), Auth.asking(prefix));
 }
 
 const USAGE = `Usage: legion [url]         the chat (url: $UNII_URL, else http://127.0.0.1:8788)
@@ -204,15 +232,18 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
   return [
     ["Chat", [
       ["",                  "Enter",                   "send; on an empty input, interrupt Legion",    term_enter],
-      ["",                  "Esc",                     "interrupt Legion's turn; agents go on",        (t) => term_act(t, { $: "Send", text: "" })],
+      ["",                  "Esc",                     "interrupt Legion's turn and stop the shell command shown running; agents go on", term_esc],
       ["",                  "Ctrl+C, Ctrl+D",          "clear; on an empty input, interrupt, quit",      term_clear],
       ["/goal <message>",   "",                        "send a message as the goal: at each turn's end, Legion asks itself if it is met, and goes on till it is", (t, a) => term_act(t, { $: "Send", text: "/goal " + a })],
       ["/halt",             "",                        "drop the goal; the turn running ends as it would", (t) => term_act(t, { $: "Send", text: "/halt" })],
       ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
+      ["/copy",             "Ctrl+Y",                  "copy the last code block Legion wrote (a command to run: ! then paste it) to your clipboard", term_copy],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
       ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x explain, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
-      ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
+      ["/bg",               "Ctrl+B",                  "send the shell commands shown running to the background: they go on, and their callers (/shells lists them; Ctrl+B eaten? type /bg)", term_bg],
+      ["/shells",           "",                        "the commands in the background, running or ended", term_shells],
+      ["/kill <n>",         "",                        "stop background command n", term_kill],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
       ["/export",           "",                        "save memory and account as ./unii-memory.json",  term_export],
@@ -328,10 +359,11 @@ function term_new(url: string): Term {
   t.scr.keys = (key) => term_menu_key(t, key);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
-  // the crew panel's spinner (Paint.SPIN): a paint per frame while one works
+  // the crew panel's spinner (Paint.SPIN): a paint per frame while one works;
+  // a shell command's time ticking while one shows (Paint.shell_lines)
   setInterval(() => {
     const spins = t.scr.tty && t.deck === undefined && (t.crew ?? true) && (t.v.busy || t.v.crew.some((c) => c.status === "working"));
-    if (spins) {
+    if (spins || (t.scr.tty && t.deck === undefined && View.view_fore(t.v).length > 0)) {
       term_draw(t);
     }
   }, Paint.SPIN_MS).unref();
@@ -367,6 +399,12 @@ function term_connect(t: Term): void {
 // never opened, if the server refuses this terminal's session, quits
 async function term_lost(t: Term, up: boolean): Promise<boolean> {
   term_draw(t);
+  // a terminal key the server refuses (signed out): the device key's from
+  // then on, and approving from here off (K2)
+  if (!up && TERMKEY !== null && (await Device.device_fetch(term_wire(t.url), "/api/me", { headers: term_auth() }).catch(() => null))?.status === 401) {
+    TERMKEY = null;
+    term_note(t, KEYLESS);
+  }
   if (!up && !await term_signed(t.url)) {
     term_note(t, "This terminal is signed out: run legion again to sign in.");
     process.exitCode = 1;
@@ -592,7 +630,7 @@ function term_clear(t: Term, key: string): void {
   } else if (key === "Ctrl+D") {
     term_quit(t);
   } else {
-    term_act(t, { $: "Send", text: "" });
+    term_esc(t);
   }
 }
 
@@ -720,6 +758,20 @@ function term_toast(t: Term, text: string): void {
   t.toast = { text, until: Date.now() + TOAST };
   setTimeout(() => term_draw(t), TOAST + 50);
   term_draw(t);
+}
+
+// /copy, Ctrl+Y: the last code block Legion wrote, to the terminal's
+// clipboard by the painter's own OSC 52 (Paint.copy_osc: never written
+// from content); a terminal without OSC 52 (or tmux without
+// set-clipboard) copies nothing, so the toast says so
+function term_copy(t: Term): void {
+  const code = View.view_code(t.v);
+  if (code === null) {
+    return term_toast(t, "No code block from Legion to copy yet.");
+  }
+  const n = code.split("\n").length;
+  process.stdout.write(Paint.copy_osc(code));
+  term_toast(t, "Copied the last code block (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
 }
 
 // a page's command: the deck at it on a terminal, else its text printed
@@ -1208,16 +1260,30 @@ async function term_delete(t: Term, arg: string): Promise<void> {
     term_note(t, out.error ?? "No connection.");
     return;
   }
-  fs.rmSync(TOKEN, { force: true });
+  await term_forget(t);
   term_note(t, "Your account and chat are deleted.");
   term_quit(t);
 }
 
+// signs this terminal out: both its keys' sessions (RED ZONE K1: the
+// terminal key's, held, and the device key's), its Keychain item and
+// its file gone
 async function term_logout(t: Term): Promise<void> {
   await term_post(t, "/api/logout", {});
-  fs.rmSync(TOKEN, { force: true });
+  if (TERMKEY !== null) {
+    await Device.device_fetch(term_wire(t.url), "/api/logout", { method: "POST", headers: term_file() }).catch(() => null);
+  }
+  await term_forget(t);
   term_note(t, "Signed out. Run unii to sign in again.");
   term_quit(t);
+}
+
+// this terminal's keys gone: the terminal key from the Keychain (and
+// memory), the device key's file
+async function term_forget(t: Term): Promise<void> {
+  TERMKEY = null;
+  await term_keys(KEYCHAIN).delete(new URL(t.url).host).catch(() => false);
+  fs.rmSync(TOKEN, { force: true });
 }
 
 // a GET of the server; failing, a note says it could not do `what`
@@ -1522,15 +1588,16 @@ function term_paint(t: Term): void {
   const menu  = term_menu(t);
   const over  = [...(menu.items.length === 0 ? [] : Deck.menu_lines(menu.items, menu.sel, iw)), ...(t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [])];
   const foot  = [Deck.foot_line(t.v, iw)];
-  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - over.length - foot.length, off ? OFF : hint, off);
+  const shells = Paint.shell_lines(t.v, iw, Date.now());
+  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - over.length - shells.length - foot.length, off ? OFF : hint, off);
   const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
-  const own   = term_inset([...over, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
+  const own   = term_inset([...over, ...shells, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));
   const held  = t.v.page === null ? View.view_rows(t.v, t.wait).flat() : [];
   const tail  = term_lines([...held, ...View.view_tail(t.v, rest)]).flatMap((l) => Paint.runs_wrap(l, w, true));
   const above = tail.slice(Math.max(0, tail.length - room + own.length));
-  const at    = { row: above.length + over.length + 1 + input.at.row, col: input.at.col + MARGIN };
+  const at    = { row: above.length + over.length + shells.length + 1 + input.at.row, col: input.at.col + MARGIN };
   Screen.screen_paint(t.scr, t.out, t.wipe, [...above, ...own], at);
   t.out  = [];
   t.wipe = false;
@@ -1540,19 +1607,46 @@ function term_paint(t: Term): void {
 // Jobs
 // ----
 
-// the shell commands running here, sent to the background: each answers
-// now and goes on, its output to a file; dropped from the jobs, so the
-// server's ids no longer stop them (quitting does)
+// Ctrl+B, /bg (B2): the shell commands in sight sent to the background,
+// as the user's act (the server's: on the terminal key, Chat.shell; the
+// background list, agents told their numbers); on the device key only,
+// the server can't take it as the user's, so the ones running here go
+// there as ever (Device.device_away: output to a file the AI is told of)
 function term_bg(t: Term): void {
-  const shells = [...t.jobs].filter(([, run]) => run.name === "shell");
-  if (shells.length === 0) {
+  if (TERMKEY !== null) {
+    term_act(t, { $: "Shell", op: "bg" });
+    return;
+  }
+  const n = Device.device_away(t.jobs);
+  if (n === 0) {
     return term_note(t, "No shell command is running here.");
   }
-  for (const [id, run] of shells) {
-    t.jobs.delete(id);
-    run.away.abort();
+  term_toast(t, "Sent " + n + (n === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
+}
+
+// Esc (and Ctrl+C on an empty input): Legion's turn interrupted, and the
+// shell commands in sight stopped (B2: the user's act, Chat.shell; on the
+// device key only, the server says it can't take it)
+function term_esc(t: Term): void {
+  if (View.view_fore(t.v).length > 0) {
+    term_act(t, { $: "Shell", op: "stop" });
   }
-  term_toast(t, "Sent " + shells.length + (shells.length === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
+  term_act(t, { $: "Send", text: "" });
+}
+
+// /shells: the commands sent to the background (B2), running or ended
+function term_shells(t: Term): void {
+  const lines = View.view_bg_lines(t.v, Date.now());
+  term_note(t, lines.length === 0 ? "No command is in the background." : "In the background (/kill <n> stops one):\n" + lines.join("\n"));
+}
+
+// /kill <n>: background command n stopped (the user's act: Chat.shell)
+function term_kill(t: Term, arg: string): void {
+  const s = View.view_bgs(t.v).find((b) => String(b.n) === arg.trim() && b.ended === undefined);
+  if (s === undefined) {
+    return term_note(t, "No background command " + arg.trim() + " is running: /shells lists them.");
+  }
+  term_act(t, { $: "Shell", op: "stop", job: s.job });
 }
 
 // Login
@@ -1562,8 +1656,10 @@ function term_bg(t: Term): void {
 // server takes one) begins a sign-in for a token made here, kept in TOKEN
 // once its link was opened; where the server bills, it accepts its terms.
 // A server that says nothing of itself (/api/hello) bills, as one of
-// before it did
-async function login_run(url: string): Promise<void> {
+// before it did. RED ZONE (K1, DRAFT awaiting the user's sign-off): the
+// one code signs in a terminal key too (TERMKEY), kept in the Keychain
+// only; one it won't keep is signed out again. The terminal key, if kept
+async function login_run(url: string): Promise<string | null> {
   // RED ZONE U1: the new session's key, and the link it opens, over the
   // server's socket only (Device.device_fetch); none: nothing is sent
   const res = await Device.device_fetch(term_wire(url), "/api/hello").catch(() => null);
@@ -1575,13 +1671,19 @@ async function login_run(url: string): Promise<void> {
   if (bills) {
     console.log("Signing in, you accept the terms (" + url + "/terms.html) and the privacy policy (" + url + "/privacy.html).");
   }
-  const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
-  const out = await login_ask(url, key, github);
-  if (out.url) {
-    browse(out.url);
+  const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+  const key = random();
+  const term = random();
+  const out = await login_ask(url, key, term, github);
+  if (out.t !== undefined) {
+    await login_local(url, out.t, out.code, out.secret === true);
+  } else {
+    if (out.url) {
+      browse(out.url);
+    }
+    console.log(out.url ? "Sign in with GitHub in the browser: " + out.url : "A sign-in link is on its way to " + out.who + ". Open it.");
+    console.log("On the page it opens, type this code: " + out.code);
   }
-  console.log(out.url ? "Sign in with GitHub in the browser: " + out.url : "A sign-in link is on its way to " + out.who + ". Open it.");
-  console.log("On the page it opens, type this code: " + out.code);
   // the link lives on the server, so only it ends the wait: signed in (ok),
   // or the link gone (410); a wait that fails is asked again
   const wait = { headers: { authorization: "Bearer " + key }, timeout: false } as RequestInit;
@@ -1600,16 +1702,25 @@ async function login_run(url: string): Promise<void> {
   }
   fs.writeFileSync(TOKEN, key, { mode: 0o600 });
   console.log("Signed in.");
+  const kept = await term_keys(KEYCHAIN).set(new URL(url).host, term).then(() => null, (err: Error) => err.message);
+  if (kept !== null) {
+    await Device.device_fetch(term_wire(url), "/api/logout", { method: "POST", headers: { authorization: "Bearer " + term } }).catch(() => null);
+    console.log("The Keychain didn't keep the terminal's key (" + kept + "), so approving from the terminal stays off (the web still can).");
+    return null;
+  }
+  console.log("Approving from the terminal is on: its key is in the Keychain, read only by legion-key after Touch ID (or your password) each time legion starts.");
+  return term;
 }
 
 // asks for an address (a GitHub login too, where the server takes one)
 // until the server takes one (it says why it doesn't): the address, and
-// the server's answer
-async function login_ask(url: string, key: string, github: boolean): Promise<{ who: string; url?: string; code: string }> {
+// the server's answer. key: the device key's; term: the terminal key's
+// (K1), both signed in by the one code
+async function login_ask(url: string, key: string, term: string, github: boolean): Promise<{ who: string; url?: string; code: string; t?: string; secret?: boolean }> {
   while (true) {
     process.stdout.write(github ? "Email or @github: " : "Email: ");
     const who  = (await login_line()).trim();
-    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who, key }) };
+    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who, key, term }) };
     const res  = await Device.device_fetch(term_wire(url), "/api/login", init).catch(() => null);
     if (res === null) {
       login_fail("no connection to " + url);
@@ -1619,6 +1730,39 @@ async function login_ask(url: string, key: string, github: boolean): Promise<{ w
       return { ...out, who };
     }
     console.log(out.error);
+  }
+}
+
+// RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local Legion (no
+// mail: Cloud.ts SIGNIN) gives its ticket t to the terminal that asked,
+// which confirms it with the code and the sign-in secret, over the
+// server's socket only, in the body (never an argument, the environment,
+// a file or a URL). The secret: the Keychain's, of service
+// "legion-signin-<host>" (term_keys, RED ZONE T1: legion-key's, read
+// after Touch ID, one here); none registered yet (registered false),
+// made here, kept there first, then registered (trust on first use,
+// once). Refused, or no legion-key: why, and the sign-in ends
+async function login_local(url: string, t: string, code: string, registered: boolean): Promise<void> {
+  const store = term_keys(SIGNIN);
+  const host = new URL(url).host;
+  const made = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+  if (registered) {
+    console.log("Confirming with this Legion's sign-in secret: legion-key asks for Touch ID (or your password).");
+  } else {
+    await store.set(host, made).catch((err: Error) => login_fail("the Keychain didn't keep a sign-in secret (" + err.message + "), so none is registered."));
+    console.log("This Legion's sign-in secret is made and kept in the Keychain; each sign-in reads it by legion-key, after Touch ID (or your password).");
+  }
+  const secret = registered ? await store.get(host).catch((err: Error) => login_fail("this Legion's sign-in secret wasn't read: " + err.message)) : made;
+  if (secret === null) {
+    login_fail("this Legion's sign-in secret isn't in the Keychain. To start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
+  }
+  const body = new URLSearchParams({ t, code, secret, ...(registered ? {} : { register: "1" }) }).toString();
+  const init = { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body };
+  // signed in: JSON; refused: why (403); the link gone: a redirect, which
+  // device_fetch follows nowhere (null)
+  const res = await Device.device_fetch(term_wire(url), "/auth", init).catch(() => null);
+  if (res === null || !res.ok) {
+    login_fail(res === null ? "the sign-in didn't go through (no server at " + url + ", or the link expired): run legion login again" : (await res.text()).slice(0, 300));
   }
 }
 
@@ -1652,13 +1796,36 @@ function update_run(url: string): void {
 // Main
 // ====
 
-// the session's header, if signed in
-function term_auth(): Record<string, string> {
+// the device key's header (TOKEN), if signed in: `legion device`'s and
+// `legion web`'s, and the full-screen terminal's with no terminal key
+function term_file(): Record<string, string> {
   if (!fs.existsSync(TOKEN)) {
     return {};
   }
   return { authorization: "Bearer " + fs.readFileSync(TOKEN, "utf8").trim() };
 }
+
+// the session's header: the terminal key's while this terminal holds one
+// (TERMKEY, RED ZONE K1), else the device key's
+function term_auth(): Record<string, string> {
+  return TERMKEY === null ? term_file() : { authorization: "Bearer " + TERMKEY };
+}
+
+// RED ZONE (K2, DRAFT awaiting the user's sign-off): the terminal key,
+// read once as the full-screen terminal starts (one Touch ID, RED ZONE T1: term_keys);
+// null: none kept (signed in before it), the read refused, or a session
+// the server refuses (one it can't reach is kept: the chat waits for it)
+async function term_key(url: string): Promise<string | null> {
+  const key = await term_keys(KEYCHAIN).get(new URL(url).host).catch(() => null);
+  if (key === null || key === "") {
+    return null;
+  }
+  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: { authorization: "Bearer " + key } }).catch(() => null);
+  return res === null || res.ok ? key : null;
+}
+
+// the note a terminal with no terminal key shows once (K2)
+const KEYLESS = "Approving from this terminal (/mode, /plan, /allow, /approve, /answer, routines, timers, todos) is off: run legion login once to turn it on.";
 
 // whether this terminal is signed in: it holds a session the server
 // doesn't refuse (one it can't reach may: the chat waits for it). The
@@ -1668,7 +1835,7 @@ async function term_signed(url: string): Promise<boolean> {
   if (!fs.existsSync(TOKEN)) {
     return false;
   }
-  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: term_auth() }).catch(() => null);
+  const res = await Device.device_fetch(term_wire(url), "/api/me", { headers: term_file() }).catch(() => null);
   return res === null || res.status !== 401;
 }
 
@@ -1686,7 +1853,7 @@ async function device_run(url: string): Promise<void> {
     console.error("legion device: offline, trying again");
     return true;
   };
-  Device.device_open(term_wire(url), term_auth(), term_device(), RULES, (line) => console.error("legion device: " + line), lost);
+  Device.device_open(term_wire(url), term_file(), term_device(), RULES, (line) => console.error("legion device: " + line), lost);
   console.log("legion device: " + DEVICE + " runs the agents' jobs from " + url + " in " + WORK + (COMPUTER ? ", computer use on" : "") + ". Ctrl+C stops.");
 }
 
@@ -1696,7 +1863,13 @@ async function web_run(url: string): Promise<void> {
   if (!await term_signed(url)) {
     await login_run(url);
   }
-  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: term_auth() }).catch(() => null);
+  // the terminal's own key (one Touch ID: term_keys): a device key can't
+  // open the web as the user (Cloud.web_link)
+  const key = await term_key(url);
+  if (key === null) {
+    login_fail("legion web needs the terminal's own key: run legion login once (it needs legion-key: xcode-select --install if local/legion said so), then give Touch ID or your password.");
+  }
+  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }).catch(() => null);
   const body = (await res?.json().catch(() => ({})) ?? {}) as { url?: string; error?: string };
   if (res === null || !res.ok || body.url === undefined) {
     login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with unii" : "the server refused (" + res.status + ")"));
@@ -1727,9 +1900,10 @@ if (HELP || ODD !== undefined) {
 } else if (DEVICED) {
   await device_run(SERVER);
 } else {
-  if (!await term_signed(SERVER)) {
-    await login_run(SERVER);
-  }
+  TERMKEY = await term_signed(SERVER) ? await term_key(SERVER) : await login_run(SERVER);
   const t = term_new(SERVER);
+  if (TERMKEY === null) {
+    term_note(t, KEYLESS);
+  }
   term_connect(t);
 }

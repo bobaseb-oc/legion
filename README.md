@@ -67,8 +67,37 @@ How it works
   or device is left, the space is told "Legion stopped listening".
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
-  PostToolUse hooks in your managed, user and project settings (so the
-  OnCorps guard blocks here too). `!cmd` runs a shell command yourself.
+  PostToolUse hooks in your managed, user and project settings and of
+  oc-coding-assistant (so the OnCorps guard blocks here too; a managed
+  or oc-coding-assistant hook that crashes or times out refuses the
+  call). `!cmd` runs a shell command yourself,
+  as Claude Code's `!`: a `!` typed first puts the box in shell mode (a
+  `! shell` badge, another color; Backspace over the `!` leaves it), and
+  the command runs as you, in Unii's folder on your device (`!@name`: that
+  one), past the hooks, the reviewer and Legion's gating, stopped after
+  10 minutes; its command and output (30,000 characters at most) join the
+  chat as a note Legion reads. Only what speaks for you may send it (the
+  web, or `legion` signed in with the terminal's own key), never a
+  device's socket, an agent, a routine or the GChat bridge (a Red Zone
+  draft). Legion gives a command for you to run in a code block of its
+  own: the web's Copy, or the terminal's `/copy` (Ctrl+Y, through your
+  terminal's OSC 52), copies it.
+  A shell command running (your `!cmd`, or Legion's own; an agent's on
+  its page) shows over the input as Claude Code's: the command, who and
+  where, its time ticking, its last lines, and "ctrl+b to run in
+  background · esc to stop" (the web adds Background and Stop buttons).
+  Ctrl+B (`/bg`) sends it to the background: it runs on, and the agent
+  that waited on it goes on at once, told its number; agents read and
+  stop their own with `shell_output` and `shell_stop`, and Legion is told
+  when one ends. The background list (the web's, over the input;
+  `/shells`, `/kill <n>` in the terminal) shows each with Stop; your Stop
+  of all work ends them all. Only what speaks for you may send one away
+  or stop it (the web, or `legion` on its own key; signed in with the
+  device key only, the terminal's Ctrl+B sends what runs on it away to a
+  file as before); at most 4 a caller and 8 a chat run in the
+  background, each stopped 10 minutes after it began, their output kept
+  to its head and tail (Red Zone drafts). A device that predates this
+  sends no live lines; the rest works as before.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
   checks each change; anything it can't decide comes to you), super
   auto (the default: as auto, and a question of a kind you answered with
@@ -132,12 +161,15 @@ Run it
 
 You need [Bun](https://bun.sh), the gateway's `LITELLM_API_BASE` and
 `LITELLM_API_KEY` in your environment, and optionally Docker (for web
-search through a local SearXNG).
+search through a local SearXNG). The launcher hands the server the key
+on fd 3 (`UNII_ANTHROPIC_KEY_FD=3`), never in its environment, which any
+process of yours can read (`ps -wwE`); so no workers then. A server run
+by hand (`bun Server.ts`) reads `ANTHROPIC_API_KEY` instead.
 
     local/legion              # starts the server if needed, opens the chat
     local/legion web          # the web UI, signed in as your terminal
     local/legion stop         # stops the server and SearXNG
-    local/legion log          # the server's log (sign-in links print here)
+    local/legion log          # the server's log (no sign-in link prints there)
 
 The header of local/unii-local.sh lists the rest (device, knowledge,
 mcp-login). Symlink it onto your PATH as `legion`. The server only
@@ -152,13 +184,68 @@ One server runs per user on a computer, whatever its `$UNII_DIR`: a second
 one ends, naming the one that runs (pid, port, dir). `UNII_ANOTHER=1` runs
 one beside it on its own dir (the tests do).
 
-The Google grant and the Harvest token sit behind macOS Keychain prompts
-(no app is trusted to read them). Allow the Google one when you start a
-terminal or `legion device` yourself, and the Harvest one when you press
-Submit or an agent reads your timesheet; Deny any other, and never click
-Always Allow. An agent can't read either without a prompt, but it could
-restart the device to make one appear at a time you'd expect: if a prompt
-comes and you didn't just start Legion, Deny it.
+Signing in (`legion login`, or `legion` the first time) makes two keys
+with the one code the browser asks for. The device key is a file
+(~/.unii/<host>/token): jobs, `legion device` and the launchd device run
+on it, and since an agent's shell can read it, its acts that are the
+user's say (mode, plan, approvals, answers, routines, timers, todos,
+pins, decisions) are refused. The terminal key is kept only in the
+Keychain (service `legion-terminal-<host>`), read only by legion-key
+(below): the full-screen `legion` reads it once as it starts (Touch ID
+or your password), and with it those acts work from the terminal. A
+terminal signed in before 2026-11-19 has no terminal key and says so:
+run `legion login` once. `/logout` ends both keys' sessions and deletes
+the Keychain item.
+
+legion-key (local/legion-key/main.swift; draft, awaiting sign-off) is
+the one program the terminal key's and the sign-in secret's Keychain
+items trust. The launcher builds it with `swiftc` into
+~/.unii/bin/legion-key (0700, ad hoc signed, hardened runtime) before
+`legion`, `legion login` and `legion web` run, and again only when its
+source changes. Before every read it asks for Touch ID (or your login
+password), with nothing remembered: once per `legion` start, `legion
+login` on a local Legion, and `legion web`. macOS may also ask whether
+legion-key may use a key (the first read after a new build): "Always
+Allow" there is fine for a build you expect, since it trusts only that
+exact build, which still asks for Touch ID each time (see the known
+limitation below). Never click "Always Allow" on a
+prompt naming `security` for these items: that trusts
+/usr/bin/security, which any agent can run to read them unasked. Items
+kept before legion-key (by `security`) are read that way once (one
+`security` prompt: Allow) and kept by legion-key from then on. With no
+`swiftc` the launcher says so loudly (get it with `xcode-select
+--install`), and until then approving from the terminal is off and a
+local sign-in is refused; nothing falls back to `security`.
+
+A local Legion (no `RESEND_API_KEY`) mails no sign-in link and never
+prints one (an agent's shell reads the log, and could start a sign-in
+itself, knowing its code). There `legion login` confirms the sign-in
+itself, with the code and the sign-in secret: a token kept only in the
+Keychain (service `legion-signin-<host>`, read by legion-key after Touch
+ID), sent over the server's socket. The server keeps only
+its sha256, in ~/.unii/signin-hash ($UNII_DIR, 0600). The first
+`legion login` makes and registers it (trust on first use, once: run it
+yourself right away); after that a sign-in without it is refused, and so
+is registering another. To start over (a new Mac, a lost Keychain item),
+delete ~/.unii/signin-hash yourself, then run `legion login`. A browser
+signs in there by `legion web`; a server with a mail key mails links as
+before. Agents' tools refuse Legion's trust state (cloud.db and its
+-wal/-shm, signin-hash, server.log, the token files): no read, grep or
+write, and a shell command naming one by its path is refused in every
+mode (one naming the dir or the file is reviewed in auto mode). They run
+as you, though: a disguised command in full mode can still reach those
+files; the reviewer, the hooks and these refusals are the boundary, not
+the disk.
+
+The Google grant and the Harvest token sit behind macOS Keychain
+prompts (no app is trusted to read them). Allow the Google one when you
+start a terminal or `legion device` yourself, and the Harvest one when
+you press Submit or an agent reads your timesheet; Deny any other, and
+never click Always Allow on those. The terminal key and the sign-in
+secret ask for Touch ID through legion-key instead (above). An agent
+can't read any of them without a prompt, but it could restart the device
+or run legion-key to make one appear at a time you'd expect: if a prompt
+or a Touch ID request comes and you didn't just start Legion, Deny it.
 
     bun run test              # the tests, each file on its own
     bun run web               # rebuilds web/app.js from web/src
@@ -228,8 +315,16 @@ Gaps
 
 What is known not to work, or not checked yet:
 
-- **Sign-in is a magic link printed to the server log.** No SSO. It is
-  safe only because the server is loopback-only and single-user.
+- **Local sign-in rests on the Keychain.** No SSO, no mail: `legion
+  login` proves it is you by the sign-in secret (legion-key's Touch ID).
+  Its first registration is trust on first use, and an agent in full mode
+  running disguised commands as you can still forge Legion's files.
+- **legion-key is built from a file an agent can edit.** Agents run as
+  you, so one could change local/legion-key/main.swift (or Term.ts);
+  the next start rebuilds it, and its first read of each key then asks
+  whether this new build may use it. Always Allow there is safe only
+  for a build you expect: if that prompt comes when you didn't just pull
+  a change to legion-key, Deny it and check `git diff local/legion-key`.
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
 - **Web fetch has a DNS-rebinding window.** Bun's fetch resolves the

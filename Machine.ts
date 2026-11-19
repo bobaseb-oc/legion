@@ -21,7 +21,7 @@ import { Computer } from "./Computer.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import { Hooks, type Call, type Source } from "./Hooks.ts";
-import { SECRET, SECRET_AT } from "./Modes.ts";
+import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
 
 // Types
 // =====
@@ -31,6 +31,9 @@ import { SECRET, SECRET_AT } from "./Modes.ts";
 // ms), set on a call that may change files, so the device snapshots the
 // repos it changes first, once a turn (Undo.ts, Device.device_snap)
 export type Job = { name: string; input: any; cwd: string; snap?: number };
+
+// told a shell command's output as it comes, a piece at a time
+export type Live = (text: string) => void;
 
 // a tool as the vendors see it: its name, what it does, its input's
 // JSON Schema
@@ -86,6 +89,22 @@ const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 // off), tallies (what super auto decides for the user) and timers
 const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
 
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
+// naming Legion's trust state (Modes.ts TRUST) by its path in ~/.unii or
+// $UNII_DIR / $UNII_HOME, or the launcher's `legion log` (server.log):
+// refused in every mode (Machine.trust_named; one naming the dir only, or
+// such a file elsewhere, goes to auto mode's reviewer: Modes SECRETS).
+// Residual: an agent's shell runs as the user, so a disguised command
+// (cd, a variable, a script) in full mode still reaches them; the gates
+// (the reviewer, hooks, these) are the boundary, not the disk
+const TRUST_SHELL = /(\.unii|\$\{?UNII_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|unii-local\.sh)\s+log\b/i;
+
+// RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
+// own !command (Chat.bang makes it, only from what speaks for the user:
+// says, Cloud.speaks), run as they would in their own shell: no hook, no gate.
+// No agent's tool has this name (TOOLS), and Tools.dispatch refuses it
+export const USER_SHELL = "user_shell";
+
 // the shells started here, kept until their process groups are empty, so
 // end() kills a backgrounded job whose shell already exited
 const SHELLS = new Set<Bun.Subprocess>();
@@ -107,7 +126,7 @@ export const INT = { type: "integer" };
 const EDIT = { type: "object", properties: { path: STR, old: STR, new: STR, all: { type: "boolean" } }, required: ["path", "old", "new"] };
 
 export const TOOLS: Spec[] = [
-  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. Background jobs live only while unii is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
+  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. The user may send a call still running to the background (Ctrl+B): it then answers at once with its number, and shell_output reads it. Background jobs live only while unii is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
   spec("read", "Read a text file. offset: the first line to show (from 1); limit: how many lines; at: the character of the first line to start from. It ends saying the lines shown, as [lines 4-7 of 15]; output past " + CAP + " characters comes in pages, saying where to go on.", { path: STR, offset: INT, limit: INT, at: INT }, ["path"]),
   spec("write", "Write a whole file, making its directories. Answers a unified diff of what changed (a new file: all its lines added).", { path: STR, content: STR }, ["path", "content"]),
   spec("glob", "Find files by a glob pattern (\"**/*.ts\", \"src/**/test_*.py\") under path (a dir; by default the agent's), newest first, as paths from path; hidden files and node_modules are left out.", { pattern: STR, path: STR }, ["pattern"]),
@@ -174,20 +193,26 @@ export namespace Machine {
 
   // in <work>/<its caller>, Unii's (main) in the home repo if there is one
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
-  // by default Claude Code's own for the dir's project)
-  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[]): Promise<Out> {
+  // by default Claude Code's own for the dir's project); the user's own
+  // !command (USER_SHELL) asks none
+  // live: told what a shell command prints as it comes (Device.ts sends
+  // it on: the status line's last lines, a background command's output)
+  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[], live?: Live): Promise<Out> {
     const cwd = Machine.dir(job, work, home);
     const input = job.input;
     const file = path.resolve(cwd, String(input.path));
     try {
       fs.mkdirSync(cwd, { recursive: true });
+      if (job.name === USER_SHELL) {
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
+      }
       const calls = Hooks.calls(job, cwd);
       const why   = calls.map(Machine.guard).find((w) => w !== null);
       if (why) {
         return { text: why, fail: true };
       }
       if (calls.length === 0) {
-        return await tool(job, cwd, file, signal, away);
+        return await tool(job, cwd, file, signal, away, live);
       }
       const src   = hooks ?? Hooks.sources(Hooks.project(cwd));
       const gates = await Promise.all(calls.map((c) => Hooks.pre(src, c.tool, c.input, cwd, job.cwd, signal)));
@@ -195,7 +220,7 @@ export namespace Machine {
       if (deny) {
         return { text: "Refused by a hook: " + deny, fail: true };
       }
-      const out   = await tool(job, cwd, file, signal, away);
+      const out   = await tool(job, cwd, file, signal, away, live);
       const notes = (await Promise.all(calls.map((c) => Hooks.post(src, c.tool, c.input, out, cwd, job.cwd, signal)))).flat();
       const warn  = gates.flatMap((g) => g.warn).map((w) => "[hook] " + w);
       const text  = [...warn, out.text, ...notes.map((n) => "[hook] " + n)].join("\n");
@@ -222,7 +247,36 @@ export namespace Machine {
     if ((c.tool === "Read" || c.tool === "Grep" || c.tool === "Glob") && Machine.secret(p)) {
       return "Refused: " + p + " may hold a secret: not read.";
     }
+    if (c.tool === "Bash" && Machine.trust_named(String(c.input.command ?? ""))) {
+      return "Refused: the command touches Legion's own sign-ins (cloud.db, the sign-in hash, server.log, a token): the user does that, not an agent.";
+    }
     return null;
+  }
+
+  // RED ZONE (S1c, DRAFT awaiting the user's sign-off): whether a path is
+  // Legion's trust state (Modes.ts TRUST) in its dir (~/.unii, $UNII_DIR,
+  // $UNII_HOME), by its path or its real one, in any case: secret (no
+  // read, grep, glob) and gating (no write, edit)
+  export function trust(p: string): boolean {
+    const fold = (q: string) => q.normalize("NFKC").toLowerCase();
+    const dirs = Machine.trust_dirs().map(fold);
+    const at = path.resolve(p);
+    return [at, Machine.real(at)].map(fold).some((q) => dirs.some((d) => q.startsWith(d + "/") && TRUST.test(q.slice(d.length))));
+  }
+
+  // whether a shell command names Legion's trust state by its path
+  // (TRUST_SHELL, or a dir of trust_dirs written out), in any case
+  export function trust_named(command: string): boolean {
+    const q = command.normalize("NFKC").toLowerCase();
+    const after = (d: string) => q.split(d.toLowerCase() + "/").slice(1).map((rest) => "/" + rest.split(/[\s'"`;|&<>()]/)[0]);
+    return TRUST_SHELL.test(q) || Machine.trust_dirs().some((d) => after(d).some((rest) => TRUST.test(rest)));
+  }
+
+  // Legion's dirs, as named and real: the server's (~/.unii, $UNII_DIR)
+  // and a terminal's ($UNII_HOME, its token files)
+  export function trust_dirs(): string[] {
+    const env = [process.env.UNII_DIR, process.env.UNII_HOME].filter((d): d is string => !!d);
+    return [os.homedir() + "/.unii", ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
   }
 
   // a path's real path: its symlinks followed as far as it exists
@@ -239,7 +293,7 @@ export namespace Machine {
   // its real one
   export function secret(p: string): boolean {
     const at = path.resolve(p);
-    return [at, Machine.real(at)].some(Machine.secret_name);
+    return [at, Machine.real(at)].some(Machine.secret_name) || Machine.trust(at);
   }
 
   // whether a path, as named (no link followed), may hold a secret
@@ -258,7 +312,7 @@ export namespace Machine {
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
-    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length))));
+    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
   }
 
   // this unii's environment for a job (ENV; also: a worker's more), marked
@@ -269,12 +323,12 @@ export namespace Machine {
   }
 
   // runs a job's tool, ungated
-  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
     const input = job.input;
     switch (job.name) {
       case "shell": {
-        return await Machine.shell(cwd, String(input.command), signal, away);
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
       }
       case "read": {
         return Machine.read(file, Number(input.offset ?? 1), Number(input.limit ?? Infinity), Number(input.at ?? 0));
@@ -398,8 +452,8 @@ export namespace Machine {
   // still holds its output. Sent `away` (the person's Ctrl+B), it answers
   // at once and goes on: what it printed so far, then the rest and its
   // exit, go to bg-<pid>.log in cwd (the head and tail kept so far, if
-  // it was cut)
-  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  // it was cut); told as it comes to live (till sent away)
+  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     SHELLS.forEach((p) => Machine.group(p) || SHELLS.delete(p));
     const start = performance.now();
     const proc = Bun.spawn([SHELL, "-c", "exec 2>&1\n" + command], {
@@ -423,7 +477,12 @@ export namespace Machine {
     const ran = (async (): Promise<Out> => {
       try {
         for (let got = await reader.read(); !got.done; got = await reader.read()) {
-          gone ? fs.appendFileSync(file, got.value) : out.add(got.value);
+          if (gone) {
+            fs.appendFileSync(file, got.value);
+          } else {
+            out.add(got.value);
+            live?.(got.value);
+          }
         }
       } catch {}
       signal.removeEventListener("abort", kill);

@@ -70,9 +70,12 @@ when your messages list them. Keep the user in
 the loop the same way with notify, a note in that pane that awaits no answer:
 each decision you made for them, a milestone or result worth knowing, a risk
 or a change of plan. What only the user can do, and the work needs (approve or
-merge a PR on GitHub, run a login such as `! gcloud auth login`, send or sign
+merge a PR on GitHub, run a login such as gcloud auth login, send or sign
 something), put on their Todo page with assign, one action each with where to
-do it; you hear when they tick it done. Each message says
+do it; you hear when they tick it done. A command you want the user to run
+themselves goes in a fenced code block of its own (```sh), the command alone, so
+it copies whole; they can also run it from the chat as !<command>, and its
+output then reaches you as a note. Each message says
 the mode: in plan
 mode every agent only reads (devices, MCP servers, Claude Code workers
 refused) until you file a plan with plan and the user approves it. In auto

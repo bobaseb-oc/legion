@@ -32,9 +32,9 @@ import * as path from "node:path";
 import { AskAI, type Ask, type Bill, type Block, type Call, type Event, type Kind, type Pay, type Used } from "./AskAI.ts";
 import type { Out } from "./Agent.ts";
 import { report_text } from "./Call.ts";
-import { clip_page } from "./Clip.ts";
+import { CAP, clip, clip_page } from "./Clip.ts";
 import * as config from "./Config.ts";
-import { COMPUTER, INT, Machine, STR, TOOLS, spec, type Job, type Spec } from "./Machine.ts";
+import { COMPUTER, INT, Machine, STR, TOOLS, USER_SHELL, spec, type Job, type Spec } from "./Machine.ts";
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
 import { Memory, type Seen } from "./Memory.ts";
@@ -47,7 +47,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
-import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Status, Todo, Waiting } from "./View.ts";
+import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
 
@@ -62,8 +62,21 @@ type Device = {
   jobs  : Map<string, Running>;
 };
 
-// a job: the terminal it runs on, what it runs, its output, what ends it
-type Running = { term: string; job: Job; out: Promise<Out>; end: (out: Out) => void };
+// a job: the terminal it runs on, what it runs, its output, what ends it;
+// a shell command's (B2: SHELLED) also whose it is (Tools.owner), since
+// when, what it printed so far (the device's tails: its head and tail,
+// CAP), its background number (null: its caller waits on it) and what
+// lets its caller go on (Tools.job)
+type Running = { term: string; job: Job; out: Promise<Out>; end: (out: Out) => void; who: string; since: number; seen: Printed | null; bg: number | null; away?: (n: number) => void };
+
+// a text kept to its head and tail as it comes (Clip.ts)
+type Printed = ReturnType<typeof clip>;
+
+// a command sent to the background (Tools.background): its number, its
+// device and job, whose, what, since; what it printed so far (its
+// job's); its output as it ended, and when (null: it runs); its stop
+// past bg_ms
+type Bg = { n: number; device: string; id: string; who: string; command: string; since: number; seen: Printed; out: Out | null; ended: number | null; late?: Timer };
 
 // a terminal: how to reach it, whether its socket is open now, whether it
 // does computer use, its work dir
@@ -117,6 +130,22 @@ const TODOS = 20;
 const TODO_TEXT = 120;
 const REPO  = 60;
 
+// B2: the jobs that are shell commands (an agent's shell, the user's
+// !command), whose output a device tells as it runs (Device.ts tails).
+// RED ZONE (DRAFT awaiting the user's sign-off): background commands run
+// at most BG_EACH a caller (the user, Unii, an agent) and BG_CHAT a chat,
+// each stopped bg_ms after it began (as the user's !command: Server.ts
+// BANG_MS); their output kept as the call's is (CAP, head and tail);
+// the ended kept for reading, BG_KEPT at most; a status line shows a
+// command's SHELL_LINES last lines, SHELL_TEXT characters of each and
+// of the command
+const SHELLED = ["shell", USER_SHELL];
+const BG_EACH = 4;
+const BG_CHAT = 8;
+const BG_KEPT = 20;
+const SHELL_LINES = 3;
+const SHELL_TEXT = 200;
+
 // a chat's tools as they move to another process (Tools.give): the
 // calls of its agents at work by the id `far` takes (Server.ts)
 export type Moved = {
@@ -127,7 +156,8 @@ export type Moved = {
 
 // what the server does for agents (report: work stopped stays unanswered;
 // pick: the chat's pick; halt: what stops its turn; note: a note in the
-// chat, as Chat.note; viewed: whether a view of the user's is open)
+// chat, as Chat.note; viewed: whether a view of the user's is open;
+// shells: the views told the shell commands running (Tools.shells))
 type Hooks = {
   push   : (agent: Agent, kind: Kind, text: string) => void;
   on     : (agent: Agent, ev: Event) => void;
@@ -137,6 +167,7 @@ type Hooks = {
   halt   : () => AbortSignal;
   note?  : (text: string) => void;
   viewed?: () => boolean;
+  shells?: () => void; // the shell commands running changed (B2: Tools.shells)
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -152,6 +183,8 @@ export type Tools = {
   away    : PromiseWithResolvers<string>;
   consents?: Map<number, Consent>; // calls waiting for the user's yes (auto mode's reviewer couldn't check them)
   rung?   : boolean; // a timer fired with no view open, since the user last spoke: no new timer till a view is (Tools.timer, R4)
+  bgs?    : Bg[];    // the commands sent to the background (Tools.background), oldest first; ended ones kept till BG_KEPT
+  bgn?    : number;  // the last background number given
 };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
@@ -452,6 +485,12 @@ function kit(who: string): Spec[] {
   });
 }
 const HAND: Spec = spec("computer", "Start a task on the screen of a device marked \"computer use\", done with its mouse and keyboard by an agent that sees screenshots, and return its name at once. Its report reaches you as a message \"[Name] report\". It knows only the task, so say all it needs. One at a time on each device.", { ...DEVICE, task: STR }, ["device", "task"]);
+// B2: a shell call of yours the user sent to the background (Ctrl+B): its
+// output so far, its stop (RED ZONE: the caller's own only, Tools.bg_own)
+const BG: Spec[] = [
+  spec("shell_output", "Read what a shell command of yours now in the background printed so far (n: its number, given when the user sent your call there with Ctrl+B), its head and tail past " + CAP + " characters; once it ended, its whole output and exit. You are told when one ends.", { n: INT }, ["n"]),
+  spec("shell_stop", "Stop a shell command of yours running in the background, by its number n.", { n: INT }, ["n"]),
+];
 
 // Tools
 // =====
@@ -583,7 +622,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -592,7 +631,7 @@ export namespace Tools {
     if (role?.$ === "cli") {
       return [];
     }
-    return [...OWN, TODO, ASSIGN, TIMESHEET, ...(role?.tier === "manager" ? MANAGES : []), ...kit(who), ...CODE, ...Mcp.cached(MCP)];
+    return [...OWN, TODO, ASSIGN, TIMESHEET, ...(role?.tier === "manager" ? MANAGES : []), ...kit(who), ...BG, ...CODE, ...Mcp.cached(MCP)];
   }
 
   // auto mode's check of a call: the reviewer's refusal; when it can't
@@ -752,6 +791,12 @@ export namespace Tools {
 
   // a call made (Tools.call)
   export async function dispatch(tools: Tools, who: string, name: string, args: any, signal: AbortSignal, id: string): Promise<Out> {
+    // RED ZONE (DRAFT awaiting the user's sign-off): the user's own
+    // !command's job, ungated on the device (Machine.ts), is never an
+    // agent's call, whatever its tools list says
+    if (name === USER_SHELL) {
+      return { text: "Only the user runs a command as themselves (!command): ask them, or use shell.", fail: true };
+    }
     // the chat's mode first (Modes.ts): plan mode lets only reading reach
     // a device, an MCP server or a Claude Code worker
     const refused = Tools.moded(tools, name, args, who);
@@ -870,6 +915,12 @@ export namespace Tools {
         }
         return { text: Tools.halt(tools, who, (args.names ?? []).map(String)), fail: false };
       }
+      case "shell_output": {
+        return Tools.bg_read(tools, who, args.n);
+      }
+      case "shell_stop": {
+        return Tools.bg_stop(tools, who, args.n);
+      }
       case "computer": {
         const role = tools.agents.get(who)?.role;
         if (role?.$ === "hands") {
@@ -945,14 +996,27 @@ export namespace Tools {
     return d;
   }
 
-  // the job `id` on a device, waited on: started, unless it runs
+  // the job `id` on a device, waited on: started, unless it runs. A
+  // shell call (an agent's) the user sends to the background lets its
+  // caller go on at once, told its number; it runs on, and its stop is
+  // no longer the call's (Tools.background). The user's !command is
+  // waited on to its end (Chat.bang notes it), wherever it runs
   export function job(tools: Tools, device: string, job: Job, signal: AbortSignal, id: string): Promise<Out> {
     const run = tools.devices.get(device)?.jobs.get(id) ?? Tools.start_job(tools, device, job, id);
     if (typeof run === "string") {
       return Promise.resolve({ text: run, fail: true });
     }
-    signal.addEventListener("abort", () => run.end({ text: "Stopped.", fail: true }), { once: true });
-    return run.out;
+    const stop = () => run.end({ text: "Stopped.", fail: true });
+    signal.addEventListener("abort", stop, { once: true });
+    if (run.seen === null || job.name === USER_SHELL) {
+      return run.out;
+    }
+    const { promise, resolve } = Promise.withResolvers<Out>();
+    run.away = (n) => {
+      signal.removeEventListener("abort", stop);
+      resolve({ text: "The user sent this command to the background, still running there as background command " + n + ": shell_output with n " + n + " reads what it printed so far, shell_stop stops it; you are told when it ends.", fail: false });
+    };
+    return Promise.race([run.out, promise]);
   }
 
   // a job started on a device's terminal (the last live one), told to
@@ -965,23 +1029,38 @@ export namespace Tools {
     }
     const terms = [...d.terms].filter(([, t]) => t.computer || !computer);
     const [term] = terms.filter(([, t]) => t.live()).at(-1) ?? terms.at(-1)!;
-    const run = Tools.track(d, id, term, job);
+    const run = Tools.track(tools, d, device, id, term, job);
     Tools.sync(d, term, (x) => x === id);
     return run;
   }
 
-  // a job kept until it ends, its terminal told then
-  export function track(d: Device, id: string, term: string, job: Job): Running {
+  // a job kept until it ends, its terminal told then; a shell command's,
+  // the views told as it starts and ends (Tools.shells), its background
+  // record given its output then (Tools.ended)
+  export function track(tools: Tools, d: Device, device: string, id: string, term: string, job: Job): Running {
     const { promise, resolve } = Promise.withResolvers<Out>();
+    const shell = SHELLED.includes(job.name);
     const end = (out: Out) => {
       if (d.jobs.delete(id)) {
         Tools.sync(d, term, () => false);
         resolve(out);
+        if (shell) {
+          Tools.ended(tools, device, id, out);
+        }
       }
     };
-    const run = { term, job, out: promise, end };
+    const run: Running = { term, job, out: promise, end, who: Tools.owner(job), since: Date.now(), seen: shell ? clip() : null, bg: null };
     d.jobs.set(id, run);
+    if (shell) {
+      tools.hooks.shells?.();
+    }
     return run;
+  }
+
+  // whose a job is: the user's !command "user", else its caller's ("main":
+  // Unii, an agent's name: Tools.dispatch's cwd)
+  export function owner(job: Job): string {
+    return job.name === USER_SHELL ? "user" : job.cwd;
   }
 
   export function hands(d: Device): boolean {
@@ -992,6 +1071,149 @@ export namespace Tools {
     tools.devices.get(device)?.jobs.get(id)?.end(out);
   }
 
+  // Shell commands (B2)
+  // -------------------
+  // A device tells what a shell command printed as it runs (its tails:
+  // Device.device_run; an old device none, so no live lines, the rest as
+  // ever). The views see each running and its last lines (Tools.shells);
+  // the user may send one to the background, its caller going on, or stop
+  // it (Chat.shell: the user's only).
+
+  // what a shell command printed since its last tail, from the device it
+  // runs on (another's, or a job that's no shell or is gone: dropped)
+  export function tail(tools: Tools, device: string, id: string, text: string): void {
+    const run = tools.devices.get(device)?.jobs.get(id);
+    if (run === undefined || run.seen === null) {
+      return;
+    }
+    run.seen.add(String(text));
+    tools.hooks.shells?.();
+  }
+
+  // the shell commands running, oldest first, then the background ones
+  // ended (kept till BG_KEPT): what a status line or the background list
+  // shows. Their text as printed (a terminal's escapes, markup): the
+  // views clean it as they draw it (Paint's clean, Html's esc)
+  export function shells(tools: Tools): Shell[] {
+    const running = [...tools.devices].flatMap(([device, d]) => [...d.jobs].filter(([, run]) => run.seen !== null).map(([id, run]): Shell => ({
+      job: id, n: run.bg, who: run.who, device, command: Tools.cut(String(run.job.input?.command ?? "")), since: run.since, lines: Tools.last(run.seen!.text()),
+    })));
+    const ended = (tools.bgs ?? []).filter((b) => b.ended !== null).map((b): Shell => ({
+      job: b.id, n: b.n, who: b.who, device: b.device, command: Tools.cut(b.command), since: b.since, lines: Tools.last(b.out!.text), ended: b.ended!, fail: b.out!.fail,
+    }));
+    return [...running.sort((a, b) => a.since - b.since), ...ended];
+  }
+
+  // a text's last SHELL_LINES lines with words (a line redrawn by \r: what
+  // it shows last), SHELL_TEXT characters each
+  export function last(text: string): string[] {
+    const lines = text.split("\n").map((l) => Tools.cut(l.split("\r").filter((s) => s.trim() !== "").at(-1) ?? ""));
+    return lines.filter((l) => l.trim() !== "").slice(-SHELL_LINES);
+  }
+
+  export function cut(text: string): string {
+    return text.length > SHELL_TEXT ? text.slice(0, SHELL_TEXT - 1) + "…" : text;
+  }
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's Ctrl+B
+  // (Chat.shell: only from what speaks for the user): the shell command
+  // `job` (null: each running in the foreground) sent to the background:
+  // it runs on, an agent's caller goes on told its number, and it stops
+  // bg_ms after it began; refused past BG_EACH of one caller's or BG_CHAT
+  // of the chat's running there
+  export function background(tools: Tools, job: string | null, now: number): Out {
+    const fore = [...tools.devices].flatMap(([device, d]) => [...d.jobs].filter(([id, run]) => run.seen !== null && run.bg === null && (job === null || id === job)).map(([id, run]) => ({ device, id, run })));
+    if (fore.length === 0) {
+      return { text: job === null ? "No command is running in the foreground." : "No command " + job + " runs in the foreground.", fail: true };
+    }
+    const bgs = (tools.bgs ??= []);
+    const sent: number[] = [];
+    for (const { device, id, run } of fore) {
+      const running = bgs.filter((b) => b.ended === null);
+      const mine = running.filter((b) => b.who === run.who).length;
+      if (running.length >= BG_CHAT || mine >= BG_EACH) {
+        const why = running.length >= BG_CHAT ? BG_CHAT + " commands run in the background already" : (run.who === "user" ? "you have " : run.who + " has ") + BG_EACH + " there already";
+        tools.hooks.shells?.();
+        return { text: (sent.length > 0 ? "Sent " + sent.join(", ") + "; the rest not: " : "Not sent to the background: ") + why + ". Stop one first.", fail: true };
+      }
+      const n = (tools.bgn = (tools.bgn ?? 0) + 1);
+      const late = setTimeout(() => run.end({ text: run.seen!.text() + "\n(stopped: in the background past " + Tools.bg_ms / 60_000 + " minutes)", fail: true }), Math.max(0, run.since + Tools.bg_ms - now));
+      late.unref?.();
+      bgs.push({ n, device, id, who: run.who, command: String(run.job.input?.command ?? ""), since: run.since, seen: run.seen!, out: null, ended: null, late });
+      run.bg = n;
+      run.away?.(n);
+      sent.push(n);
+    }
+    tools.hooks.shells?.();
+    return { text: "Sent to the background: " + sent.join(", ") + ".", fail: false };
+  }
+
+  // how long a background command may run, from its start (ms): as the
+  // user's !command (Server.ts BANG_MS); a test's shorter
+  export let bg_ms = 10 * 60_000;
+
+  // a shell command ended: the views told; one in the background keeps
+  // its output, and Unii is told (the user's !command: Chat.bang notes it)
+  export function ended(tools: Tools, device: string, id: string, out: Out): void {
+    const b = tools.bgs?.find((x) => x.device === device && x.id === id && x.ended === null);
+    if (b !== undefined) {
+      clearTimeout(b.late);
+      [b.out, b.ended] = [out, Date.now()];
+      if (b.who !== "user") {
+        const whose = b.who === "main" ? "yours" : b.who + "'s";
+        const read = b.who === "main" ? "shell_output with n " + b.n + " reads its output." : "Its output is " + b.who + "'s to read (shell_output).";
+        tools.hooks.note?.("Background command " + b.n + " (" + whose + ", on " + device + ") ended: " + (Tools.last(out.text).at(-1) ?? "no output") + ". " + read);
+      }
+      const done = tools.bgs!.filter((x) => x.ended !== null);
+      const gone = new Set(done.slice(0, Math.max(0, done.length - BG_KEPT)));
+      tools.bgs = tools.bgs!.filter((x) => !gone.has(x));
+    }
+    tools.hooks.shells?.();
+  }
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's stop of
+  // shell commands (Chat.shell: only from what speaks for the user): the
+  // one `job`, else every one in the foreground; `all` (the user's Stop
+  // of all work: Chat.act's stop) every one, the background's too. How many
+  export function halt_shells(tools: Tools, job: string | null, all: boolean): number {
+    const runs = [...tools.devices.values()].flatMap((d) => [...d.jobs].filter(([id, run]) => run.seen !== null && (job === null ? all || run.bg === null : id === job)).map(([, run]) => run));
+    runs.forEach((run) => run.end({ text: run.seen!.text() + "\n(stopped by the user)", fail: true }));
+    return runs.length;
+  }
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): a caller's background
+  // command n, its own only (another agent's, Unii's or the user's: as
+  // none, so none is read or stopped by who didn't start it)
+  export function bg_own(tools: Tools, who: string, n: unknown): Bg | string {
+    const b = tools.bgs?.find((x) => x.n === Number(n) && x.who === who);
+    return b ?? "No background command " + n + " of yours (shell_output and shell_stop take your own only).";
+  }
+
+  // shell_output: what it printed so far, or its output as it ended
+  export function bg_read(tools: Tools, who: string, n: unknown): Out {
+    const b = Tools.bg_own(tools, who, n);
+    if (typeof b === "string") {
+      return { text: b, fail: true };
+    }
+    if (b.out !== null) {
+      return { text: "Background command " + b.n + " ended:\n" + b.out.text, fail: false };
+    }
+    const secs = ((Date.now() - b.since) / 1000).toFixed(0);
+    return { text: "Background command " + b.n + ", running for " + secs + " s, printed so far:\n" + b.seen.text(), fail: false };
+  }
+
+  // shell_stop: it ends, what it printed kept for shell_output
+  export function bg_stop(tools: Tools, who: string, n: unknown): Out {
+    const b = Tools.bg_own(tools, who, n);
+    if (typeof b === "string") {
+      return { text: b, fail: true };
+    }
+    if (b.ended !== null) {
+      return { text: "Background command " + b.n + " already ended.", fail: false };
+    }
+    tools.devices.get(b.device)?.jobs.get(b.id)?.end({ text: b.seen.text() + "\n(stopped by " + (who === "main" ? "Unii" : who) + ")", fail: true });
+    return { text: "Stopped background command " + b.n + ".", fail: false };
+  }
   // Agents
   // ------
 
@@ -1808,7 +2030,7 @@ export namespace Tools {
       const d: Device = { who, terms: new Map(), jobs: new Map() };
       tools.devices.set(name, d);
       for (const [id, term, job] of jobs) {
-        const run = Tools.track(d, id, term, job);
+        const run = Tools.track(tools, d, name, id, term, job);
         // a Claude Code worker's job: its worker waits on it here
         const agent = job.name === "claude" ? Tools.agent(tools, job.cwd) : null;
         if (agent !== null && agent.role.$ === "cli") {
@@ -1856,6 +2078,12 @@ export namespace Tools {
     if (tools.mem?.timers?.some((t) => gone.has(t.who))) {
       tools.mem.timers = tools.mem.timers.filter((t) => !gone.has(t.who));
       Memory.save(tools.mem);
+    }
+    // their background commands too (B2): a stopped agent's go with it
+    for (const b of tools.bgs ?? []) {
+      if (b.ended === null && gone.has(b.who)) {
+        tools.devices.get(b.device)?.jobs.get(b.id)?.end({ text: b.seen.text() + "\n(stopped with " + b.who + ")", fail: true });
+      }
     }
     for (const agent of all) {
       agent.stop = true;

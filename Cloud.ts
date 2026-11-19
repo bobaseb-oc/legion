@@ -3,19 +3,22 @@
 // Accounts, in one SQLite file: whose they are, and what their calls
 // cost them, is their billing's (Billing.ts, which they hold).
 //
-// Sign-in: an email gets a link (Resend, from noreply@ the site's host; no key:
-// printed), "@login" goes through GitHub where the billing takes it; both land
+// Sign-in: an email gets a link (Resend, from noreply@ the site's host; no
+// key, a local Legion: none, see SIGNIN), "@login" goes through GitHub where the billing takes it; both land
 // on /auth?t=<ticket>, where a browser gets a cookie. A terminal posts a token
 // it made and waits (/api/wait) while its link's page asks for the code it
 // shows (in no link). An emailed link's GET (mail apps open it first) only
 // shows a button, whose POST signs in, once. `legion web`: a signed-in
 // terminal (its Bearer token, never a cookie) gets a one-minute, one-use
-// link for its own account.
+// link for its own account. A terminal signs in two keys with one code:
+// its device key (a file: jobs, `legion device`) and its terminal key
+// (the Keychain, every read asked), whose session speaks for the user.
 // Tokens are kept as hashes. With phones on (UNII_PHONE=1), the iOS app's
 // links open it (AASA), its phones get each turn's last message (APNs).
 
 import type { Database } from "bun:sqlite";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
 import * as http2 from "node:http2";
 import * as path from "node:path";
 import { Billing } from "./Billing.ts";
@@ -29,15 +32,18 @@ export type User = { id: string; name: string };
 
 // a sign-in begun: an email or "@" and a GitHub login; the hash of the
 // session a terminal waits for; or (`legion web`) the account a signed-in
-// terminal opens the site as (who "": not a mailed link, uncounted)
-type Ticket = { who: string; session: string | null; user?: User };
+// terminal opens the site as (who "": not a mailed link, uncounted); the
+// hash of the terminal key signed in with the session, if any (K1)
+type Ticket = { who: string; session: string | null; user?: User; terminal?: string | null };
 
 // a user's account, in the accounts
 export type Account = { cloud: Cloud; user: string };
 
 // the db, its WAL (flushed: Disk.ts); what to tell as a user's balance
 // changes, and as a terminal's session is made (to every worker); what
-// sends a mail; terminals waiting for a sign-in, by session; the billing
+// sends a mail; terminals waiting for a sign-in, by session; the billing;
+// local: no mail key (a local Legion), so a sign-in needs the sign-in
+// secret (SIGNIN)
 export type Cloud = {
   db      : Database;
   wal     : string;
@@ -47,6 +53,7 @@ export type Cloud = {
   waits   : Map<string, () => void>;
   billing : Billing;
   phone   : boolean;
+  local   : boolean;
 };
 
 // Constants
@@ -66,8 +73,39 @@ const SEEN = 60 * 60 * 1000;
 // drops a Secure cookie an http one (a server on 127.0.0.1) sets
 const KEEP = "; Path=/; HttpOnly; SameSite=Lax; Max-Age=" + AGE / 1000 + (config.SITE.startsWith("https:") ? "; Secure" : "");
 
-// a session live now, by its row (made, seen, term: Cloud.open's columns)
-const LIVE = "made >= ?1 - (case when term = 1 then " + TERM + " else " + AGE + " end) and seen >= ?1 - " + IDLE;
+// a session live now, by its row (made, seen, term: Cloud.open's columns;
+// a terminal's, its device key's or its terminal key's, lasts TERM)
+const LIVE = "made >= ?1 - (case when term <> 0 then " + TERM + " else " + AGE + " end) and seen >= ?1 - " + IDLE;
+
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): whose a session is
+// (sessions.term): a browser's (a cookie), a terminal's device key (a
+// file, within an agent shell's reach), a terminal's terminal key (only
+// in the Keychain, every read the user allows): the browser's and the
+// terminal key's speak for the user (Cloud.speaks), a device key's never
+const BROWSER  = 0;
+const DEVICE   = 1;
+const TERMINAL = 2;
+export type Term = typeof BROWSER | typeof DEVICE | typeof TERMINAL;
+
+// RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): a local
+// Legion (no mail key) mails no link, and never writes one (nor anything
+// that works as one) to its log or stdout: an agent's shell can read
+// those, and it can start a sign-in itself and knows its code. So there
+// a terminal's sign-in needs, beyond its code, the sign-in secret: a
+// token only the user's Keychain holds ("legion-signin-<host>", made by
+// `legion login` with Auth.asking: every read the user allows), sent by
+// `legion login` with the confirm over the server's socket (never in an
+// argument, the environment, a log or a URL). The server keeps only its
+// sha256, in SIGNIN (0600, in config.DIR): the first `legion login`
+// registers it (trust on first use, once: none can be registered while
+// one is, and none can sign in without one); to reset, the user deletes
+// that file. A wrong or missing one uses the link up (each try costs a
+// link: link_ask's limits). A browser there signs in by `legion web`.
+// Residual: an agent shell in full mode runs as the user and may forge
+// what is on disk with disguised commands (Machine.trust, the reviewer
+// and hooks are the gates; the Keychain prompt is the user's proof)
+const SIGNIN = "signin-hash";
+const SECRET = /^[\w-]{43,400}$/;
 
 // how long an act's answer with words is kept (ms)
 const ACTS = 7 * 864e5;
@@ -137,9 +175,9 @@ export namespace Cloud {
         }
       }
     }
-    db.query("update sessions set made = ?1, seen = ?1, term = 1 where made is null").run(Date.now());
+    db.query("update sessions set made = ?1, seen = ?1, term = ?2 where made is null").run(Date.now(), DEVICE);
     const base = { db, wal: file + "-wal", change, signed, post, waits: new Map() };
-    return { ...base, billing: Billing.open(base), phone: config.PHONE };
+    return { ...base, billing: Billing.open(base), phone: config.PHONE, local: !config.KEYS.resend };
   }
 
   // a terminal's session made: its wait answered, if here
@@ -171,7 +209,17 @@ export namespace Cloud {
   // a cookie is no browser's)
   export function browser(cloud: Cloud, req: Request): boolean {
     const row = cloud.db.query("select term from sessions where hash = ?").get(Cloud.hash(Cloud.token(req))) as { term: number } | null;
-    return row?.term === 0;
+    return row?.term === BROWSER;
+  }
+
+  // RED ZONE (K1, DRAFT awaiting the user's sign-off): whether a request
+  // speaks for the user: its session live (LIVE) and a browser's or a
+  // terminal key's (BROWSER, TERMINAL), never a device key's (DEVICE: a
+  // file an agent's shell can read), however its token is sent
+  export function speaks(cloud: Cloud, req: Request): boolean {
+    const sql = "select term from sessions where hash = ?2 and " + LIVE;
+    const row = cloud.db.query(sql).get(Date.now(), Cloud.hash(Cloud.token(req))) as { term: number } | null;
+    return row?.term === BROWSER || row?.term === TERMINAL;
   }
 
   // the user of a session live now (LIVE), its use marked (once a SEEN)
@@ -261,10 +309,11 @@ export namespace Cloud {
     return null;
   }
 
-  // term: a terminal's session (TERM), not a browser's
-  export function login(cloud: Cloud, user: User, hash: string, term = false): void {
+  // term: whose the session is (Term: a browser's, or a terminal's
+  // device key or terminal key, those lasting TERM)
+  export function login(cloud: Cloud, user: User, hash: string, term: Term = BROWSER): void {
     const sql = "insert or ignore into sessions (hash, id, name, made, seen, term) values (?1, ?2, ?3, ?4, ?4, ?5)";
-    cloud.db.query(sql).run(hash, user.id, user.name, Date.now(), term ? 1 : 0);
+    cloud.db.query(sql).run(hash, user.id, user.name, Date.now(), term);
   }
 
   // whether a link not expired still waits for the terminal of a session
@@ -417,15 +466,32 @@ export namespace Cloud {
           const error = "Type just your email (you@mail.com)" + (github === null ? "." : " or your GitHub handle (@name).");
           return Response.json({ error }, { status: 400 });
         }
+        // RED ZONE (S1a, DRAFT awaiting the user's sign-off): a local
+        // Legion mails no link, so a browser signs in from a terminal
+        const github_in = github !== null && who.startsWith("@");
+        if (cloud.local && !body.key && !github_in) {
+          return Response.json({ error: "This Legion sends no mail: sign in with legion login in a terminal, then legion web opens the site signed in." }, { status: 400 });
+        }
         const refused = Cloud.link_ask(cloud, who, Cloud.net(Cloud.ip(req, addr) ?? ""));
         if (refused !== null) {
           return Response.json({ error: refused }, { status: 429 });
         }
         const session = body.key ? Cloud.hash(String(body.key)) : null;
-        const link = config.SITE + "/auth?t=" + Cloud.ticket(cloud, { who, session }, LINK);
+        // RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's
+        // terminal key, signed in with its device key by the one code (only
+        // its hash kept; one no other key)
+        const terminal = session !== null && body.term && String(body.term) !== String(body.key) ? Cloud.hash(String(body.term)) : null;
+        const t = Cloud.ticket(cloud, { who, session, terminal }, LINK);
+        const link = config.SITE + "/auth?t=" + t;
         const code = session === null ? {} : { code: Cloud.code(session) };
-        if (github !== null && who.startsWith("@")) {
-          return Response.json({ url: github(link, who.slice(1)), ...code });
+        if (github_in) {
+          return Response.json({ url: github!(link, who.slice(1)), ...code });
+        }
+        // RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): a local
+        // Legion's terminal gets its ticket itself (it confirms with the
+        // sign-in secret: SIGNIN), and whether one is registered
+        if (cloud.local) {
+          return Response.json({ ok: true, who, ...code, t, secret: Cloud.signin_hash() !== null });
         }
         await Cloud.mail(cloud, who, link, session !== null);
         return Response.json({ ok: true, who, ...code });
@@ -545,6 +611,12 @@ export namespace Cloud {
     if (user === null) {
       return Response.json({ error: "Sign in first: legion login" }, { status: 401 });
     }
+    // RED ZONE (DRAFT awaiting the user's sign-off): the browser session
+    // it makes speaks for the user, so only what speaks for them mints
+    // one (Cloud.speaks: the terminal's own key), never the device key
+    if (!Cloud.speaks(cloud, req)) {
+      return Response.json({ error: "legion web needs the terminal's own key: run legion login once (a device key can't open the web as you)." }, { status: 403 });
+    }
     const t = Cloud.ticket(cloud, { who: "", session: null, user: { id: user.id, name: user.name } }, WEB);
     return Response.json({ url: config.SITE + "/auth?t=" + t });
   }
@@ -567,7 +639,8 @@ export namespace Cloud {
 
   // the code typed on the confirm page: right, the terminal signs in: the
   // account (the email's, or the GitHub code's: Billing account), the
-  // session, and the terminal waiting on /api/wait woken
+  // session (its device key's) and its terminal key's (K1), and the
+  // terminal waiting on /api/wait woken
   export async function confirm(cloud: Cloud, req: Request): Promise<Response> {
     const text = await Cloud.small(req);
     if (text === null) {
@@ -578,7 +651,7 @@ export namespace Cloud {
     const typed = (form.get("code") ?? "").replace(/\D/g, "");
     const github = form.get("github") ?? "";
     const link = Cloud.ticket_read(cloud, t, false);
-    if (link !== null && link.session === null && link.user === undefined && !link.who.startsWith("@")) {
+    if (link !== null && link.session === null && link.user === undefined && !link.who.startsWith("@") && !cloud.local) {
       return Cloud.mailed(cloud, t, req);
     }
     if (link === null || link.session === null) {
@@ -587,14 +660,63 @@ export namespace Cloud {
     if (typed !== Cloud.code(link.session)) {
       return Cloud.page_confirm(t, link.who, github, "That code didn't match. Check your terminal and try again.");
     }
+    // RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local
+    // Legion's sign-in (not GitHub's) also needs the sign-in secret; a
+    // wrong or missing one uses the link up
+    const why = cloud.local && !link.who.startsWith("@") ? Cloud.signin_check(form.get("secret") ?? "", form.get("register") === "1") : null;
+    if (why !== null) {
+      Cloud.ticket_read(cloud, t, true);
+      return new Response("Refused: " + why, { status: 403 });
+    }
     const account = await cloud.billing.account(link.who, github, req);
     if (account === null) {
       return Cloud.expired();
     }
-    Cloud.login(cloud, account, link.session, true);
+    Cloud.login(cloud, account, link.session, DEVICE);
+    if (link.terminal) {
+      Cloud.login(cloud, account, link.terminal, TERMINAL);
+    }
     Cloud.ticket_read(cloud, t, true);
     cloud.signed(link.session);
-    return Response.redirect(config.SITE + "/?terminal=1", 302);
+    // a terminal's own confirm (it sends the sign-in secret: S1b) is
+    // answered in JSON, as it follows no redirect; a page's redirected
+    return form.has("secret") ? Response.json({ ok: true }) : Response.redirect(config.SITE + "/?terminal=1", 302);
+  }
+
+  // RED ZONE (S1b, DRAFT awaiting the user's sign-off): the sign-in
+  // secret's hash registered (SIGNIN), if any
+  export function signin_hash(): string | null {
+    try {
+      return fs.readFileSync(path.join(config.DIR, SIGNIN), "utf8").trim();
+    } catch {
+      return null;
+    }
+  }
+
+  // why a local sign-in's secret is refused (null: it isn't): not a
+  // token; register: one is already registered (made once, exclusively:
+  // two at a time can't both); else: none registered, or not its hash
+  // (compared in constant time)
+  export function signin_check(secret: string, register: boolean): string | null {
+    if (!SECRET.test(secret)) {
+      return "no sign-in secret: sign in with legion login.";
+    }
+    const file = path.join(config.DIR, SIGNIN);
+    if (register) {
+      try {
+        fs.writeFileSync(file, Cloud.hash(secret) + "\n", { flag: "wx", mode: 0o600 });
+        return null;
+      } catch {
+        return "a sign-in secret is already registered (to start over, the user deletes " + SIGNIN + " in Legion's dir: README).";
+      }
+    }
+    const kept = Cloud.signin_hash();
+    if (kept === null || kept === "") {
+      return "no sign-in secret is registered: legion login registers one.";
+    }
+    const got = Buffer.from(Cloud.hash(secret));
+    const want = Buffer.from(kept);
+    return got.length === want.length && crypto.timingSafeEqual(got, want) ? null : "not this Legion's sign-in secret.";
   }
 
   // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): an
@@ -645,11 +767,9 @@ export namespace Cloud {
     return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
   }
 
+  // RED ZONE (S1a, DRAFT awaiting the user's sign-off): only a server with
+  // a mail key mails (cloud.local: none); a link is never printed
   export async function mail(cloud: Cloud, to: string, link: string, terminal: boolean): Promise<void> {
-    if (!config.KEYS.resend) {
-      console.log("sign-in link for " + to + ": " + link);
-      return;
-    }
     const ignore = terminal ? "This link signs a unii terminal into your account. If you didn't just start one, ignore this email." : "If you didn't ask for it, ignore this email.";
     const { consent, ...reply } = cloud.billing.mail;
     const text = ["Sign in to Legion:", link, consent, ignore].filter((p) => p !== "").join("\n\n");

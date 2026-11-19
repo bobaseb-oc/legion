@@ -37,9 +37,10 @@ import { Agent, READING } from "./Agent.ts";
 import { gateway_budget, type Budget } from "./Gateway.ts";
 import { AskAI, type Bill, type Grant, type Call, type End, type Event, type Kind, type Say, type Sink } from "./AskAI.ts";
 import type { Wallet } from "./Billing.ts";
-import { clip_pages } from "./Clip.ts";
+import { clip, clip_pages } from "./Clip.ts";
 import { Cloud, type Account, type User } from "./Cloud.ts";
 import { Disk } from "./Disk.ts";
+import { USER_SHELL } from "./Machine.ts";
 import { Mail } from "./Mail.ts";
 import * as Import from "./Import.ts";
 import { Mcp } from "./Mcp.ts";
@@ -72,8 +73,10 @@ import style_css from "./web/style.css" with { type: "file" };
 // =====
 
 // a socket: its user, sign-in (hashed), its query's fields, its device,
-// the parts it was shown (Chat.teach), the agents whose pages it asked for
-type Sock = ServerWebSocket<{ user: User; who: string; tab: string; wire: string | null; host: string | null; computer: boolean; work: string; home: string | null; device: string | null; seen: Set<string>; watch: Set<string> }>;
+// the parts it was shown (Chat.teach), the agents whose pages it asked for;
+// says: it speaks for the user (Cloud.speaks: a browser's, or a terminal
+// key's; none said: it doesn't)
+type Sock = ServerWebSocket<{ user: User; who: string; tab: string; wire: string | null; host: string | null; computer: boolean; work: string; home: string | null; device: string | null; seen: Set<string>; watch: Set<string>; says?: boolean }>;
 
 // a body: its file, its size so far
 type Body = { fh: fs.promises.FileHandle; size: number };
@@ -211,6 +214,11 @@ const PULSE      = 1000;
 const WATCH      = 16;
 // the agents of a chat with a pulse due
 const PULSES     = new WeakMap<object, Set<string>>();
+// the shell commands running (B2: Tools.shells) go to every view at most
+// once a SHELLS ms while they change (a device tails each a second); the
+// chats with them due
+const SHELLS     = 500;
+const SHELLED    = new WeakSet<object>();
 // how a call ends whose process ended first (a crash)
 const ENDED      = "the server process that ran it ended";
 // a turn's head, as a summary's is "Compaction:": one prompt serves both
@@ -244,7 +252,8 @@ const POSTED     = "api";
 // Code worker's start, a question's answer. A view's acts only (Chat.act):
 // a device's socket is within an agent's reach, so an agent must not
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
-// device too: its /mode, /plan, /allow, /approve, /answer are refused
+// device too: its /mode, /plan, /allow, /approve, /answer are refused,
+// unless its socket is on its terminal key (K1, Chat.act's `says`)
 const SAYS       = ["mode", "plan", "consent", "approve", "answer"];
 
 // a read of a body: a buffer, no limit
@@ -349,6 +358,7 @@ export namespace Chat {
       halt   : () => chat.halt.signal,
       note   : (text) => Chat.note(chat, text),
       viewed : () => Chat.viewed(chat),
+      shells : () => Chat.shelled(chat),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -459,7 +469,7 @@ export namespace Chat {
 
   // a message (its body: its images, sizes given, then its text), logged
   // and taken
-  export async function say(chat: Chat, id: string, sizes: number[], body: Body): Promise<Answer> {
+  export async function say(chat: Chat, id: string, sizes: number[], body: Body, says = false): Promise<Answer> {
     const images: string[] = [];
     let at = 0;
     for (const size of sizes) {
@@ -470,7 +480,7 @@ export namespace Chat {
       images.push(name);
       at += size;
     }
-    await Chat.writing(chat, async () => Chat.take(chat, await Chat.text(chat, body, at, images, id)));
+    await Chat.writing(chat, async () => Chat.take(chat, await Chat.text(chat, body, at, images, id, says)));
     return {};
   }
 
@@ -482,10 +492,15 @@ export namespace Chat {
   }
 
   // a body's text from byte `at`, logged as the user's message, a read
-  // at a time, the last with the images and the act's record (the user
-  // is here: timers may be set again, Tools.timer)
-  export async function text(chat: Chat, body: Body, at: number, images: string[], act: string): Promise<Msg> {
-    chat.tools.rung = false;
+  // at a time, the last with the images and the act's record. RED ZONE
+  // (K3, DRAFT awaiting the user's sign-off): one that speaks for the user
+  // (says: a view's, or the terminal key's) tells the user is here, so
+  // timers may be set again (Tools.timer); a device key's (an agent's
+  // shell can type it) does not
+  export async function text(chat: Chat, body: Body, at: number, images: string[], act: string, says = false): Promise<Msg> {
+    if (says) {
+      chat.tools.rung = false;
+    }
     const id = chat.mem.count;
     for await (const [pages, more] of Chat.pieces(body, at, clip_pages)) {
       Chat.push(chat, null, "user", pages.join(""), more ? [] : images, more, more ? undefined : act);
@@ -1171,6 +1186,19 @@ export namespace Chat {
     }, PULSE);
   }
 
+  // the shell commands running to every view (B2), once SHELLS ms after
+  // the first change since the last: as they are then
+  export function shelled(chat: Chat): void {
+    if (SHELLED.has(chat)) {
+      return;
+    }
+    SHELLED.add(chat);
+    setTimeout(() => {
+      SHELLED.delete(chat);
+      Chat.all(chat, { $: "shells", shells: Tools.shells(chat.tools) });
+    }, SHELLS);
+  }
+
   export function send(sock: Sock, msg: object): void {
     sock.send(JSON.stringify(msg));
   }
@@ -1182,7 +1210,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, shells: Tools.shells(chat.tools) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1258,7 +1286,7 @@ export namespace Chat {
     let msg: any = null;
     const out = await Promise.try(() => {
       msg = JSON.parse(data);
-      return Chat.ask(chat, sock, msg) ?? Chat.apply(chat, msg, sock.data.device ?? "");
+      return Chat.ask(chat, sock, msg) ?? Chat.apply(chat, msg, sock.data.device ?? "", sock.data.says === true);
     }).catch(Chat.fail);
     chat.posts -= 1;
     Chat.send(sock, { $: "ack", id: msg?.id, ...out });
@@ -1335,14 +1363,14 @@ export namespace Chat {
   // THE apply point: every change is done here once, however often it
   // comes. An act being done, or recorded done (its record's answer, kept
   // by Cloud.act_put as the log indexes it), gets that answer; else
-  // Chat.act does it, answered once on disk
-  export function apply(chat: Chat, msg: any, device: string): Promise<Answer> {
+  // Chat.act does it, answered once on disk (says: as Chat.act's)
+  export function apply(chat: Chat, msg: any, device: string, says = device === ""): Promise<Answer> {
     const id = String(msg.id);
     const was = chat.acts.get(id) ?? (Cloud.act_get(chat.acct, id) as Answer | null);
     if (was !== null) {
       return Promise.resolve(was);
     }
-    const run = Chat.act(chat, id, msg, device).catch(Chat.fail).then(async (out) => {
+    const run = Chat.act(chat, id, msg, device, says).catch(Chat.fail).then(async (out) => {
       await Disk.synced();
       chat.acts.delete(id);
       return out;
@@ -1358,13 +1386,19 @@ export namespace Chat {
   // set state (a pick: view.json; an import's hold: its file) or end a
   // job, so done again they change nothing, and only that state is kept,
   // written over; a stop with nothing to stop is one (so one a client
-  // sends again, its answer lost, may end what runs by then)
-  export async function act(chat: Chat, id: string, msg: any, device: string): Promise<Answer> {
+  // sends again, its answer lost, may end what runs by then).
+  // device: the device whose socket sent it ("": a view's). RED ZONE (K1,
+  // DRAFT awaiting the user's sign-off): says: the act speaks for the user
+  // (Cloud.speaks: a browser's, or the terminal key's socket, a device
+  // too), so the acts only the user may do take it as a view's (asker
+  // ""); one on a device key (a file an agent's shell can read) is refused
+  export async function act(chat: Chat, id: string, msg: any, device: string, says = device === ""): Promise<Answer> {
     if ("req" in msg && BODIES.includes(msg.$)) {
-      return Chat.post(chat, id, msg);
+      return Chat.post(chat, id, msg, says);
     }
-    if (device !== "" && SAYS.includes(msg.$)) {
-      return { error: "That is the user's say: give it in a view (the web)." };
+    const asker = says ? "" : device;
+    if (asker !== "" && SAYS.includes(msg.$)) {
+      return { error: "That is the user's say: give it in a view (the web), or in the terminal once legion login signed it in." };
     }
     switch (msg.$) {
       case "stop": {
@@ -1380,6 +1414,15 @@ export namespace Chat {
           chat.mem.timers = [];
           Memory.save(chat.mem);
           Chat.change(chat);
+        }
+        // RED ZONE (B2, DRAFT awaiting the user's sign-off): the user's
+        // Stop of all work (from what speaks for them: says) ends every
+        // shell command too, the background's (Tools.halt_shells); a
+        // device key's stops the agents as ever, so their calls, not
+        // what was sent to the background
+        const shells = name === null && says ? Tools.halt_shells(chat.tools, null, true) : 0;
+        if (shells > 0) {
+          Chat.note(chat, "Stopped by the user: " + shells + (shells === 1 ? " shell command." : " shell commands."));
         }
         if (what.length === 0) {
           return {};
@@ -1434,6 +1477,14 @@ export namespace Chat {
         Tools.done(chat.tools, device, String(msg.job), msg.out);
         return {};
       }
+      // a device's shell command's output so far (B2: its own jobs only)
+      case "tail": {
+        Tools.tail(chat.tools, device, String(msg.job), String(msg.text ?? ""));
+        return {};
+      }
+      case "shell": {
+        return Chat.shell(chat, msg.op, msg.job, says);
+      }
       case "spawn": {
         // refused as a post is, short of credit
         const task = String(msg.task ?? "").trim();
@@ -1462,10 +1513,10 @@ export namespace Chat {
         return Chat.review(chat, id, msg);
       }
       case "routine": {
-        return Chat.routine(chat, id, msg, device);
+        return Chat.routine(chat, id, msg, asker);
       }
       case "timer": {
-        return Chat.untimed(chat, device, msg);
+        return Chat.untimed(chat, asker, msg);
       }
       case "themes": {
         return Chat.themes(chat);
@@ -1474,7 +1525,7 @@ export namespace Chat {
         return Chat.transcript(chat, device, msg);
       }
       case "look": {
-        return Chat.look(chat, id, msg.what, device);
+        return Chat.look(chat, id, msg.what, asker);
       }
       case "timesheet": {
         return Chat.timesheet(chat, id, msg);
@@ -1487,7 +1538,7 @@ export namespace Chat {
       }
       case "undo":
       case "handoff": {
-        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""), device);
+        return Chat.crew_op(chat, id, msg.$, String(msg.name ?? ""), asker);
       }
       case "did": {
         return Chat.did(chat, device, msg);
@@ -1509,7 +1560,7 @@ export namespace Chat {
         return Chat.reply(chat, id, Number(msg.q), msg.text === undefined || msg.text === null ? "" : String(msg.text).trim());
       }
       case "bang": {
-        return Chat.bang(chat, id, String(msg.command ?? "").trim(), device, msg.device, msg.dir);
+        return Chat.bang(chat, id, String(msg.command ?? "").trim(), device, says, msg.device, msg.dir);
       }
       case "tell": {
         // the person's message to an agent, as Unii's tell; refused as a
@@ -1547,16 +1598,16 @@ export namespace Chat {
         return {};
       }
       case "pin": {
-        return Chat.pin(chat, device, msg);
+        return Chat.pin(chat, asker, msg);
       }
       case "assignment": {
-        return Chat.assignment(chat, id, device, msg);
+        return Chat.assignment(chat, id, asker, msg);
       }
       case "explain": {
-        return Chat.explain(chat, device, msg);
+        return Chat.explain(chat, asker, msg);
       }
       case "decision": {
-        return Chat.decision(chat, id, device, msg);
+        return Chat.decision(chat, id, asker, msg);
       }
     }
     return { error: "No act " + msg.$ + "." };
@@ -1649,7 +1700,7 @@ export namespace Chat {
   // without credit stores none: under SPARE free, 507; refused by the
   // billing, asked again after a balance read (a top-up lands there). Else
   // its body goes to a file unlinked once open, then its act is done
-  export async function post(chat: Chat, id: string, msg: any): Promise<Answer> {
+  export async function post(chat: Chat, id: string, msg: any, says = false): Promise<Answer> {
     const disk = fs.statfsSync(config.DIR);
     if (disk.bavail * disk.bsize < SPARE) {
       return { error: FULL, status: 507 };
@@ -1673,7 +1724,7 @@ export namespace Chat {
       }
       switch (msg.$) {
         case "say": {
-          return await Chat.say(chat, id, msg.sizes.split(",").filter(Boolean).map(Number), body);
+          return await Chat.say(chat, id, msg.sizes.split(",").filter(Boolean).map(Number), body, says);
         }
         case "import": {
           return await Chat.writing(chat, () => Chat.ingest(chat, id, body));
@@ -2082,6 +2133,8 @@ const LOOKS = 50;
 const LOOK_TEXT = 1000;
 const LOOK_SHOWN = 512 * 1024;
 const LOOK_Q = 200; // a find's or a search's text, at most
+// the user's !command, stopped after (Chat.bang_ms): 10 minutes
+const BANG_MS = 10 * 60_000;
 const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
 // what the user chose over Legion's picks, kept at most (Chat.like)
 const LIKES = 30;
@@ -2630,13 +2683,52 @@ const LIKES = 30;
     return {};
   }
 
-  // the person's !command: a shell job, as Unii's own (in the home repo,
-  // gated by Claude Code's hooks there: Hooks.ts), on the device it came
-  // from (or the one named: !@name), else the only one open; in a folder
-  // if given (the Files page's box: cd there first); its command and output
-  // a note the AI reads, starting no turn. Answered at once; the note comes
-  // when it ends
-  export function bang(chat: Chat, id: string, command: string, from: string, named?: unknown, dir?: unknown): Answer {
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's Ctrl+B or
+  // Stop on a shell command running (B2: an agent's call, Unii's, their
+  // own !command): sent to the background (op "bg": Tools.background,
+  // within its caps) or stopped ("stop": Tools.halt_shells); job: that
+  // one, none: each in the foreground. Only from what speaks for the
+  // user (says: a view, or the terminal's own key, Cloud.speaks; never a
+  // device's key, which an agent's shell can read, nor an act posted with
+  // neither): so no agent sends another's command away or stops it, or
+  // the user's
+  export function shell(chat: Chat, op: unknown, job: unknown, says: boolean): Answer {
+    if (!says) {
+      return { error: "Only you send a command to the background or stop it: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you." };
+    }
+    const one = job === undefined || job === null ? null : String(job);
+    if (op === "bg") {
+      const out = Tools.background(chat.tools, one, Date.now());
+      return out.fail ? { error: out.text } : { text: out.text };
+    }
+    if (op === "stop") {
+      const n = Tools.halt_shells(chat.tools, one, false);
+      return n === 0 ? { error: "No such command is running." } : {};
+    }
+    return { error: "No such op: bg or stop." };
+  }
+
+  // how long the user's !command may run before it is stopped (ms); a
+  // test's shorter
+  export let bang_ms = BANG_MS;
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's own
+  // !command, from what speaks for them only (says: a view, or the
+  // terminal's own key, Cloud.speaks; never a device's key, an act posted
+  // with neither, an agent's tool call, a routine, a timer or the GChat
+  // bridge, whose acts are answers, assignments and decisions), run as
+  // they would in their own shell: a user_shell job, past the hooks, the
+  // reviewer and Legion's gating (Machine.ts), never through an agent's
+  // tool path; in the chat's dir (Unii's: the home repo, else its work
+  // dir) on the device named (!@name), else the one it came from, else
+  // the only one open; in a folder if given (the Files page's box: cd
+  // there first). Told to the views as it starts; stopped after bang_ms;
+  // its command and output (CAP, head and tail) a note the AI reads,
+  // starting no turn. Answered at once; the note comes when it ends
+  export function bang(chat: Chat, id: string, command: string, from: string, says: boolean, named?: unknown, dir?: unknown): Answer {
+    if (!says) {
+      return { error: "Only you run a !command: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you." };
+    }
     if (command === "") {
       return { error: "No command." };
     }
@@ -2649,13 +2741,17 @@ const LIKES = 30;
     }
     const device = named !== undefined ? String(named) : open.includes(from) ? from : open.length === 1 ? open[0]! : null;
     if (device === null) {
-      return { error: open.length === 0 ? "No device is open: run legion (or legion device) on one." : "Several devices are open (" + open.join(", ") + "): name one, as !@" + open[0] + " <command>, or type it in that device's terminal." };
+      return { error: open.length === 0 ? "No device is open: run legion (or legion device) on one." : "Several devices are open (" + open.join(", ") + "): name one, as !@" + open[0] + " <command>." };
     }
     Chat.mark(chat, id, {});
     const quoted = dir === undefined ? null : "'" + dir.replace(/'/g, "'\\''") + "'";
-    const job = { name: "shell", input: { command: quoted === null ? command : "cd " + quoted + " && " + command }, cwd: "main" };
-    Tools.job(chat.tools, device, job, new AbortController().signal, "bang-" + id).then((out) => {
-      Chat.note(chat, "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail ? "error: " : "") + out.text);
+    const job = { name: USER_SHELL, input: { command: quoted === null ? command : "cd " + quoted + " && " + command }, cwd: "main" };
+    const late = AbortSignal.timeout(Chat.bang_ms);
+    Chat.all(chat, { $: "note", text: "Running on " + device + ": $ " + command });
+    Tools.job(chat.tools, device, job, late, "bang-" + id).then((out) => {
+      const said = clip();
+      said.add(late.aborted ? "timed out after " + Chat.bang_ms / 1000 + " s: stopped." : out.text);
+      Chat.note(chat, "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail || late.aborted ? "error: " : "") + said.text());
     });
     return {};
   }
@@ -2984,7 +3080,7 @@ export namespace Main {
           return Response.json({ error: "Too many requests: wait a moment." }, { status: 429 });
         }
         const msg = { ...Object.fromEntries(new URL(req.url).searchParams), req };
-        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED);
+        const out = await Chat.apply(chat, msg, Cloud.browser(Chat.cloud, req) ? "" : POSTED, Cloud.speaks(Chat.cloud, req));
         return Response.json(out, { status: out.status ?? (out.error === undefined ? 200 : 400) });
       }
       case "/api/imported": {
@@ -3087,7 +3183,7 @@ export namespace Main {
         const who  = Cloud.hash(Cloud.token(req));
         const work = q.get("work") ?? "~/.unii/work";
         const home = q.get("home") || null;
-        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>() };
+        const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>(), says: Cloud.speaks(cloud, req) };
         return server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
       const chat = Chat.open(user);

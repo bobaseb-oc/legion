@@ -306,6 +306,42 @@ export function tabs_html(tabs: View.Tab[]): string[] {
   });
 }
 
+// Shell commands (B2)
+// ===================
+// RED ZONE (DRAFT awaiting the user's sign-off): a command and what it
+// prints are escaped (esc), never markup
+
+// the commands in sight running in the foreground, over the composer (as
+// Claude Code's): command, who and where, the time (data-since: main.ts
+// fills and ticks it, so the markup stays the same while it runs), the last lines, Background and Stop; then the keys
+export function shells_html(v: View.View): string[] {
+  const fore = View.view_fore(v);
+  if (fore.length === 0) {
+    return [];
+  }
+  const rows = fore.map((s) => {
+    const lines = s.lines.length === 0 ? "" : `<pre class="slines">${esc(s.lines.join("\n"))}</pre>`;
+    const buttons = `<button class="sbg"${act_html({ $: "Shell", op: "bg", job: s.job })}>Background</button><button class="sstop"${act_html({ $: "Shell", op: "stop", job: s.job })}>Stop</button>`;
+    return `<div class="shell"><div class="shead"><code>$ ${esc(s.command)}</code><span class="swho">${esc(View.shell_who(s))} on ${esc(s.device)} · <span class="stime" data-since="${s.since}"></span></span>${buttons}</div>${lines}</div>`;
+  });
+  return [...rows, `<div class="shint">${esc(View.RUN_HINT)}</div>`];
+}
+
+// the background list: each command sent there, how it is, Stop on those
+// running
+export function bgs_html(v: View.View): string[] {
+  const bgs = View.view_bgs(v);
+  if (bgs.length === 0) {
+    return [];
+  }
+  const rows = bgs.map((s) => {
+    const stop = s.ended === undefined ? `<button class="sstop"${act_html({ $: "Shell", op: "stop", job: s.job })}>Stop</button>` : "";
+    return `<div class="bg${s.fail ? " failed" : ""}"><span class="bgn">${s.n}</span><code>$ ${esc(s.command)}</code><span class="swho">${esc(View.shell_who(s))} on ${esc(s.device)} · ${s.ended === undefined ? `running <span class="stime" data-since="${s.since}"></span>` : esc(View.shell_state(s, 0))}</span>${stop}</div>`;
+  });
+  const running = bgs.filter((s) => s.ended === undefined).length;
+  return [`<details class="bgs"><summary>${running} running in the background${bgs.length > running ? ", " + (bgs.length - running) + " ended" : ""}</summary>${rows.join("")}</details>`];
+}
+
 // Account
 // =======
 

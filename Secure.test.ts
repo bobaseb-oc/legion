@@ -1,44 +1,64 @@
 // Secure test
 // ===========
 // `bun test Secure.test.ts`: the security review's (SC) guards on the
-// site's HTTP, against `./Server.ts <port>` on a fresh dir, signed in as
-// a browser is (its emailed link, printed with no mail key, then the
-// button's POST): the devices' unix socket, Origin and Host, the headers HTML
-// goes with, what an error tells, the bodies read before sign-in.
+// site's HTTP, against `./Server.ts <port>` on a fresh dir (no mail key: a
+// local Legion), signed in as a browser is there (a terminal's sign-in by
+// its code and the sign-in secret, then `legion web`'s link): the
+// devices' unix socket, Origin and Host, the headers HTML goes with, what
+// an error tells, the bodies read before sign-in; no sign-in link printed.
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { WIRE } from "./View.ts";
 
 const PORT = 9591;
 const SITE = "http://127.0.0.1:" + PORT;
 const DIR  = fs.mkdtempSync(os.tmpdir() + "/unii-secure-");
-let proc: Bun.Subprocess<"ignore", "pipe", "inherit">;
+let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
 let printed = "";
 let cookie = "";
 
+// the sign-in secret this server's first sign-in registers (S1b), as
+// `legion login` reads it from the Keychain
+const SECRET = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+
+// a terminal's sign-in on this local server: /api/login (its ticket and
+// code come back, no link is printed), then the confirm with the code
+// and `more` (the sign-in secret); the confirm's answer
+async function signin(who: string, key: string, more: Record<string, string>, term?: string): Promise<Response> {
+  const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who, key, ...(term ? { term } : {}) }) });
+  expect(asked.status).toBe(200);
+  const { t, code } = await asked.json();
+  const form = new URLSearchParams({ t, code, ...more }).toString();
+  return fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE }, body: form, redirect: "manual" });
+}
+
 beforeAll(async () => {
+  const { RESEND_API_KEY, ...env } = process.env;
   proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(PORT)], {
-    env    : { ...process.env, UNII_DIR: DIR, UNII_SITE: SITE, UNII_WORK: DIR + "/work", UNII_ANOTHER: "1" },
+    env    : { ...env, UNII_DIR: DIR, UNII_SITE: SITE, UNII_WORK: DIR + "/work", UNII_ANOTHER: "1" },
     stdout : "pipe",
-    stderr : "inherit",
+    stderr : "pipe",
   });
-  (async () => {
-    for await (const piece of proc.stdout) {
-      printed += new TextDecoder().decode(piece);
-    }
-  })();
+  for (const out of [proc.stdout, proc.stderr]) {
+    (async () => {
+      for await (const piece of out) {
+        printed += new TextDecoder().decode(piece);
+      }
+    })();
+  }
   for (let k = 0; k < 100 && (await fetch(SITE + "/api/hello").catch(() => null)) === null; k++) {
     await Bun.sleep(50);
   }
-  const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "me@x.com" }) });
-  expect(asked.status).toBe(200);
-  for (let k = 0; k < 50 && !printed.includes("/auth?t="); k++) {
-    await Bun.sleep(20);
-  }
-  const t = /\/auth\?t=(\S+)/.exec(printed)?.[1] ?? "";
-  const body = new URLSearchParams({ t }).toString();
-  const res = await fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE }, body, redirect: "manual" });
+  // the first sign-in registers the secret; `legion web`'s link, a browser
+  // (minted with the terminal's own key: the device key can't)
+  const key = crypto.randomUUID();
+  const termkey = crypto.randomUUID();
+  expect((await signin("me@x.com", key, { secret: SECRET, register: "1" }, termkey)).status).toBe(200);
+  expect((await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } })).status).toBe(403);
+  const web = await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + termkey } });
+  const res = await fetch((await web.json()).url, { redirect: "manual" });
   cookie = /^(unii=[^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
   expect(cookie).not.toBe("");
 });
@@ -125,15 +145,7 @@ test("HTML goes with a CSP; every answer with nosniff and no referrer; /tree run
 // refused, sent as a cookie too; its /api/act is a device's
 test("only a browser's session is a view: a terminal's token, as Bearer or cookie, never is", async () => {
   const key = crypto.randomUUID();
-  const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "term@x.com", key }) });
-  const { code } = await asked.json();
-  for (let k = 0; k < 50 && !/term@x\.com[\s\S]*\/auth\?t=/.test(printed); k++) {
-    await Bun.sleep(20);
-  }
-  const t = [...printed.matchAll(/\/auth\?t=(\S+)/g)].at(-1)?.[1] ?? "";
-  const form = new URLSearchParams({ t, code }).toString();
-  const done = await fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE }, body: form, redirect: "manual" });
-  expect(done.status).toBe(302);
+  expect((await signin("term@x.com", key, { secret: SECRET })).status).toBe(200);
   const opens = (q: string, headers: Record<string, string>) => new Promise<boolean>((ok) => {
     const ws = new WebSocket(SITE.replace(/^http/, "ws") + "/ws" + q, { headers } as any);
     ws.onopen = () => (ws.close(), ok(true));
@@ -150,6 +162,91 @@ test("only a browser's session is a view: a terminal's token, as Bearer or cooki
   expect((await tick({ cookie })).error).toMatch(/^No todo/);
   expect((await tick(bearer)).error).toMatch(/in a view/);
   expect((await tick({ cookie: "unii=" + key })).error).toMatch(/in a view/);
+});
+
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's sign-in
+// approves two keys with its one code: the device key (a file) and the
+// terminal key (the Keychain). A socket on the terminal key still names
+// its device (it runs jobs) and speaks for the user: its /mode is done,
+// its typed todo tick is a view's; the device key's are refused as ever.
+// A terminal key not signed in opens nothing; logging one out leaves the other
+test("the terminal key's socket speaks for the user; the device key's stays a device's", async () => {
+  const key = crypto.randomUUID();
+  const term = crypto.randomUUID();
+  expect((await signin("keys@x.com", key, { secret: SECRET }, term)).status).toBe(200);
+  // a socket: opened, or refused; an act sent on it, its ack
+  const sock = (q: string, token: string) => new Promise<WebSocket | null>((ok) => {
+    const ws = new WebSocket(SITE.replace(/^http/, "ws") + "/ws?wire=" + WIRE + q, { headers: { authorization: "Bearer " + token } } as any);
+    ws.onopen = () => ok(ws);
+    ws.onerror = () => ok(null);
+  });
+  const ack = (ws: WebSocket, msg: object) => new Promise<any>((ok) => {
+    const id = crypto.randomUUID();
+    ws.addEventListener("message", (ev) => {
+      const got = JSON.parse(String(ev.data));
+      if (got.$ === "ack" && got.id === id) {
+        ok(got);
+      }
+    });
+    ws.send(JSON.stringify({ id, ...msg }));
+  });
+  expect(await sock("&device=box", nobody())).toBeNull();
+  expect(await sock("", term)).toBeNull();
+  const dev = (await sock("&device=box", key))!;
+  const mine = (await sock("&device=box2", term))!;
+  expect(dev).not.toBeNull();
+  expect(mine).not.toBeNull();
+  expect((await ack(dev, { $: "mode", mode: "full" })).error).toMatch(/user's say/);
+  expect((await ack(dev, { $: "routine", op: "add", routine: { name: "R", task: "t", when: { $: "every", hours: 1 } } })).error).toMatch(/in a view/);
+  expect((await ack(mine, { $: "mode", mode: "full" })).error).toBeUndefined();
+  expect((await ack(mine, { $: "routine", op: "add", routine: { name: "R", task: "t", when: { $: "every", hours: 1 } } })).error).toBeUndefined();
+  expect((await ack(mine, { $: "timer", n: 999 })).error).toMatch(/^No timer/);
+  dev.close();
+  mine.close();
+  // a post (/api/act) on the terminal key is the user's too
+  const tick = (token: string) => fetch(SITE + "/api/act?$=assignment&id=" + crypto.randomUUID() + "&n=1&done=true", { method: "POST", headers: { authorization: "Bearer " + token } }).then((r) => r.json());
+  expect((await tick(key)).error).toMatch(/in a view/);
+  expect((await tick(term)).error).toMatch(/^No todo/);
+  // signed out, the terminal key's session ends alone
+  const me = (token: string) => fetch(SITE + "/api/me", { headers: { authorization: "Bearer " + token } }).then((r) => r.status);
+  expect((await fetch(SITE + "/api/logout", { method: "POST", headers: { authorization: "Bearer " + term } })).status).toBe(204);
+  expect(await me(term)).toBe(401);
+  expect(await me(key)).toBe(200);
+  expect(await sock("&device=box2", term)).toBeNull();
+});
+
+// a random token, signed in nowhere
+function nobody(): string {
+  return crypto.randomUUID() + crypto.randomUUID();
+}
+
+// RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): an agent's
+// self sign-in on a local Legion. It starts one with keys it made (so it
+// knows the code) and finds no link in the server's output (stdout,
+// stderr: the launcher's server.log); its confirm with no secret, a guess
+// or a new registration is refused, its keys sign in nowhere, and the
+// link is used up (the right secret no longer helps); a browser's
+// sign-in there is refused
+test("a local Legion refuses an agent's self sign-in without the sign-in secret, and prints no link", async () => {
+  for (const more of [{}, { secret: nobody().replace(/-/g, "") }, { secret: nobody().replace(/-/g, ""), register: "1" }] as Record<string, string>[]) {
+    const key = crypto.randomUUID();
+    const term = crypto.randomUUID();
+    const asked = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "me@x.com", key, term }) });
+    const { t, code } = await asked.json();
+    const post = (form: Record<string, string>) => fetch(SITE + "/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t, code, ...form }).toString(), redirect: "manual" });
+    expect((await post(more)).status).toBe(403);
+    const me = (token: string) => fetch(SITE + "/api/me", { headers: { authorization: "Bearer " + token } }).then((r) => r.status);
+    expect(await me(key)).toBe(401);
+    expect(await me(term)).toBe(401);
+    expect((await post({ secret: SECRET })).headers.get("location")).toContain("expired=1");
+    expect(await me(key)).toBe(401);
+    expect(printed).not.toContain(t);
+  }
+  const browser = await fetch(SITE + "/api/login", { method: "POST", body: JSON.stringify({ who: "me@x.com" }) });
+  expect(browser.status).toBe(400);
+  await Bun.sleep(100);
+  expect(printed).not.toContain("/auth?t=");
+  expect(printed).not.toContain("sign-in link");
 });
 
 // what's read before anyone is signed in is small: /api/delete's

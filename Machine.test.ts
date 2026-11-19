@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { ENV, Machine } from "./Machine.ts";
+import { ENV, Machine, USER_SHELL } from "./Machine.ts";
 
 const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-machine-");
 
@@ -23,6 +23,27 @@ test("a shell's output is decoded whole: a char split over writes, a broken one 
   expect(split.text).toStartWith("aéb\n(exit 0 in ");
   const broken = await Machine.shell(DIR, "printf 'ab\\303'", live);
   expect(broken.text).toStartWith("ab�\n(exit 0 in ");
+});
+
+test("a shell tells what it prints as it comes (live), the user's !command too; none told past its send away", async () => {
+  const seen: string[] = [];
+  const out = await Machine.shell(DIR, "echo one; sleep 0.1; echo two", new AbortController().signal, undefined, (text) => seen.push(text));
+  expect(seen.join("")).toBe("one\ntwo\n");
+  expect(out.text).toStartWith("one\ntwo\n(exit 0 in ");
+  const mine: string[] = [];
+  await Machine.run({ name: USER_SHELL, input: { command: "echo mine" }, cwd: "main" }, DIR, new AbortController().signal, undefined, undefined, undefined, (text) => mine.push(text));
+  expect(mine.join("")).toBe("mine\n");
+  const theirs: string[] = [];
+  await Machine.run({ name: "shell", input: { command: "echo theirs" }, cwd: "w" }, DIR, new AbortController().signal, undefined, undefined, [], (text) => theirs.push(text));
+  expect(theirs.join("")).toBe("theirs\n");
+  const away = new AbortController();
+  const gone: string[] = [];
+  const run = Machine.shell(DIR, "echo early; sleep 0.3; echo late", new AbortController().signal, away.signal, (text) => gone.push(text));
+  await Bun.sleep(100);
+  away.abort();
+  await run;
+  await Bun.sleep(400);
+  expect(gone.join("")).toBe("early\n");
 });
 
 test("a shell sent away answers at once; its file gets the rest and the exit", async () => {
@@ -162,6 +183,23 @@ test("glob and grep run as device tools, in the agent's dir", async () => {
   const run = (name: string, input: object) => Machine.run({ name, input, cwd: "Ann" }, root, live, undefined, undefined, []);
   expect(await run("glob", { pattern: "**/*.ts" })).toEqual({ text: "deep/b.ts\na.ts", fail: false });
   expect(await run("grep", { pattern: "gamma" })).toEqual({ text: "deep/b.ts", fail: false });
+});
+
+// RED ZONE (DRAFT awaiting the user's sign-off): the user's own !command
+// (a user_shell job, made only by Chat.bang) runs as they would in their
+// own shell: no hook asked, though one refuses every agent's shell
+test("the user's !command runs ungated, in Unii's dir; an agent's shell is still refused by the hook", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  const hook = DIR + "/deny.sh";
+  fs.writeFileSync(hook, "#!/bin/sh\necho no >&2\nexit 2\n");
+  fs.chmodSync(hook, 0o755);
+  const file = DIR + "/deny.json";
+  fs.writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: hook }] }] } }));
+  const src = [{ file, managed: true }];
+  const run = (name: string) => Machine.run({ name, input: { command: "pwd -P" }, cwd: "main" }, DIR + "/work", new AbortController().signal, undefined, home, src);
+  expect((await run("shell")).text).toBe("Refused by a hook: no");
+  const mine = await run(USER_SHELL);
+  expect([mine.fail, mine.text.split("\n")[0]]).toEqual([false, fs.realpathSync(home)]);
 });
 
 // Security review (M2, M3, M4): what a job may reach on this device
@@ -363,4 +401,44 @@ test("write and edit refuse this checkout's local/mcp.extra.json", () => {
   expect(Machine.gating(import.meta.dir + "/local/mcp.extra.json")).toBe(true);
   expect(Machine.gating(import.meta.dir + "/local/MCP.Extra.json")).toBe(true);
   expect(Machine.gating(os.tmpdir() + "/other/local/mcp.extra.json")).toBe(false);
+});
+
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): Legion's own trust
+// state (in ~/.unii or $UNII_DIR): cloud.db (its sessions) and its -wal,
+// -shm, the sign-in secret's hash, server.log, a terminal's token file
+// (<host>/token). An agent's read, grep or glob gets none (secret), its
+// write or edit none (gating), its shell command naming one by its path
+// is refused before any hook, in every mode (guard); a file of the same
+// name elsewhere (a repo's server.log) is not
+test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, server.log, token files", () => {
+  const dir = os.homedir() + "/.unii";
+  const files = ["cloud.db", "cloud.db-wal", "cloud.db-shm", "Cloud.DB", "signin-hash", "server.log", "127.0.0.1:8788/token"];
+  for (const f of files) {
+    expect([f, Machine.secret(dir + "/" + f)]).toEqual([f, true]);
+    expect([f, Machine.gating(dir + "/" + f)]).toEqual([f, true]);
+    expect([f, Machine.guard({ tool: "Read", input: { file_path: dir + "/" + f } })]).toEqual([f, expect.stringContaining("Refused")]);
+    expect([f, Machine.guard({ tool: "Write", input: { file_path: dir + "/" + f, content: "x" } })]).toEqual([f, expect.stringContaining("Refused")]);
+  }
+  expect(Machine.secret(os.tmpdir() + "/repo/server.log")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/repo/cloud.db")).toBe(false);
+  expect(Machine.secret(dir + "/users/10/main.index")).toBe(false);
+  const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
+  for (const c of ["cat ~/.unii/cloud.db", "sqlite3 $HOME/.unii/cloud.db 'select * from sessions'", "cp x ~/.unii/cloud.db-wal", "tail -f ~/.unii/server.log", "grep auth ${HOME}/.unii/server.log",
+    "echo h > ~/.unii/signin-hash", "rm ~/.unii/signin-hash", "cat \"$UNII_DIR/cloud.db\"", "cat " + dir + "/server.log", "local/legion log", "legion log | tail"]) {
+    expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
+  }
+  for (const c of ["grep -n cloud.db Cloud.ts", "tail server.log", "ls ~/.unii", "legion login"]) {
+    expect([c, shell(c)]).toEqual([c, null]);
+  }
+  // a $UNII_DIR of another name, written out in the command
+  const was = process.env.UNII_DIR;
+  const other = os.tmpdir() + "/legion-trust-dir";
+  process.env.UNII_DIR = other;
+  try {
+    expect(shell("sqlite3 " + other + "/cloud.db .dump")).toContain("Refused");
+    expect(shell("cat " + other + "/notes.txt")).toBeNull();
+    expect(Machine.secret(other + "/server.log")).toBe(true);
+  } finally {
+    process.env.UNII_DIR = was;
+  }
 });

@@ -67,6 +67,38 @@ test("!command asks to run it on a device, from the chat or an agent's page; a b
   expect(View.view_act(v, { $: "Bang", command: "  ", dir: "/r" })).toEqual([]);
 });
 
+// shell mode (as Claude Code's !): the input bar shows it while what is
+// typed starts with !; a Backspace over the ! leaves it
+test("view_shell: the input is in shell mode while it starts with !", () => {
+  for (const [text, on] of [["!", true], ["!ls -la", true], ["  !git log", true], ["", false], ["ls", false], ["a!b", false], ["/help", false]] as const) {
+    expect([text, View.view_shell(text)]).toEqual([text, on]);
+  }
+});
+
+// RED ZONE (DRAFT awaiting the user's sign-off): only the user's own
+// Send is a !command; what Legion or an agent writes, "!cmd" or not, is
+// drawn, never sent back as an act
+test("an agent's or Legion's words starting with ! never become a !command", () => {
+  const v = View.view_new();
+  const heard = [
+    ...View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "!rm -rf ~" }, 1: { kind: "work", text: "!ls" } } }),
+    ...View.view_hear(v, { $: "entry", agent: "Mgr", id: 0, kind: "unii", text: "!echo pwned", date: "" }),
+    ...View.view_hear(v, { $: "note", text: "!echo note" }),
+  ];
+  expect(heard.some((m) => m.$ === "bang")).toBe(false);
+});
+
+// /copy (the terminal): the last code block of Legion's newest message
+// that has one; the user's own blocks are not Legion's
+test("view_code: the last code block Legion wrote", () => {
+  const v = View.view_new();
+  expect(View.view_code(v)).toBe(null);
+  View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "Run:\n```sh\nnpm i\n```" }, 1: { kind: "user", text: "```\nmine\n```" } } });
+  expect(View.view_code(v)).toBe("npm i");
+  View.view_hear(v, { $: "know", whole: { 2: { kind: "unii", text: "First\n```sh\ngcloud auth login\n```\nthen\n```\nbun run test\n```" }, 3: { kind: "unii", text: "Done." } } });
+  expect(View.view_code(v)).toBe("bun run test");
+});
+
 const crew = (name: string, parent: string, tier: View.Crew["tier"], status: View.Crew["status"], since = 0): View.Crew => ({ name, parent, tier, model: tier === "manager" ? "sonnet-5.5" : "haiku-5.5", status, since });
 
 // the crew: each agent under who started it, the ones failed first, then
@@ -606,4 +638,34 @@ test("explain: the page as the server tells it; a question asked, trimmed; #expl
   expect(View.view_act(v, { $: "Explain", q: "  why?  " })).toEqual([{ $: "explain", q: "why?" }]);
   expect(View.view_act(v, { $: "Explain", q: "  " })).toEqual([]);
   expect(View.view_route("#explain")).toEqual({ mode: "explain", name: null });
+});
+
+// B2: shell commands running like Claude Code's: the chat shows the
+// user's and Legion's in the foreground, an agent's page that agent's;
+// Ctrl+B and Esc act on those in sight (one shell act each), the
+// background list shows every one sent there; the status block's lines
+// say the command, who, where and how long, its last lines, and the keys
+test("shell commands in sight: their lines, the keys, the acts on them", () => {
+  const v = View.view_new();
+  expect(View.view_fore(v)).toEqual([]);
+  expect(View.view_act(v, { $: "Shell", op: "bg" })).toEqual([]);
+  expect(v.notes.splice(0)).toEqual(["No command is running here."]);
+  const shells: View.Shell[] = [
+    { job: "bang-1", n: null, who: "user", device: "mac", command: "make", since: 1000, lines: ["cc a.c", "cc b.c"] },
+    { job: "j2", n: null, who: "Ada", device: "pc", command: "npm test", since: 2000, lines: [] },
+    { job: "j3", n: 1, who: "main", device: "mac", command: "tail -f log", since: 500, lines: ["x"] },
+    { job: "j4", n: 2, who: "Ada", device: "pc", command: "sleep 9", since: 500, lines: ["(exit 0 in 9.0 s)"], ended: 9500, fail: false },
+  ];
+  View.view_hear(v, { $: "shells", shells });
+  expect(View.view_fore(v).map((s) => s.job)).toEqual(["bang-1"]);
+  expect(View.view_bgs(v).map((s) => s.job)).toEqual(["j3", "j4"]);
+  expect(View.view_act(v, { $: "Shell", op: "bg" })).toEqual([{ $: "shell", op: "bg", job: "bang-1" }]);
+  expect(View.view_act(v, { $: "Shell", op: "stop", job: "j3" })).toEqual([{ $: "shell", op: "stop", job: "j3" }]);
+  expect(View.view_shell_lines(v, 66_000)).toEqual(["$ make · you on mac · 1m 05s", "  cc a.c", "  cc b.c", View.RUN_HINT]);
+  expect(View.RUN_HINT).toBe("ctrl+b to run in background · esc to stop");
+  View.view_hear(v, { $: "state", ...v, shells: shells.slice(1) });
+  v.page = { name: "Ada", log: [], live: [] };
+  expect(View.view_fore(v).map((s) => s.job)).toEqual(["j2"]);
+  expect(View.view_shell_lines(v, 14_000)).toEqual(["$ npm test · Ada on pc · 12s", View.RUN_HINT]);
+  expect(View.view_bg_lines(v, 20_000)).toEqual(["1 · running 19s · Legion on mac · $ tail -f log", "2 · done (exit 0 in 9.0 s) · Ada on pc · $ sleep 9"]);
 });

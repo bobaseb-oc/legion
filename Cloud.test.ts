@@ -12,11 +12,14 @@ const { Cloud } = await import("./Cloud.ts");
 // the site, as the first test file to load Config set it (one process)
 const config = await import("./Config.ts");
 
-// accounts in a dir made anew; the last test's goes after all
-function cloud_new() {
+// accounts in a dir made anew; the last test's goes after all. local: a
+// server with no mail key (S1b), else one that mails (its post a stub)
+function cloud_new(local = false) {
   fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true });
   fs.mkdirSync(process.env.UNII_DIR ?? "", { recursive: true });
-  return Cloud.open(() => {}, () => {}, async () => null);
+  const cloud = Cloud.open(() => {}, () => {}, async () => null);
+  cloud.local = local;
+  return cloud;
 }
 
 afterAll(() => fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true }));
@@ -81,6 +84,59 @@ test("terminal sign-in needs the code the terminal shows", async () => {
   expect(cloud.db.query("select term from sessions where hash = ?").get(session)).toEqual({ term: 1 });
 });
 
+// RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's sign-in
+// makes two keys, both approved by the one code: the device key (a file,
+// term 1) and the terminal key (the Keychain, term 2), each lasting TERM.
+// Cloud.speaks: only a browser's session or a terminal key's speaks for
+// the user, never a device key's, nor one not live
+test("a terminal sign-in approves its device key and its terminal key with one code; only a browser or the terminal key speaks", async () => {
+  const cloud = cloud_new();
+  const login = (body: object) => Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify(body) }));
+  const key = Cloud.random();
+  const termkey = Cloud.random();
+  const asked = (await (await login({ who: "k@x.com", key, term: termkey }))!.json()) as { code: string };
+  expect(asked.code).toBe(Cloud.code(Cloud.hash(key)));
+  const row = cloud.db.query("select hash from tickets order by expires desc").get() as { hash: string };
+  const data = JSON.parse((cloud.db.query("select data from tickets where hash = ?").get(row.hash) as { data: string }).data);
+  expect(data.terminal).toBe(Cloud.hash(termkey));
+  expect(JSON.stringify(data)).not.toContain(termkey);
+  const t = Cloud.ticket(cloud, { who: "k@x.com", session: Cloud.hash(key), terminal: Cloud.hash(termkey) }, 60000);
+  const post = (c: string) => new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t, code: c }).toString() });
+  const terms = () => cloud.db.query("select term from sessions where hash in (?, ?) order by term").all(Cloud.hash(key), Cloud.hash(termkey));
+  await Cloud.confirm(cloud, post(asked.code === "000000" ? "111111" : "000000"));
+  expect(terms()).toEqual([]);
+  await Cloud.confirm(cloud, post(asked.code));
+  expect(terms()).toEqual([{ term: 1 }, { term: 2 }]);
+  const bearer = (token: string) => new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + token } });
+  const cookie = Cloud.session(cloud, { id: "u9", name: "b@x.com" });
+  expect(Cloud.speaks(cloud, bearer(termkey))).toBe(true);
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + cookie } }))).toBe(true);
+  expect(Cloud.speaks(cloud, bearer(key))).toBe(false);
+  expect(Cloud.speaks(cloud, bearer(Cloud.random()))).toBe(false);
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/"))).toBe(false);
+  expect(Cloud.browser(cloud, bearer(termkey))).toBe(false);
+  // the terminal key lasts a terminal's TERM, and speaks only while live
+  const age = (days: number) => cloud.db.query("update sessions set made = made - ?, seen = ? where hash = ?").run(days * 864e5, Date.now(), Cloud.hash(termkey));
+  age(60);
+  expect(Cloud.who(cloud, bearer(termkey))).not.toBeNull();
+  age(31);
+  expect(Cloud.who(cloud, bearer(termkey))).toBeNull();
+  expect(Cloud.speaks(cloud, bearer(termkey))).toBe(false);
+  // a terminal key the same as the device key makes no second session
+  const same = Cloud.random();
+  await login({ who: "s@x.com", key: same, term: same });
+  const sdata = JSON.parse((cloud.db.query("select data from tickets where data ->> 'who' = 's@x.com'").get() as { data: string }).data);
+  expect(sdata.terminal ?? null).toBeNull();
+  // logout-all ends both
+  const k2 = Cloud.random();
+  const tk2 = Cloud.random();
+  Cloud.login(cloud, { id: "u7", name: "z@x.com" }, Cloud.hash(k2), 1);
+  Cloud.login(cloud, { id: "u7", name: "z@x.com" }, Cloud.hash(tk2), 2);
+  await Cloud.http(cloud, new Request("http://127.0.0.1/api/logout-all", { method: "POST", headers: { authorization: "Bearer " + tk2 } }));
+  expect(Cloud.who(cloud, bearer(k2))).toBeNull();
+  expect(Cloud.who(cloud, bearer(tk2))).toBeNull();
+});
+
 // An emailed link's GET only shows a page with a button: a mail app's
 // preview (or a scanner) opening it signs no one in and uses nothing up.
 // The button's POST signs in, once: the ticket goes with it.
@@ -141,7 +197,7 @@ test("sessions expire by age and idleness; old rows migrate; logout-all ends the
   expect(bearer("oldidle")).toBeNull();
   const cookie = Cloud.session(cloud, { id: "u1", name: "me@x.com" });
   const term = Cloud.random();
-  Cloud.login(cloud, { id: "u1", name: "me@x.com" }, Cloud.hash(term), true);
+  Cloud.login(cloud, { id: "u1", name: "me@x.com" }, Cloud.hash(term), 1);
   age(cookie, 29);
   age(term, 89);
   expect(as(cookie)).not.toBeNull();
@@ -261,6 +317,21 @@ test("/api/web-link: Bearer only, once, briefly, for the same user", async () =>
   expect(Cloud.link_ask(cloud, "me@x.com", "9.9.9.9")).toBeNull();
 });
 
+// a browser session speaks for the user, so only what speaks for them
+// mints one: the terminal's own key, not the device key (a file within
+// an agent shell's reach)
+test("/api/web-link: the terminal key mints one, the device key doesn't", async () => {
+  const cloud = cloud_new();
+  const user = { id: "u1", name: "me@x.com" };
+  const device = Cloud.random();
+  const terminal = Cloud.random();
+  Cloud.login(cloud, user, Cloud.hash(device), 1);
+  Cloud.login(cloud, user, Cloud.hash(terminal), 2);
+  const mint = (key: string) => Cloud.http(cloud, new Request("http://127.0.0.1/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }));
+  expect((await mint(device))?.status).toBe(403);
+  expect((await mint(terminal))?.status).toBe(200);
+});
+
 // a web ticket never reaches the code-confirm path, so it can't sign a
 // terminal in either
 test("a web ticket can't confirm a terminal", async () => {
@@ -288,4 +359,102 @@ test("phone features are off by default", async () => {
   cloud.phone = true;
   expect((await push())?.status).toBe(200);
   expect(stored().n).toBe(1);
+});
+
+// RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): a local Legion
+// (no mail key) prints no link: the terminal that asked gets its ticket
+// and confirms with code and the sign-in secret. The first registers it
+// (its hash only, 0600), once; then only that secret signs in; a missing
+// or wrong one is refused and uses the link up. A browser's sign-in there
+// is refused (legion web), and nothing is printed
+test("a local Legion's sign-in needs the sign-in secret: registered once, then required; no link printed", async () => {
+  const cloud = cloud_new(true);
+  const said: string[] = [];
+  const log = console.log;
+  const err = console.error;
+  console.log = (...a: any[]) => said.push(a.join(" "));
+  console.error = (...a: any[]) => said.push(a.join(" "));
+  try {
+    const ask = async (body: object) => (await Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify(body) })))!;
+    const begin = async () => {
+      const key = Cloud.random();
+      const term = Cloud.random();
+      const res = await ask({ who: "me@x.com", key, term });
+      expect(res.status).toBe(200);
+      return { key, term, ...(await res.json()) as { t: string; code: string; secret: boolean } };
+    };
+    const confirm = (t: string, code: string, more: Record<string, string>) => Cloud.confirm(cloud, new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t, code, ...more }).toString() }));
+    const live = (token: string) => Cloud.live(cloud, Cloud.hash(token)) !== null;
+    // a browser's (no key): refused, no ticket
+    const browser = await ask({ who: "me@x.com" });
+    expect(browser.status).toBe(400);
+    expect(((await browser.json()) as { error: string }).error).toContain("legion login");
+    expect(cloud.db.query("select count(*) n from tickets").get()).toEqual({ n: 0 });
+    // none registered yet: without one, refused, the link used up
+    const a = await begin();
+    expect(a.secret).toBe(false);
+    expect(a.code).toBe(Cloud.code(Cloud.hash(a.key)));
+    expect((await confirm(a.t, a.code, {})).status).toBe(403);
+    expect(live(a.key)).toBe(false);
+    expect((await confirm(a.t, a.code, { secret: Cloud.random(), register: "1" })).headers.get("location")).toContain("expired=1");
+    // a well-formed secret, none registered: refused; a weak one never
+    // registers
+    for (const more of [{ secret: Cloud.random() }, { secret: "short", register: "1" }]) {
+      const n = await begin();
+      expect((await confirm(n.t, n.code, more)).status).toBe(403);
+      expect(live(n.key)).toBe(false);
+    }
+    expect(fs.existsSync(config.DIR + "/signin-hash")).toBe(false);
+    // the first registers it: signed in, only its hash kept, 0600
+    const secret = Cloud.random();
+    const b = await begin();
+    expect((await confirm(b.t, b.code, { secret, register: "1" })).status).toBe(200);
+    expect(live(b.key)).toBe(true);
+    expect(live(b.term)).toBe(true);
+    const file = config.DIR + "/signin-hash";
+    expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    // once one is: another registration is refused, and so are no secret,
+    // a wrong one, and a right one after the link was used up
+    const c = await begin();
+    expect(c.secret).toBe(true);
+    expect((await confirm(c.t, c.code, { secret: Cloud.random(), register: "1" })).status).toBe(403);
+    expect(live(c.key)).toBe(false);
+    expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
+    for (const more of [{}, { secret: Cloud.random() }, { secret: "short" }] as Record<string, string>[]) {
+      const d = await begin();
+      expect((await confirm(d.t, d.code, more)).status).toBe(403);
+      expect((await confirm(d.t, d.code, { secret })).headers.get("location")).toContain("expired=1");
+      expect(live(d.key)).toBe(false);
+    }
+    // the right one, with the code: signed in
+    const e = await begin();
+    expect((await confirm(e.t, e.code, { secret })).status).toBe(200);
+    expect(live(e.key)).toBe(true);
+    expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + e.term } }))).toBe(true);
+    // an emailed link's ticket (one from before, or forged) signs no
+    // browser in there
+    const mailed = Cloud.ticket(cloud, { who: "me@x.com", session: null }, 60000);
+    const pressed = await Cloud.http(cloud, new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t: mailed }).toString() }));
+    expect(pressed?.headers.get("set-cookie") ?? "").toBe("");
+    // nothing printed, no link, no ticket
+    expect(said).toEqual([]);
+  } finally {
+    console.log = log;
+    console.error = err;
+  }
+});
+
+// a server with a mail key mails the link (cloud.post), as before: no
+// ticket in the answer, no sign-in secret asked
+test("a server that mails: the link goes by mail, never in the answer", async () => {
+  const cloud = cloud_new();
+  const mails: any[] = [];
+  cloud.post = async (m: object) => (mails.push(m), null);
+  const key = Cloud.random();
+  const res = await Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify({ who: "m@x.com", key }) }));
+  const out = (await res!.json()) as Record<string, unknown>;
+  expect(out.t).toBeUndefined();
+  expect(mails).toHaveLength(1);
+  expect(mails[0].text).toContain(config.SITE + "/auth?t=");
 });

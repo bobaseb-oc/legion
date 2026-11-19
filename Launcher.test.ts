@@ -49,13 +49,21 @@ test("the launcher sees the server up over its socket, not the TCP port", () => 
 // its plist holds paths and settings only, never a key: the server reads
 // the gateway's key at its start from the helper named (UNII_KEY_HELPER,
 // e.g. Claude Code's apiKeyHelper). launchctl and plutil are fakes here,
-// so nothing is installed
+// so nothing is installed. The fake bun tells the names of its
+// environment; started on Server.ts, also its arguments and the length
+// of what it reads on fd 3 (the gateway's key: never its value)
+const BUN = `#!/bin/sh
+env | cut -d= -f1
+case "$1" in
+  */Server.ts) echo "ARGS=$*"; n=$( { cat <&3; } 2>/dev/null | wc -c | tr -d ' '); echo "KEYLEN=$n" ;;
+esac
+`;
 function fakes(): { bin: string; home: string; dir: string; said: string; helper: string } {
   const bin = fs.mkdtempSync(os.tmpdir() + "/legion-bin-");
   const said = bin + "/launchctl.args";
   fs.writeFileSync(bin + "/launchctl", "#!/bin/sh\necho \"$@\" >>" + JSON.stringify(said) + "\n");
   fs.writeFileSync(bin + "/plutil", "#!/bin/sh\nexit 0\n");
-  fs.writeFileSync(bin + "/bun", "#!/bin/sh\nenv | cut -d= -f1\n");
+  fs.writeFileSync(bin + "/bun", BUN);
   const helper = bin + "/key-helper";
   fs.writeFileSync(helper, "#!/bin/sh\necho fake-key-from-helper\n");
   for (const f of ["launchctl", "plutil", "bun", "key-helper"]) {
@@ -104,8 +112,20 @@ test("legion server-run (the agent's) takes the gateway's key from its helper, a
   const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env });
   expect(out.exitCode).toBe(0);
   const names = out.stdout.toString().split("\n");
-  expect(names).toContain("ANTHROPIC_API_KEY");
   expect(names).toContain("UNII_ANTHROPIC_URL");
+  // RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+  // the key reaches the server on fd 3, never in its environment or
+  // arguments (and not in those of the launcher's other bun runs)
+  expect(names).toContain("KEYLEN=" + "fake-key-from-helper".length);
+  expect(names).toContain("UNII_ANTHROPIC_KEY_FD");
+  expect(names).not.toContain("ANTHROPIC_API_KEY");
+  expect(names).not.toContain("LITELLM_API_KEY");
+  expect(out.stdout.toString()).not.toContain("fake-key-from-helper");
+  // the launcher's own bun runs before it (skills, MCP: their output on
+  // stderr) don't get it either: it is not exported
+  const before = out.stderr.toString().split("\n");
+  expect(before).toContain("UNII_KEY_HELPER");
+  expect(["LITELLM_API_KEY", "ANTHROPIC_API_KEY"].filter((k) => before.includes(k))).toEqual([]);
   // RED ZONE (security review R6, signed off by the user 2026-11-19):
   // the GChat webhook's URL never in the server's environment (any
   // process of this user reads it: ps -E); the server reads the Keychain
@@ -114,4 +134,94 @@ test("legion server-run (the agent's) takes the gateway's key from its helper, a
   const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env: { ...env, UNII_KEY_HELPER: "" } });
   expect(none.exitCode).not.toBe(0);
   expect(none.stdout.toString()).not.toContain("ANTHROPIC_API_KEY");
+});
+
+// RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off): the
+// server started from a shell (`legion serve`; `legion` and `legion start`
+// run the same server_exec) gets the gateway's key on fd 3, with neither
+// ANTHROPIC_API_KEY nor LITELLM_API_KEY in its environment, which any
+// process of this user reads (ps -wwE); with no key it doesn't start
+test("legion serve hands the server the gateway's key on fd 3, none in its environment", () => {
+  const f = fakes();
+  const key = "sk-fake-gateway-key-0123";
+  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", LITELLM_API_KEY: key, ANTHROPIC_API_KEY: "sk-stray", LITELLM_KEY: "sk-stray", ANTHROPIC_AUTH_TOKEN: "sk-stray" };
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "serve"], { env });
+  expect(out.exitCode).toBe(0);
+  const text = out.stdout.toString();
+  const names = text.split("\n");
+  expect(names).toContain("KEYLEN=" + key.length);
+  expect(names).toContain("UNII_ANTHROPIC_KEY_FD");
+  expect(SECRETS.filter((k) => names.includes(k))).toEqual([]);
+  expect(text).not.toContain(key);
+  expect(text).not.toContain("sk-stray");
+  const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "serve"], { env: { ...env, LITELLM_API_KEY: "" } });
+  expect(none.exitCode).not.toBe(0);
+  expect(none.stdout.toString()).not.toContain("ARGS=");
+});
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): before the terminal,
+// `legion login` or `legion web` need it, the launcher builds legion-key
+// (local/legion-key/main.swift: swiftc -O, then ad hoc signed with the
+// hardened runtime) into <UNII_DIR>/bin, 0700, only when its source
+// changed (its sha256 kept beside it) or it is gone. No swiftc (or a
+// failed build): no helper, said loudly with how to get one, and the
+// terminal still starts (keyless: Term.ts fails closed). swiftc and
+// codesign are fakes here, logging their arguments
+function builders(swiftc_ok = true): { bin: string; dir: string; log: string; env: Record<string, string> } {
+  const f = fakes();
+  const log = f.bin + "/build.log";
+  fs.writeFileSync(f.bin + "/swiftc", "#!/bin/sh\necho \"swiftc $*\" >>" + JSON.stringify(log) + "\n" + (swiftc_ok ? "while [ $# -gt 0 ]; do if [ \"$1\" = -o ]; then printf '#!/bin/sh\\n' >\"$2\"; fi; shift; done\n" : "echo 'xcrun: error: invalid active developer path' >&2; exit 1\n"));
+  fs.writeFileSync(f.bin + "/codesign", "#!/bin/sh\necho \"codesign $*\" >>" + JSON.stringify(log) + "\n");
+  fs.writeFileSync(f.bin + "/curl", "#!/bin/sh\nexit 0\n");
+  for (const n of ["swiftc", "codesign", "curl"]) {
+    fs.chmodSync(f.bin + "/" + n, 0o755);
+  }
+  return { bin: f.bin, dir: f.dir, log, env: { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir } };
+}
+const builds = (log: string) => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter((l) => l.startsWith("swiftc ")) : []);
+
+test("the launcher builds legion-key, signs it, 0700, before login, web and the terminal; again only when its source changed", () => {
+  const b = builders();
+  const key = b.dir + "/bin/legion-key";
+  const src = import.meta.dir + "/local/legion-key/main.swift";
+  const first = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(first.exitCode).toBe(0);
+  expect(first.stdout.toString().split("\n")).toContain("UNII_IMPORT_DIRS");
+  expect(builds(b.log)).toHaveLength(1);
+  expect(builds(b.log)[0]).toContain("-O");
+  expect(builds(b.log)[0]).toContain(src);
+  const signed = fs.readFileSync(b.log, "utf8").split("\n").find((l) => l.startsWith("codesign "))!;
+  expect(signed).toContain("-s - ");
+  expect(signed).toContain("-o runtime");
+  expect(signed).toContain("--force");
+  expect(fs.statSync(key).mode & 0o777).toBe(0o700);
+  expect(fs.statSync(b.dir + "/bin").mode & 0o777).toBe(0o700);
+  expect(fs.readFileSync(key + ".sha256", "utf8").trim()).toBe(new Bun.CryptoHasher("sha256").update(fs.readFileSync(src)).digest("hex"));
+  // the same source: not built again, by login, web or the terminal
+  for (const args of [["login"], ["web"], []]) {
+    expect(Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", ...args], { env: b.env }).exitCode).toBe(0);
+  }
+  expect(builds(b.log)).toHaveLength(1);
+  // another source (its hash not the kept one), or the helper gone: built again
+  fs.writeFileSync(key + ".sha256", "0".repeat(64) + "\n");
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(2);
+  fs.rmSync(key);
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "web"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(3);
+  // commands that read no key build nothing
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "version"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(3);
+});
+
+test("no swiftc: no legion-key, said loudly with xcode-select --install; the terminal still starts (keyless)", () => {
+  const b = builders(false);
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(out.exitCode).toBe(0);
+  expect(out.stdout.toString().split("\n")).toContain("UNII_IMPORT_DIRS");
+  const err = out.stderr.toString();
+  expect(err).toContain("xcode-select --install");
+  expect(err).toContain("legion-key");
+  expect(fs.existsSync(b.dir + "/bin/legion-key")).toBe(false);
+  expect(fs.existsSync(b.dir + "/bin/legion-key.sha256")).toBe(false);
 });

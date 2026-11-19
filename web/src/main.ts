@@ -254,6 +254,9 @@ function chat(): void {
     }
     BOX.style.height = "auto";
     BOX.style.height = Math.min(BOX.scrollHeight, innerHeight * 0.4) + "px";
+    // shell mode (as Claude Code's !): a ! typed first, until a
+    // Backspace takes it; a guest's box is an email, never a command
+    $(".composer").classList.toggle("shell", !P.guest && View.view_shell(BOX.value));
     draw(true);
   };
   // a guest's answer, an email, is one line: Enter sends it everywhere;
@@ -318,6 +321,8 @@ function chat(): void {
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
   document.addEventListener("keydown", palette_keys);
+  document.addEventListener("keydown", shell_keys);
+  setInterval(() => (v.shells ?? []).some((s) => s.ended === undefined) && shell_times(), 1000);
   $("#pq").oninput = () => {
     C.pal = 0;
     palette_draw();
@@ -720,7 +725,7 @@ function hear(msg: View.Server): void {
   if (now.length > 0) {
     toast("Now " + now.map((k) => k.hint).join("; ") + ".");
   }
-  P.rows ||= msg.$ === "state" ? v.agents.join() !== agents : msg.$ !== "delta" && msg.$ !== "live";
+  P.rows ||= msg.$ === "state" ? v.agents.join() !== agents : msg.$ !== "delta" && msg.$ !== "live" && msg.$ !== "shells";
   if (msg.$ === "state") {
     View.view_alerts(v, Date.now()).forEach(notify);
   }
@@ -1237,8 +1242,38 @@ function bars(): void {
   markup($("#tabs"), crew ? [] : Html.tabs_html(tabs));
   // textContent: the line is device-reported text, never markup
   $("#status").textContent = P.guest ? "" : View.view_status(v);
+  // the shell commands running in sight, and the background's (B2:
+  // escaped markup, Html.shells_html), their times filled
+  markup($("#shells"), P.guest ? [] : Html.shells_html(v));
+  markup($("#bgs"), P.guest ? [] : Html.bgs_html(v));
+  shell_times();
   crew_bars();
   import_bar();
+}
+
+// Shell commands (B2)
+// ===================
+// As Claude Code's: Ctrl+B sends the commands shown running to the
+// background, Esc stops them (both the user's acts: Chat.shell); their
+// times tick each second while one runs (textContent: no markup)
+
+function shell_times(): void {
+  for (const el of document.querySelectorAll<HTMLElement>(".stime[data-since]")) {
+    el.textContent = View.shell_time(Date.now() - Number(el.dataset.since));
+  }
+}
+
+function shell_keys(ev: KeyboardEvent): void {
+  if (View.view_fore(v).length === 0 || ev.metaKey || ev.altKey || document.querySelector("dialog[open]") !== null) {
+    return;
+  }
+  if (ev.ctrlKey && ev.key.toLowerCase() === "b") {
+    ev.preventDefault();
+    act({ $: "Shell", op: "bg" });
+  } else if (ev.key === "Escape" && !ev.ctrlKey) {
+    ev.preventDefault();
+    act({ $: "Shell", op: "stop" });
+  }
 }
 
 // Crew

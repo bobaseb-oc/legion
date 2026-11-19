@@ -25,6 +25,14 @@ test("the orchestrator's prompt: it decides reversible, in-scope calls itself, a
   expect(MASTER).not.toContain("File each question for the user that can wait (a decision, an input)");
 });
 
+// a command the user is to run (user's ask 2026-11-19): in a fenced code
+// block of its own, to copy, or to run with !<command>
+test("the orchestrator gives a command for the user to run in a fenced code block, runnable as !<command>", () => {
+  expect(MASTER).toContain("fenced code block");
+  expect(MASTER).toContain("!<command>");
+  expect(MASTER).not.toContain("`! gcloud auth login`");
+});
+
 test("a call's MCP requests follow its chat past a process that ended", async () => {
   const tools = Tools.serve({} as any, {} as any);
   const ask = () => fetch(Tools.at(tools, "main"), { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });

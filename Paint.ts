@@ -40,6 +40,8 @@ export type Line = Run[];
 
 export const INK: Ink = { d: false, b: false, i: false, u: false, k: "", c: "", g: "" };
 export const DIM: Ink = { ...INK, d: true };
+// the input in shell mode (Screen.screen_input)
+export const SHELL: Ink = { ...INK, c: Theme.ANSI.shell };
 
 // a diff line's ink, by its mark
 const MARK: Record<Md.Line["s"], Ink> = { " ": DIM, "-": { ...INK, c: Theme.ANSI.del }, "+": { ...INK, c: Theme.ANSI.add } };
@@ -121,6 +123,13 @@ export function line_ansi(l: Line): string {
     was = r.s;
   }
   return (was?.g ? out : out.trimEnd()) + ink_ansi(was, INK);
+}
+
+// text to the terminal's clipboard (/copy): the painter's own OSC 52, the
+// text in base64 (UTF-8), so nothing in it, escapes and all, is ever a
+// sequence of its own; a terminal that doesn't do OSC 52 ignores it
+export function copy_osc(text: string): string {
+  return "\x1b]52;c;" + Buffer.from(text, "utf8").toString("base64") + "\x07";
 }
 
 // the codes that change ink was (null: a line's start) to s
@@ -426,6 +435,16 @@ export const status_text = View.status_text;
 // in the color of what is for the user, cut to w
 export function toast_line(text: string, w: number): Line {
   return [Run(text_cut(text_clean(text), w), { ...INK, b: true, c: Theme.ANSI.you })];
+}
+
+// B2: the shell commands running in sight, over the input (as Claude
+// Code's): each head ("$ cmd · who on device · 12s") in the shell's
+// color, its last lines and the keys dim, each cut to w. RED ZONE (DRAFT
+// awaiting the user's sign-off): what a command prints is cleaned
+// (text_clean: no control character, so no escape of its own reaches the
+// terminal), as every Run's is
+export function shell_lines(v: View.View, w: number, now: number): Line[] {
+  return View.view_shell_lines(v, now).map((l) => [Run(text_cut(text_clean(l), w), l.startsWith("$ ") ? SHELL : DIM)]);
 }
 
 export function rule_text(text: string, w: number): Line {
