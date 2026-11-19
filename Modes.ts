@@ -86,11 +86,20 @@ const DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(g
 export const SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
 export const SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/config$`, "i");
 
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): Legion's own trust
+// state, by its path in Legion's dir (~/.unii, $UNII_DIR; a terminal's
+// $UNII_HOME): its sessions (cloud.db and its -wal, -shm, -journal), the
+// sign-in secret's hash (Cloud.ts SIGNIN), the server's log, a terminal's
+// device key (<host>/token). Machine.trust refuses them to agents' tools.
+// TRUST_WORDS: the same, or the dir, named in a shell command (SECRETS)
+export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token)$/i;
+const TRUST_WORDS = String.raw`\.unii\b|\bUNII_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
+
 // a read-only command that may read secrets: still reviewed in auto mode
 // (the list above, in the line or its words; not a bare key: too common.
 // not set, which flagged git push --set-upstream (K10); env stays: jq -n env
-// prints the environment)
-const SECRETS = new RegExp(String.raw`printenv|environ|\benv\b|\.env|(${DIRS})\b|${DOTS}|\.git\/config|secret|credential|token|passw|keychain|\.pem\b|\bid_[a-z0-9]+`, "i");
+// prints the environment); Legion's trust state too (TRUST_WORDS)
+const SECRETS = new RegExp(String.raw`printenv|environ|\benv\b|\.env|(${DIRS})\b|${DOTS}|\.git\/config|secret|credential|token|passw|keychain|\.pem\b|\bid_[a-z0-9]+|${TRUST_WORDS}`, "i");
 
 // commands that only read, whatever their arguments
 // (not env, which runs its arguments; nor tree -o, uniq's output file,
