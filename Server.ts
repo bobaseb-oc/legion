@@ -234,12 +234,12 @@ const SPARE      = 2 ** 30;
 // the acts with a body (Chat.post)
 const BODIES     = ["say", "import", "voice"];
 
-// RED ZONE (R1, DRAFT awaiting the user's sign-off): the device an act
+// RED ZONE (R1, signed off by the user 2026-11-19): the device an act
 // posted (/api/act) with no browser's session comes from: no view
 // (Cloud.browser), so every act a view only may do is refused it
 const POSTED     = "api";
 
-// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// RED ZONE (R3, signed off by the user 2026-11-19): the user's say over
 // what agents may do: the mode, the plan, a waiting call's yes, a Claude
 // Code worker's start, a question's answer. A view's acts only (Chat.act):
 // a device's socket is within an agent's reach, so an agent must not
@@ -1373,8 +1373,8 @@ export namespace Chat {
         const why = "Stopped by the user: " + what.join(", ") + ".";
         const turn = what.includes(TURN);
         // the user's Stop of all work: every timer goes too, Unii's and
-        // an agent's not at work (R4, RED ZONE: DRAFT awaiting the user's
-        // sign-off); one agent's Stop drops its own (Tools.stop)
+        // an agent's not at work (R4, RED ZONE: signed off by the user
+        // 2026-11-19); one agent's Stop drops its own (Tools.stop)
         if (name === null && chat.mem.timers.length > 0) {
           Chat.note(chat, "Stopped by the user: timers " + chat.mem.timers.map((t) => t.id).join(", ") + " closed.");
           chat.mem.timers = [];
@@ -2294,7 +2294,7 @@ const LIKES = 30;
     });
   }
 
-  // RED ZONE (R8, DRAFT awaiting the user's sign-off): whether the bridge
+  // RED ZONE (R8, signed off by the user 2026-11-19): whether the bridge
   // is on for a user's chat: it posts to one space and acts on its
   // replies, so one owner's chat only, the user config gchat_user names
   // (none named: no one's, fail closed)
@@ -2403,8 +2403,8 @@ const LIKES = 30;
   // message "[Timer n] note" to whoever set it: Unii's a turn of its own,
   // as a report is (Chat.report); an agent's, its own reminder (Tools.remind:
   // a note, read between calls, or an idle one goes on). Whether any fired.
-  // RED ZONE (who may start unattended work; security review R4): DRAFT
-  // awaiting the user's sign-off. One fired with no view open marks the
+  // RED ZONE (who may start unattended work; security review R4): signed
+  // off by the user 2026-11-19. One fired with no view open marks the
   // chat (tools.rung): no new timer till a view is open or the user speaks
   export function rang(chat: Chat, now: number): boolean {
     const due = Routines.timers_due(chat.mem.timers, now);
@@ -2509,7 +2509,7 @@ const LIKES = 30;
 
   // the user's close of an agent's pending timer (any agent's), told in a
   // note. RED ZONE (who may start unattended work; security review R4):
-  // DRAFT awaiting the user's sign-off. A view's only, as Chat.routine: a
+  // signed off by the user 2026-11-19. A view's only, as Chat.routine: a
   // device's socket is within an agent's reach (its shell)
   export function untimed(chat: Chat, device: string, msg: any): Answer {
     if (device !== "") {
@@ -3075,7 +3075,7 @@ export namespace Main {
         if ((Main.sockets.get(user.id) ?? 0) >= SOCKETS || !Main.spend(USERS, user.id)) {
           return new Response("too many requests", { status: 429 });
         }
-        // RED ZONE (R1, DRAFT awaiting the user's sign-off): a view is a
+        // RED ZONE (R1, signed off by the user 2026-11-19): a view is a
         // browser's socket only (Cloud.browser); a terminal's or device's
         // (a Bearer session, its token within an agent shell's reach)
         // names its device, or is refused: it is never a view

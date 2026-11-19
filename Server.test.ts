@@ -1019,7 +1019,7 @@ test("the user switches the mode, and approves or rejects the orchestrator's pla
   });
 });
 
-// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// RED ZONE (R3, signed off by the user 2026-11-19): the user's say over
 // what agents may do (the mode, the plan, a waiting call, a worker's
 // start, a question's answer) is a view's act only: one from a device's
 // socket (within an agent's reach) is refused, nothing changed
@@ -1247,7 +1247,7 @@ test("the gateway's budget, read every 10 minutes through the gateway, and busy 
   expect(own.sent[0]).toEqual({ $: "gateway", budget: null, busy: 42 });
 });
 
-// RED ZONE (R8, DRAFT awaiting the user's sign-off): the GChat bridge
+// RED ZONE (R8, signed off by the user 2026-11-19): the GChat bridge
 // posts a chat's questions to one space and acts on its replies, so it
 // bridges one owner's chat only: the user config gchat_user names; none
 // named, no chat's (fail closed), however many users the server has

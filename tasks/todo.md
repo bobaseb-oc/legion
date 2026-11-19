@@ -1193,6 +1193,7 @@ User's call 2026-11-18: one PR, all findings; keep super as the default mode.
 - [x] L1+ (found while fixing L1, RED) a plugin's own hooks.json disableAllHooks no longer drops the user's hooks → verify: Hooks.test.ts
 - Review: 16 fixes, red test first for each; mutants per fix all killed (R1 4/4 after dropping a redundant check, R3 5, R4 13, R5 8, R7 7, R8 3, L1 7, L4–L5 3, L6 3, L7 2, R2 3, L3 5, R6 6); suite 601 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
 - User's calls 2026-11-18: R3 kept (mode/plan/consent/approve/answer refused from the terminal too, web only for now); gchat_user "10" set in ~/.unii/config.json.
+- 2026-11-19: the user signed off on every RED ZONE draft of security review 3 (R1, R3–R8, L1); the markers say so (24 lines, comment-only).
 - Follow-ups: terminal gets its own token (Keychain, prompt on every read) so R3 can re-allow it; GCHAT_WEBHOOK_URL Keychain item re-stored prompt-on-read; gateway key (ANTHROPIC_API_KEY) still in the server's env (ps -wwE); terminal can't close a timer (device act); device-typed messages clear the timer no-view flag; plugin hooks that crash only warn; browsers on pre-2026-11-13 cookies must sign in again (R1); ~/.zshrc legion() should go back to the plain alias.
 
 ## Tests never touch the real ~/.unii (fix/test-isolation)

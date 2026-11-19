@@ -335,7 +335,7 @@ export namespace Memory {
     return mem;
   }
 
-  // RED ZONE (R7, DRAFT awaiting the user's sign-off): what view.json
+  // RED ZONE (R7, signed off by the user 2026-11-19): what view.json
   // says of who decides, checked as it loads (a file written by hand, or
   // by an agent, starts no work and decides nothing for the user): a
   // routine as Routines.routine_check takes one, its run state well

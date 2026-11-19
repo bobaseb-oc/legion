@@ -60,7 +60,7 @@ const LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
 // migration, prod data, permissions, data deleted), money (a payment, an
 // amount, a budget), outward (sent, posted or published to someone).
 // Broad on purpose: a word too many only asks.
-// RED ZONE (who decides): DRAFT awaiting the user's sign-off
+// RED ZONE (who decides): signed off by the user 2026-11-19
 const REDZONE = /\bred[- ]?zone|\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\bprod(uction)?\b[^.?!]{0,30}\b(db|database|data|table)s?\b|\b(db|database)\b[^.?!]{0,30}\bprod(uction)?\b|\bpermission|\b(delet|drop|truncat|wip|purg|eras)\w*\b[^.?!]{0,40}\b(data|table|tables|database|db|rows|records|bucket|backups?)\b/i;
 const MONEY = /\bpay(s|ing|ment|ments)?\b|\bpaid\b|\binvoic|\bpurchas|\bcharg(e|es|ed|ing)\b|\brefund|\bbilling\b|\bsubscri(be|ption)|\bbudget|\bspend(s|ing)?\b|[$€£]\s?\d|\d\s?(usd|eur|gbp|dollars?|euros?)\b/i;
 const OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpublish|\btweet|\bannounce|\bmessage\s+(him|her|them|someone|the (client|customer|team|channel))|\bDM\b|\bslack\b|\bshare\s+(it\s+|the\s+\w+\s+)?with|\bexternal|\breply to (the )?(client|customer|thread|email)/i;
@@ -225,7 +225,7 @@ export namespace Modes {
   // not to touch prod (prod: false; unset asks); never a floor kind (no
   // floor kind unlocks), nor one whose text or an option is worded as one
   // (guess), whatever kind it says: the model's label is not trusted
-  // (security review R5; RED ZONE: DRAFT awaiting the user's sign-off)
+  // (security review R5; RED ZONE: signed off by the user 2026-11-19)
   export function decides(mode: Mode, q: { kind?: unknown; pick?: unknown; options?: string[]; prod?: unknown; text?: string }, tallies: Partial<Record<AskKind, Tally>>): boolean {
     const n = q.options?.length ?? 0;
     if (mode !== "super" || !Number.isInteger(q.pick) || (q.pick as number) < 0 || (q.pick as number) >= n) {

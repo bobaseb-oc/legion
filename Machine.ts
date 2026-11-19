@@ -81,7 +81,7 @@ const LEGION_CONFIG = ["config.json", "mcp.json", "mcp.local.json"];
 // and this checkout's local/mcp.extra.json, as mcp.json is rebuilt from it
 // at each start (local/mcp.ts)
 const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
-// RED ZONE (R7, DRAFT awaiting the user's sign-off): and each chat's
+// RED ZONE (R7, signed off by the user 2026-11-19): and each chat's
 // view.json, users/<id>/view.json in that dir: its mode, routines (on or
 // off), tallies (what super auto decides for the user) and timers
 const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;

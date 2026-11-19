@@ -106,7 +106,7 @@ test("legion server-run (the agent's) takes the gateway's key from its helper, a
   const names = out.stdout.toString().split("\n");
   expect(names).toContain("ANTHROPIC_API_KEY");
   expect(names).toContain("UNII_ANTHROPIC_URL");
-  // RED ZONE (security review R6, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review R6, signed off by the user 2026-11-19):
   // the GChat webhook's URL never in the server's environment (any
   // process of this user reads it: ps -E); the server reads the Keychain
   expect(names).not.toContain("GCHAT_WEBHOOK_URL");

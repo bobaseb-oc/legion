@@ -81,7 +81,7 @@ searxng_start() {
 # 5.5 for summaries, search by SearXNG instead of Anthropic's server tool
 # (LiteLLM serves Claude from Bedrock, which has none), your Claude Code
 # rules live (local/rules.md), no mail or push keys, and (RED ZONE,
-# security review R6, DRAFT awaiting the user's sign-off) no GChat
+# security review R6, signed off by the user 2026-11-19) no GChat
 # webhook: the server reads it from the Keychain (UNII_GCHAT_KEYCHAIN=1),
 # as its environment is readable by any process of this user (ps -wwE)
 server_exec() {
