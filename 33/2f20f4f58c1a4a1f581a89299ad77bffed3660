@@ -1,0 +1,57 @@
+README.md
+  s_c9059582292f4d::t_b6070ec0b8d014 183-202
+  s_c9059582292f4d::t_101145e35993fe 280-283
+  s_c9059582292f4d::t_c06e2e01a18c64 156
+Secure.test.ts
+  s_c9059582292f4d::t_286a02cdf20a9a 173
+  s_c9059582292f4d::t_d7818ad9fa055c 4-8
+  s_c9059582292f4d::t_bcccea4b2b8878 220-248
+  s_c9059582292f4d::t_ce23b41f5dfb37 18,22-36,38,40,42,44-50,54-58
+  s_c9059582292f4d::t_766b832a36ddf7 145
+Term.ts
+  s_c9059582292f4d::t_7c3f6946e09dd2 1717-1719,1721-1722
+  s_c9059582292f4d::t_0f9b14e8a079d7 124-126
+  s_c9059582292f4d::t_7597332d140c36 1635-1642
+  s_c9059582292f4d::t_ded50959876142 1676
+  s_c9059582292f4d::t_1ff85214a1e90b 1693-1704,1706-1708,1710,1715-1716,1720,1723-1725
+  s_c9059582292f4d::t_788714e9afe9c2 1705,1709,1711-1714
+  s_c9059582292f4d::t_67e6a1eb1fc9a2 94
+Cloud.test.ts
+  s_c9059582292f4d::t_0bcc1fa4cf289d 348-432
+  s_c9059582292f4d::t_cff2b4a3b538db 15-17,20-22
+Cloud.ts
+  s_c9059582292f4d::t_1ec9ead7d2eddb 648,657-663
+  s_c9059582292f4d::t_2529b80da95b1c 704
+  s_c9059582292f4d::t_34fa28d4d7ddcc 675-677
+  s_c9059582292f4d::t_e3784519605451 664,678,680-703,705-713
+  s_c9059582292f4d::t_7c70a2188a03b2 764-765
+  s_c9059582292f4d::t_6d5dc5c49cde65 6-7
+  s_c9059582292f4d::t_085c07f99550e9 180
+  s_c9059582292f4d::t_55057680ab901e 469-474
+  s_c9059582292f4d::t_06bed6d2c4f7e0 484-485,487-494
+  s_c9059582292f4d::t_5e1d997425cc0e 90-109
+  s_c9059582292f4d::t_1c0af4f7ecd7f8 21
+  s_c9059582292f4d::t_5be6746ba6f5d2 44-46
+  s_c9059582292f4d::t_dd86cf2b89cb5f 56
+  s_c9059582292f4d::t_efe1ecff733e5c 679
+Term.test.ts
+  s_c9059582292f4d::t_ea8e90ad16726a 299-352
+local/unii-local.sh
+  s_c9059582292f4d::t_ba7772a69a2c3c 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "332f20f4f58c1a4a1f581a89299ad77bffed3660",
+  "prompts": {},
+  "sessions": {
+    "s_c9059582292f4d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a13863b8-a06e-4286-9ed0-d89bc7cd1aac",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
