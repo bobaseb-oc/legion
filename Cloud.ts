@@ -611,6 +611,12 @@ export namespace Cloud {
     if (user === null) {
       return Response.json({ error: "Sign in first: legion login" }, { status: 401 });
     }
+    // RED ZONE (DRAFT awaiting the user's sign-off): the browser session
+    // it makes speaks for the user, so only what speaks for them mints
+    // one (Cloud.speaks: the terminal's own key), never the device key
+    if (!Cloud.speaks(cloud, req)) {
+      return Response.json({ error: "legion web needs the terminal's own key: run legion login once (a device key can't open the web as you)." }, { status: 403 });
+    }
     const t = Cloud.ticket(cloud, { who: "", session: null, user: { id: user.id, name: user.name } }, WEB);
     return Response.json({ url: config.SITE + "/auth?t=" + t });
   }

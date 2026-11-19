@@ -52,9 +52,12 @@ beforeAll(async () => {
     await Bun.sleep(50);
   }
   // the first sign-in registers the secret; `legion web`'s link, a browser
+  // (minted with the terminal's own key: the device key can't)
   const key = crypto.randomUUID();
-  expect((await signin("me@x.com", key, { secret: SECRET, register: "1" })).status).toBe(200);
-  const web = await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } });
+  const termkey = crypto.randomUUID();
+  expect((await signin("me@x.com", key, { secret: SECRET, register: "1" }, termkey)).status).toBe(200);
+  expect((await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } })).status).toBe(403);
+  const web = await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + termkey } });
   const res = await fetch((await web.json()).url, { redirect: "manual" });
   cookie = /^(unii=[^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
   expect(cookie).not.toBe("");

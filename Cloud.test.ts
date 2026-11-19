@@ -317,6 +317,21 @@ test("/api/web-link: Bearer only, once, briefly, for the same user", async () =>
   expect(Cloud.link_ask(cloud, "me@x.com", "9.9.9.9")).toBeNull();
 });
 
+// a browser session speaks for the user, so only what speaks for them
+// mints one: the terminal's own key, not the device key (a file within
+// an agent shell's reach)
+test("/api/web-link: the terminal key mints one, the device key doesn't", async () => {
+  const cloud = cloud_new();
+  const user = { id: "u1", name: "me@x.com" };
+  const device = Cloud.random();
+  const terminal = Cloud.random();
+  Cloud.login(cloud, user, Cloud.hash(device), 1);
+  Cloud.login(cloud, user, Cloud.hash(terminal), 2);
+  const mint = (key: string) => Cloud.http(cloud, new Request("http://127.0.0.1/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }));
+  expect((await mint(device))?.status).toBe(403);
+  expect((await mint(terminal))?.status).toBe(200);
+});
+
 // a web ticket never reaches the code-confirm path, so it can't sign a
 // terminal in either
 test("a web ticket can't confirm a terminal", async () => {

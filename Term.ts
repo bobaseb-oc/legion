@@ -1820,7 +1820,13 @@ async function web_run(url: string): Promise<void> {
   if (!await term_signed(url)) {
     await login_run(url);
   }
-  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: term_file() }).catch(() => null);
+  // the terminal's own key (one Keychain prompt): a device key can't
+  // open the web as the user (Cloud.web_link)
+  const key = await term_key(url);
+  if (key === null) {
+    login_fail("legion web needs the terminal's own key: run legion login once, then Allow its Keychain prompt.");
+  }
+  const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }).catch(() => null);
   const body = (await res?.json().catch(() => ({})) ?? {}) as { url?: string; error?: string };
   if (res === null || !res.ok || body.url === undefined) {
     login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with unii" : "the server refused (" + res.status + ")"));
