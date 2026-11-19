@@ -86,6 +86,7 @@ export type State = {
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
   decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
   tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
+  shells?   : Shell[];      // the shell commands running, then the background ones ended (Tools.shells)
 };
 
 // a question super auto answered with Legion's pick (Tools.question),
@@ -122,6 +123,12 @@ export const SHOWN  = 200;
 // ("main": Unii), what it is, its model, how it is, since when its run
 // began (ms since 1970)
 export type Crew = { name: string; parent: string; tier: "manager" | "worker" | "computer" | "claude"; model: string; status: Status; since: number; title?: string; repos?: string[]; todo?: Todo[]; spent?: number; files?: string[] }; // spent: est. USD (Tools.spent); files: touched, newest first (Tools.touched)
+// a shell command running (B2), an agent's call or the user's !command (who
+// "user"; Unii's "main"; an agent's name): its job, its background
+// number (null: in the foreground, its caller waiting), its device and
+// command, since when (ms), its last lines as printed (drawn cleaned:
+// Paint, Html's esc); a background one ended: when, and whether it failed
+export type Shell = { job: string; n: number | null; who: string; device: string; command: string; since: number; lines: string[]; ended?: number; fail?: boolean };
 // a call waiting for the user's yes (Tools.ask_user): its number, who
 // calls, its tool, what it does
 export type Waiting = { id: number; who: string; tool: string; what: string };
@@ -240,6 +247,7 @@ export type Server =
   | { $: "note"; text: string }
   | ({ $: "ack"; id: string } & Answer)
   | { $: "jobs"; ids: string[] }
+  | { $: "shells"; shells: Shell[] }    // to views: the shell commands running (Tools.shells), as they change
   | { $: "job"; id: string; job: unknown }
   | { $: "inbox"; inbox: Inbox | null } // the cockpit's inbox, a device's latest report (Inbox.ts)
   | { $: "fetch" }                        // to devices: read the inbox now
@@ -292,6 +300,7 @@ export type Client =
   | { $: "go"; on: boolean } // the import's: resume (true) or pause
   | { $: "pick"; to: Pick }
   | { $: "out"; job: string; out: object }
+  | { $: "tail"; job: string; text: string } // a device: what a running shell command printed since its last tail (Device.device_run)
   | { $: "zoom"; part: Part }
   | { $: "root" }
   | { $: "agent"; name: string }

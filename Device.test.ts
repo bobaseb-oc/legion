@@ -51,8 +51,16 @@ const until = async (f: () => boolean) => {
   return f();
 };
 const runs: Array<{ job: any; work: string; home?: string; signal: AbortSignal }> = [];
-const run = async (job: any, work: string, signal: AbortSignal, _away?: AbortSignal, home?: string) => {
+const run = async (job: any, work: string, signal: AbortSignal, _away?: AbortSignal, home?: string, _hooks?: unknown, live?: (text: string) => void) => {
   runs.push({ job, work, home, signal });
+  if (job.input === "talk") {
+    live?.("one\n");
+    live?.("two\n");
+    await Bun.sleep(Device.TAIL_EVERY + 300);
+    live?.("three\n");
+    await Bun.sleep(Device.TAIL_EVERY + 300);
+    return { text: "one\ntwo\nthree\n(exit 0 in 2.6 s)", fail: false };
+  }
   if (job.input === "big") {
     return { text: "x".repeat(View.FRAME), fail: false };
   }
@@ -700,3 +708,17 @@ test("device_look: find ranks a file's name before its path", async () => {
   const rules = { work: top, computer: false, spaces: [repo] };
   expect(((await Device.device_look(rules, "r", { kind: "find", path: repo, q: "cfgscan" } as any)) as any).text).toBe("src/deep/er/config_scan.py\nconfigs/scanners/x.py");
 });
+
+// B2: a shell command tells the server what it printed as it runs (a
+// "tail" a TAIL_EVERY, what came since the last), so the status line
+// shows its last lines and a background command's output can be read;
+// a device that sends none (an old one) still runs it, only no live lines
+test("a running shell sends what it printed since its last tail, then its output", async () => {
+  const tails = () => got.filter((m) => m.$ === "tail" && m.job === "j9").map((m) => m.text);
+  sock!.send(JSON.stringify({ $: "job", id: "j9", job: { name: "shell", input: "talk", cwd: "" } }));
+  expect((await until(() => outs().some((o) => o.job === "j9"))) || (await until(() => outs().some((o) => o.job === "j9")))).toBe(true);
+  expect(tails()).toEqual(["one\ntwo\n", "three\n"]);
+  sock!.send(JSON.stringify({ $: "job", id: "j10", job: { name: "read", input: "talk", cwd: "" } }));
+  expect((await until(() => outs().some((o) => o.job === "j10"))) || (await until(() => outs().some((o) => o.job === "j10")))).toBe(true);
+  expect(got.some((m) => m.$ === "tail" && m.job === "j10")).toBe(false);
+}, 10_000);

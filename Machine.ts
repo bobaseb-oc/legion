@@ -32,6 +32,9 @@ import { SECRET, SECRET_AT } from "./Modes.ts";
 // repos it changes first, once a turn (Undo.ts, Device.device_snap)
 export type Job = { name: string; input: any; cwd: string; snap?: number };
 
+// told a shell command's output as it comes, a piece at a time
+export type Live = (text: string) => void;
+
 // a tool as the vendors see it: its name, what it does, its input's
 // JSON Schema
 export type Spec = { name: string; info: string; schema: object };
@@ -182,14 +185,16 @@ export namespace Machine {
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
   // by default Claude Code's own for the dir's project); the user's own
   // !command (USER_SHELL) asks none
-  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[]): Promise<Out> {
+  // live: told what a shell command prints as it comes (Device.ts sends
+  // it on: the status line's last lines, a background command's output)
+  export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[], live?: Live): Promise<Out> {
     const cwd = Machine.dir(job, work, home);
     const input = job.input;
     const file = path.resolve(cwd, String(input.path));
     try {
       fs.mkdirSync(cwd, { recursive: true });
       if (job.name === USER_SHELL) {
-        return await Machine.shell(cwd, String(input.command), signal, away);
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
       }
       const calls = Hooks.calls(job, cwd);
       const why   = calls.map(Machine.guard).find((w) => w !== null);
@@ -197,7 +202,7 @@ export namespace Machine {
         return { text: why, fail: true };
       }
       if (calls.length === 0) {
-        return await tool(job, cwd, file, signal, away);
+        return await tool(job, cwd, file, signal, away, live);
       }
       const src   = hooks ?? Hooks.sources(Hooks.project(cwd));
       const gates = await Promise.all(calls.map((c) => Hooks.pre(src, c.tool, c.input, cwd, job.cwd, signal)));
@@ -205,7 +210,7 @@ export namespace Machine {
       if (deny) {
         return { text: "Refused by a hook: " + deny, fail: true };
       }
-      const out   = await tool(job, cwd, file, signal, away);
+      const out   = await tool(job, cwd, file, signal, away, live);
       const notes = (await Promise.all(calls.map((c) => Hooks.post(src, c.tool, c.input, out, cwd, job.cwd, signal)))).flat();
       const warn  = gates.flatMap((g) => g.warn).map((w) => "[hook] " + w);
       const text  = [...warn, out.text, ...notes.map((n) => "[hook] " + n)].join("\n");
@@ -279,12 +284,12 @@ export namespace Machine {
   }
 
   // runs a job's tool, ungated
-  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  async function tool(job: Job, cwd: string, file: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
     const input = job.input;
     switch (job.name) {
       case "shell": {
-        return await Machine.shell(cwd, String(input.command), signal, away);
+        return await Machine.shell(cwd, String(input.command), signal, away, live);
       }
       case "read": {
         return Machine.read(file, Number(input.offset ?? 1), Number(input.limit ?? Infinity), Number(input.at ?? 0));
@@ -408,8 +413,8 @@ export namespace Machine {
   // still holds its output. Sent `away` (the person's Ctrl+B), it answers
   // at once and goes on: what it printed so far, then the rest and its
   // exit, go to bg-<pid>.log in cwd (the head and tail kept so far, if
-  // it was cut)
-  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal): Promise<Out> {
+  // it was cut); told as it comes to live (till sent away)
+  export function shell(cwd: string, command: string, signal: AbortSignal, away?: AbortSignal, live?: Live): Promise<Out> {
     SHELLS.forEach((p) => Machine.group(p) || SHELLS.delete(p));
     const start = performance.now();
     const proc = Bun.spawn([SHELL, "-c", "exec 2>&1\n" + command], {
@@ -433,7 +438,12 @@ export namespace Machine {
     const ran = (async (): Promise<Out> => {
       try {
         for (let got = await reader.read(); !got.done; got = await reader.read()) {
-          gone ? fs.appendFileSync(file, got.value) : out.add(got.value);
+          if (gone) {
+            fs.appendFileSync(file, got.value);
+          } else {
+            out.add(got.value);
+            live?.(got.value);
+          }
         }
       } catch {}
       signal.removeEventListener("abort", kill);

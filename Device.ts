@@ -16,7 +16,8 @@ import * as Cost from "./Cost.ts";
 import { Google } from "./Google.ts";
 import { Harvest, type Creds, type New } from "./Harvest.ts";
 import * as Inbox from "./Inbox.ts";
-import { Machine, type Job } from "./Machine.ts";
+import { clip } from "./Clip.ts";
+import { Machine, USER_SHELL, type Job } from "./Machine.ts";
 import * as Undo from "./Undo.ts";
 import * as View from "./View.ts";
 
@@ -50,16 +51,40 @@ export function device_jobs(v: View.View, jobs: Map<string, Run>, msg: View.Serv
   }
 }
 
+// how often a running shell command tells the server what it printed
+// since (ms): its "tail" (B2: the status line's last lines, a background
+// command's output so far)
+export const TAIL_EVERY = 1000;
+
 // runs a job here, and answers its output; one too large for a socket
 // message (View.FRAME, the 1 KiB left for the act around it) answers its
 // size instead, failed (sent, it would close the socket at every try)
+// A shell command's (an agent's, the user's !command) tells what it
+// printed as it runs, a "tail" a TAIL_EVERY: what came since the last,
+// its head and tail if over CAP (Clip.ts); none past its end (its output
+// has it all). A server that knows no tail drops it
 export async function device_run(jobs: Map<string, Run>, id: string, job: Job, rules: Rules, send: (msg: View.Client) => void): Promise<void> {
   const abort = new AbortController();
   const away  = new AbortController();
   jobs.set(id, { abort, away, name: job.name });
   const run  = rules.run ?? Machine.run;
   await device_snap(rules, job);
-  const out  = job.name === "computer" && !rules.computer ? { text: NO_COMPUTER, fail: true } : await run(job, rules.work, abort.signal, away.signal, rules.home);
+  let piece = clip();
+  let told  = false;
+  const live = (text: string) => {
+    piece.add(text);
+    told = true;
+  };
+  const tail = () => {
+    if (told) {
+      send({ $: "tail", job: id, text: piece.text() });
+      [piece, told] = [clip(), false];
+    }
+  };
+  const shell = job.name === "shell" || job.name === USER_SHELL;
+  const tick = shell ? setInterval(tail, TAIL_EVERY) : undefined;
+  const out  = job.name === "computer" && !rules.computer ? { text: NO_COMPUTER, fail: true } : await run(job, rules.work, abort.signal, away.signal, rules.home, undefined, shell ? live : undefined);
+  clearInterval(tick);
   const size = Buffer.byteLength(JSON.stringify(out));
   const most = View.FRAME - 1024;
   const big  = { text: "The output, " + size + " bytes, is over the " + most + " a tool may send.", fail: true };

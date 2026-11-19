@@ -25,6 +25,27 @@ test("a shell's output is decoded whole: a char split over writes, a broken one 
   expect(broken.text).toStartWith("ab�\n(exit 0 in ");
 });
 
+test("a shell tells what it prints as it comes (live), the user's !command too; none told past its send away", async () => {
+  const seen: string[] = [];
+  const out = await Machine.shell(DIR, "echo one; sleep 0.1; echo two", new AbortController().signal, undefined, (text) => seen.push(text));
+  expect(seen.join("")).toBe("one\ntwo\n");
+  expect(out.text).toStartWith("one\ntwo\n(exit 0 in ");
+  const mine: string[] = [];
+  await Machine.run({ name: USER_SHELL, input: { command: "echo mine" }, cwd: "main" }, DIR, new AbortController().signal, undefined, undefined, undefined, (text) => mine.push(text));
+  expect(mine.join("")).toBe("mine\n");
+  const theirs: string[] = [];
+  await Machine.run({ name: "shell", input: { command: "echo theirs" }, cwd: "w" }, DIR, new AbortController().signal, undefined, undefined, [], (text) => theirs.push(text));
+  expect(theirs.join("")).toBe("theirs\n");
+  const away = new AbortController();
+  const gone: string[] = [];
+  const run = Machine.shell(DIR, "echo early; sleep 0.3; echo late", new AbortController().signal, away.signal, (text) => gone.push(text));
+  await Bun.sleep(100);
+  away.abort();
+  await run;
+  await Bun.sleep(400);
+  expect(gone.join("")).toBe("early\n");
+});
+
 test("a shell sent away answers at once; its file gets the rest and the exit", async () => {
   const stop = new AbortController();
   const away = new AbortController();
