@@ -10,8 +10,9 @@
 // a "deny" (or "ask": no one answers here) permissionDecision; its
 // systemMessage only warns. A managed hook that can't run (missing,
 // crashed, timed out, its settings unreadable) refuses the call: the
-// org's gate fails closed; so does a HOOKED plugin's hooks.json (missing,
-// unreadable, or its root out of the plugins dir). The others' failures
+// org's gate fails closed; so does a HOOKED plugin's hook that can't run,
+// or its hooks.json (missing, unreadable, or its root out of the plugins
+// dir). The others' failures
 // only warn, as in Claude Code. The `claude` worker is Claude Code itself, with its own hooks.
 // Device side: imports nothing of the server's (Machine.ts).
 
@@ -37,7 +38,7 @@ export type Call = { tool: string; input: Record<string, unknown> };
 export type Gate = { deny: string | null; warn: string[] };
 
 // a hook to run: its shell command, its timeout (s), whether managed
-type Hook = { command: string; timeout: number; managed: boolean; plugin?: string };
+type Hook = { command: string; timeout: number; managed: boolean; plugin?: string; key?: string };
 
 // a hook's run: its exit code (null: it never ran or was killed), its
 // output, and why it failed to run
@@ -184,8 +185,11 @@ export namespace Hooks {
       const h = hooks[k]!;
       if (r.failed !== null || (r.code !== 0 && r.code !== 2)) {
         const why = r.failed ?? "exited " + r.code + (r.err.trim() ? ": " + say(r.err) : "");
-        if (h.managed) {
-          return { deny: "a managed hook (" + h.command + ") " + why, warn };
+        // RED ZONE (security review 3 H1, DRAFT awaiting the user's
+        // sign-off): an allowlisted plugin's hook that can't run refuses
+        // too, as a managed one (its gate fails closed)
+        if (h.managed || h.plugin !== undefined) {
+          return { deny: (h.managed ? "a managed hook" : "the hook of " + h.key) + " (" + h.command + ") " + why, warn };
         }
         warn.push("hook " + h.command + " " + why);
         continue;
@@ -283,7 +287,7 @@ export namespace Hooks {
         }
         for (const h of Array.isArray(g?.hooks) ? g.hooks : []) {
           if (h?.type === "command" && typeof h.command === "string") {
-            hooks.push({ command: h.command, timeout: Number(h.timeout) > 0 ? Number(h.timeout) : TIMEOUT, managed: s.managed, plugin: s.plugin });
+            hooks.push({ command: h.command, timeout: Number(h.timeout) > 0 ? Number(h.timeout) : TIMEOUT, managed: s.managed, plugin: s.plugin, key: s.key });
           } else if (s.managed) {
             // a managed hook of a kind not run here (prompt, http): can't run
             return { hooks: [], broken: "a managed " + String(h?.type) + " hook can't run here" };
