@@ -244,8 +244,15 @@ export function routines_html(v: View.View, now: number): string[] {
     const flip = `<button class="pbtn"${act_html({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
     const task = r.task === "" ? "" : `<p class="rtask">${esc(r.task)}</p>`;
-    const by = !Routines.pending(r) ? "" : `<p class="meta">Proposed by ${r.by === "main" ? "Unii" : esc(r.by!)}: ${esc(r.why ?? "")}. Turn it on to approve.</p>`;
-    return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc(r.name)}</b>${when}</div>${by}${task}<div class="acts">${run}${flip}${drop}</div></div>`;
+    const acts = `<div class="acts">${run}${flip}${drop}</div>`;
+    if (!Routines.pending(r)) {
+      return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc(r.name)}</b>${when}</div>${task}${acts}</div>`;
+    }
+    // an agent's proposal: marked, its name and why quoted as the agent's
+    // words, its whole task beside Turn on (what turning it on approves)
+    const who = r.by === "main" ? "Unii" : esc(r.by!);
+    return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc(r.name)}”</b>${when}</div>`
+      + `<blockquote class="rwhy">${who}'s words: “${esc(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
   const head = `<div class="phead"><h2>Routines</h2><p class="meta">Each starts a Legion agent on its task; they run while Legion's server runs and a view or a device is connected.</p></div>`;
   const form = `<form class="radd"><b>New routine</b><input name="name" placeholder="Name" maxlength="${Routines.NAME}" required>`
@@ -255,6 +262,23 @@ export function routines_html(v: View.View, now: number): string[] {
     + `<select name="tier"><option value="worker">a worker</option><option value="manager">a manager</option></select></div>`
     + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${Routines.TASK}"></textarea><button class="pbtn">Add</button></form>`;
   return [head, ...(rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows), form];
+}
+
+// the agents' pending timers, under the routines (security review R4: the
+// user sees what will wake unattended): each its number, whose, when, its
+// note, and Close; none: nothing
+export function timers_html(v: View.View): string[] {
+  const ts = v.timers ?? [];
+  if (ts.length === 0) {
+    return [];
+  }
+  const time = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const rows = ts.map((t) => {
+    const who = t.who === "main" ? "Unii" : esc(t.who);
+    const close = `<button class="pbtn"${act_html({ $: "Timer", n: t.id })}>Close</button>`;
+    return `<div class="routine"><div class="rh"><b>${t.id}. ${who}</b><span class="meta">at ${esc(time(t.at))}</span></div><p class="rtask">${esc(t.note)}</p><div class="acts">${close}</div></div>`;
+  });
+  return [`<div class="phead"><h3>Timers</h3><p class="meta">Each wakes the agent that set it with its note. Stop (all) clears them all.</p></div>`, ...rows];
 }
 
 // Digest

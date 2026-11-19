@@ -45,14 +45,21 @@ How it works
   rings; your reply in its thread answers it (a question's option by
   number or your words; a todo `done` or `drop`; a decision `undo [what
   instead]` or `keep`), and only yours counts. On with config
-  `gchat_space` (`spaces/...`) and the webhook's URL in the environment,
-  a key like the others (never logged), set where the server starts, e.g.
-  `export GCHAT_WEBHOOK_URL=$(security find-generic-password -s GCHAT_WEBHOOK_URL -w)`.
-  Keep it in the Keychain from the clipboard (copy the URL from the
-  space's Apps & integrations, Webhooks):
+  `gchat_space` (`spaces/...`), `gchat_user` (your id, as in
+  `~/.unii/users/<id>`: only that chat is bridged; unset, none is) and the
+  webhook's URL in the login
+  Keychain (service `GCHAT_WEBHOOK_URL`), a key (never logged): the
+  server `legion` starts reads it there itself (`UNII_GCHAT_KEYCHAIN=1`,
+  set by the launcher), so it is never in the server's environment, which
+  any process of yours could read (`ps -wwE`); don't export it. Keep it
+  there from the clipboard (copy the URL from the space's Apps &
+  integrations, Webhooks):
   `security add-generic-password -U -a "$USER" -s GCHAT_WEBHOOK_URL -w "$(pbpaste)" && pbcopy < /dev/null`.
   Not `-w` alone: its prompt keeps 128 characters, cutting the URL's
-  token (Google then answers "Missing or malformed token").
+  token (Google then answers "Missing or malformed token"). A server run
+  by hand (`bun Server.ts`, tests) reads `GCHAT_WEBHOOK_URL` from its
+  environment instead. Posts are scrubbed of secret-shaped strings
+  (`local/prime/redact.ts`'s shapes) before they leave.
   Reading replies uses your Google sign-in (`legion google-login`; a
   sign-in from before 2026-11-18 lacks `openid`, which says who you are,
   so sign in again or no reply counts): the server reads it once at start (one Keychain prompt; deny it and the

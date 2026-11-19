@@ -1443,7 +1443,7 @@ function page_bars(mode: View.Mode): boolean {
   } else if (mode === "routines") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
-    markup($("#page .pbody"), Pages.routines_html(v, Date.now()));
+    markup($("#page .pbody"), [...Pages.routines_html(v, Date.now()), ...Pages.timers_html(v)]);
   } else if (mode === "home") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);

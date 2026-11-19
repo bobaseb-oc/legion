@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Vendor } from "./AskAI.ts";
+import { Auth } from "./Auth.ts";
 import { LABELS, VENDORS, Pick, type Offer } from "./Pick.ts";
 
 // Constants
@@ -97,7 +98,27 @@ const VARS: Record<string, string> = {
 
 // the GChat bridge's space (Gchat.ts: on only with KEYS.gchat, its webhook)
 export const GCHAT_SPACE = config_get("gchat_space", "");
+
+// RED ZONE (security review R6, DRAFT awaiting the user's sign-off): the
+// GChat webhook's URL (a key: who has it posts to the space) read by this
+// server from the login Keychain itself (service GCHAT_WEBHOOK_URL, the
+// README's), never from its environment, which any process of this user
+// reads (`ps -wwE`; deleting it from process.env hides it from JS only).
+// On with UNII_GCHAT_KEYCHAIN=1 (the launcher's server_exec sets it; the
+// environment's only, never config.json, so no test reads the user's
+// item) and a gchat_space; then a GCHAT_WEBHOOK_URL in the environment
+// is not used. Off (tests, a server run by hand), GCHAT_WEBHOOK_URL is
+// read like the other keys. None kept, or refused: "" (the bridge off),
+// said without a key
+const GCHAT_KEYCHAIN = process.env.UNII_GCHAT_KEYCHAIN === "1";
+
+// RED ZONE (R8, DRAFT awaiting the user's sign-off): the one user whose
+// chat it bridges (their id, as in users/<id>); none: no one's
+export const GCHAT_USER  = config_get("gchat_user", "");
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
+if (GCHAT_KEYCHAIN && GCHAT_SPACE !== "") {
+  KEYS.gchat = await config_keychain(VARS.gchat!);
+}
 
 // Config
 // ======
@@ -157,9 +178,23 @@ function config_key(name: string): string {
   return key;
 }
 
+// a key kept in the login Keychain as the generic password of service
+// name (the README's `security add-generic-password`); "" if none or
+// refused, said without it (Auth.security: the value never in an argument
+// or a log)
+async function config_keychain(name: string): Promise<string> {
+  const r = await Auth.security(["find-generic-password", "-s", name, "-w"]).catch(() => ({ code: 1, out: "" }));
+  if (r.code !== 0) {
+    console.error("config: the GChat webhook is not in the Keychain (service " + name + (r.code === 44 ? ")" : ", refused)") + ": the GChat bridge is off.");
+    return "";
+  }
+  return r.out.trim();
+}
+
 // the environment a worker of this server starts with: this one, with
-// the keys back
+// the keys back (the GChat webhook not, read from the Keychain: a worker
+// reads it again, with UNII_GCHAT_KEYCHAIN)
 export function config_env(): Record<string, string | undefined> {
-  const keys = Object.entries(VARS).map(([name, v]) => [v, KEYS[name]]);
+  const keys = Object.entries(VARS).filter(([name]) => !(GCHAT_KEYCHAIN && name === "gchat")).map(([name, v]) => [v, KEYS[name]]);
   return { ...process.env, ...Object.fromEntries(keys) };
 }

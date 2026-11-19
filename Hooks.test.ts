@@ -202,6 +202,9 @@ test("the user's settings come from $CLAUDE_CONFIG_DIR, and write and edit refus
   }
 });
 
+// the one plugin whose hooks gate Legion: its name and its marketplace
+const OCKEY = "oc-coding-assistant@oncorps-shared-skills";
+
 // a Claude Code dir with plugins: each [name@market, enabled, scope], its
 // hooks.json giving a PreToolUse Bash hook that runs `body`
 function plugged(list: [string, boolean, string][], body = "exit 0", more: object = {}): string {
@@ -230,31 +233,97 @@ async function within<T>(conf: string, f: () => Promise<T> | T): Promise<T> {
 }
 
 test("only an enabled, user-installed oc-coding-assistant's hooks join the sources, with its root", async () => {
-  const conf = plugged([["oc-coding-assistant@oss", true, "user"], ["coding-assistant@home", true, "user"], ["claude-mem@m", true, "user"], ["other@m", true, "user"]]);
+  const conf = plugged([[OCKEY, true, "user"], ["coding-assistant@home", true, "user"], ["claude-mem@m", true, "user"], ["other@m", true, "user"]]);
   const plugs = await within(conf, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined));
-  const root = conf + "/plugins/cache/oc-coding-assistant/oss/1.0";
-  expect(plugs).toEqual([{ file: root + "/hooks/hooks.json", managed: false, plugin: root }]);
+  const root = conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0";
+  expect(plugs).toEqual([{ file: root + "/hooks/hooks.json", managed: false, plugin: root, key: OCKEY }]);
   // disabled, or installed only for a project: none
-  for (const off of [plugged([["oc-coding-assistant@oss", false, "user"]]), plugged([["oc-coding-assistant@oss", true, "local"]])]) {
+  for (const off of [plugged([[OCKEY, false, "user"]]), plugged([[OCKEY, true, "local"]])]) {
     expect(await within(off, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined))).toEqual([]);
   }
 });
 
 test("a plugin's hook runs with CLAUDE_PLUGIN_ROOT and refuses; the user's disableAllHooks drops it", async () => {
   const deny = `echo "{\\"hookSpecificOutput\\":{\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"root=$CLAUDE_PLUGIN_ROOT\\"}}"`;
-  const conf = plugged([["oc-coding-assistant@oss", true, "user"]], deny);
+  const conf = plugged([[OCKEY, true, "user"]], deny);
   const gate = await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
-  expect(gate.deny).toBe("root=" + conf + "/plugins/cache/oc-coding-assistant/oss/1.0");
-  const off = plugged([["oc-coding-assistant@oss", true, "user"]], deny, { disableAllHooks: true });
+  expect(gate.deny).toBe("root=" + conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0");
+  const off = plugged([[OCKEY, true, "user"]], deny, { disableAllHooks: true });
   expect((await within(off, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBeNull();
 });
 
-// the real oc-coding-assistant, where it is installed: its gate refuses a
-// PR from a Legion agent until pre-ship polish has run for the commit
+// security review L1a: the allowlist is the full key, so the same name
+// from another marketplace is not trusted
+test("an oc-coding-assistant from another marketplace gates nothing", async () => {
+  const conf = plugged([["oc-coding-assistant@elsewhere", true, "user"]], "exit 2");
+  expect(await within(conf, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined))).toEqual([]);
+  expect((await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBeNull();
+});
+
+// a plugged() dir whose allowlisted plugin is installed at `root` instead
+function moved(root: string): string {
+  const conf = plugged([[OCKEY, true, "user"]]);
+  fs.writeFileSync(conf + "/plugins/installed_plugins.json", JSON.stringify({ version: 2, plugins: { [OCKEY]: [{ scope: "user", installPath: root }] } }));
+  return conf;
+}
+
+// security review L1b: a plugin's root must really be under the Claude
+// Code dir's plugins, by its path and by its real one: else the gate
+// can't be known, and the call is refused
+test("an allowlisted plugin installed outside the plugins dir, or linked out of it, refuses the call", async () => {
+  const out = fs.mkdtempSync(DIR + "/outside-");
+  fs.mkdirSync(out + "/hooks");
+  fs.writeFileSync(out + "/hooks/hooks.json", JSON.stringify({ hooks: { PreToolUse: [group("Bash", "exit 0")] } }));
+  const far = moved(out);
+  const gate = await within(far, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(gate.deny).toContain("not under");
+  const link = moved("");
+  fs.symlinkSync(out, link + "/plugins/cache/link");
+  fs.writeFileSync(link + "/plugins/installed_plugins.json", JSON.stringify({ version: 2, plugins: { [OCKEY]: [{ scope: "user", installPath: link + "/plugins/cache/link" }] } }));
+  expect((await within(link, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toContain("not under");
+  // a dotted escape is caught too
+  const dots = moved("");
+  fs.writeFileSync(dots + "/plugins/installed_plugins.json", JSON.stringify({ version: 2, plugins: { [OCKEY]: [{ scope: "user", installPath: dots + "/plugins/cache/../../../" + out.split("/").pop() }] } }));
+  expect((await within(dots, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toContain("not under");
+  // where it is under them, it runs
+  expect((await within(plugged([[OCKEY, true, "user"]]), () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBeNull();
+});
+
+// security review L1c: an allowlisted plugin's hooks.json fails closed as
+// managed settings do: missing or unparsable, the call is refused (unless
+// the user's disableAllHooks drops the plugin's hooks anyway)
+test("an allowlisted plugin whose hooks.json is missing or unparsable refuses the call", async () => {
+  const conf = plugged([[OCKEY, true, "user"]]);
+  const file = conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0/hooks/hooks.json";
+  fs.writeFileSync(file, "{ not json");
+  const bad = await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(bad.deny).toContain("can't read the hooks of " + OCKEY);
+  fs.rmSync(file);
+  const gone = await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(gone.deny).toContain("can't read the hooks of " + OCKEY);
+  // through Machine.run, the shell never runs
+  const mark = DIR + "/plugran";
+  fs.mkdirSync(DIR + "/P", { recursive: true });
+  const run = await within(conf, () => Machine.run({ name: "shell", input: { command: "touch " + mark }, cwd: "P" }, DIR, live()));
+  expect(run.fail).toBe(true);
+  expect(run.text).toContain("Refused by a hook: can't read the hooks of " + OCKEY);
+  expect(fs.existsSync(mark)).toBe(false);
+  // the user's disableAllHooks drops the plugin's hooks, so nothing to read
+  const off = plugged([[OCKEY, true, "user"]], "exit 0", { disableAllHooks: true });
+  fs.rmSync(off + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0/hooks/hooks.json");
+  expect((await within(off, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBeNull();
+});
+
+// the real oc-coding-assistant, as installed and enabled for the user: its
+// gate, found by Hooks.sources in the real Claude Code dir (so the
+// allowlisted key is the installed one), refuses a PR from a Legion agent
+// until pre-ship polish has run for the commit
+const REAL = os.homedir() + "/.claude";
 const OC = (() => {
-  const all = (() => { try { return JSON.parse(fs.readFileSync(os.homedir() + "/.claude/plugins/installed_plugins.json", "utf8")).plugins ?? {}; } catch { return {}; } })();
-  const key = Object.keys(all).find((k) => k.startsWith("oc-coding-assistant@"));
-  return key ? (all[key] as any[]).find((e) => e?.scope === "user")?.installPath as string | undefined : undefined;
+  const json = (f: string): any => { try { return JSON.parse(fs.readFileSync(REAL + f, "utf8")); } catch { return {}; } };
+  const on = json("/settings.json").enabledPlugins?.[OCKEY] === true;
+  const entries: any[] = json("/plugins/installed_plugins.json").plugins?.[OCKEY] ?? [];
+  return on ? entries.find((e) => e?.scope === "user")?.installPath as string | undefined : undefined;
 })();
 test.skipIf(OC === undefined || !fs.existsSync(OC + "/hooks/hooks.json"))("the installed oc-coding-assistant refuses an unpolished gh pr create through Legion, and allows a polished one", async () => {
   const repo = fs.mkdtempSync(DIR + "/ocrepo-");
@@ -265,12 +334,20 @@ test.skipIf(OC === undefined || !fs.existsSync(OC + "/hooks/hooks.json"))("the i
   git("switch", "-qc", "feat/x");
   fs.writeFileSync(repo + "/a.py", "x = 2\n");
   git("commit", "-qam", "change");
-  const conf = fs.mkdtempSync(DIR + "/occonf-");
-  fs.mkdirSync(conf + "/plugins");
-  fs.writeFileSync(conf + "/settings.json", JSON.stringify({ enabledPlugins: { "oc-coding-assistant@x": true } }));
-  fs.writeFileSync(conf + "/plugins/installed_plugins.json", JSON.stringify({ plugins: { "oc-coding-assistant@x": [{ scope: "user", installPath: OC }] } }));
-  const pr = () => within(conf, () => Hooks.pre(Hooks.sources(repo).filter((s) => s.plugin !== undefined), "Bash", { command: "gh pr create --base main --fill" }, repo, "A", live()));
+  const plugs = await within(REAL, () => Hooks.sources(repo).filter((s) => s.plugin !== undefined));
+  expect(plugs.map((s) => s.plugin)).toEqual([OC]);
+  const pr = () => within(REAL, () => Hooks.pre(plugs, "Bash", { command: "gh pr create --base main --fill" }, repo, "A", live()));
   expect((await pr()).deny).toContain("Pre-ship polish has not run");
   expect(Bun.spawnSync(["python3", OC + "/scripts/ca_telemetry.py", "mark-polished", "--cwd", repo]).exitCode).toBe(0);
   expect((await pr()).deny).toBeNull();
+});
+
+// security review 3: a plugin's hooks.json is not the user's settings, so
+// its disableAllHooks can't drop the user's hooks (nor its own)
+test("a plugin's disableAllHooks drops no hook", async () => {
+  const user = script("plugoff.sh", `echo user >&2; exit 2`);
+  const conf = plugged([[OCKEY, true, "user"]], "exit 0", { hooks: { PreToolUse: [group("Bash", user)] } });
+  const file = conf + "/plugins/cache/oc-coding-assistant/oncorps-shared-skills/1.0/hooks/hooks.json";
+  fs.writeFileSync(file, JSON.stringify({ disableAllHooks: true, hooks: { PreToolUse: [group("Bash", "exit 0")] } }));
+  expect((await within(conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBe("user");
 });

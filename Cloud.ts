@@ -165,6 +165,15 @@ export namespace Cloud {
     return Cloud.live(cloud, Cloud.hash(Cloud.token(req)));
   }
 
+  // RED ZONE (R1, DRAFT awaiting the user's sign-off): whether a request
+  // is a browser's: its session made by a browser's sign-in, not a
+  // terminal's (term 0), however its token is sent (a terminal's sent as
+  // a cookie is no browser's)
+  export function browser(cloud: Cloud, req: Request): boolean {
+    const row = cloud.db.query("select term from sessions where hash = ?").get(Cloud.hash(Cloud.token(req))) as { term: number } | null;
+    return row?.term === 0;
+  }
+
   // the user of a session live now (LIVE), its use marked (once a SEEN)
   export function live(cloud: Cloud, hash: string): User | null {
     const now = Date.now();

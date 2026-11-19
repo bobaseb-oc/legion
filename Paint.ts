@@ -52,8 +52,11 @@ const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
 // Constructors
 // ============
 
+// its text cleaned (text_clean): what others wrote (a PR's body, an event's
+// title, an agent's words) can't write its own escapes to the terminal, and
+// is measured as drawn
 export function Run(x: string, s: Ink = INK): Run {
-  return { x, s };
+  return { x: text_clean(x), s };
 }
 
 // Text
@@ -108,12 +111,13 @@ function line_width(l: Line): number {
 
 // a line as ANSI: an ink's codes only where the ink changes (a link open
 // over all its runs), back to the plain ink at its end; its end's spaces
-// dropped unless filled
+// dropped unless filled; each run's text and link cleaned again
+// (text_clean), so no run, however made, writes its own escapes
 export function line_ansi(l: Line): string {
   let out = "";
   let was: Ink | null = null;
   for (const r of l) {
-    out += ink_ansi(was, r.s) + r.x;
+    out += ink_ansi(was, r.s) + text_clean(r.x);
     was = r.s;
   }
   return (was?.g ? out : out.trimEnd()) + ink_ansi(was, INK);
@@ -126,7 +130,7 @@ function ink_ansi(was: Ink | null, s: Ink): string {
   }
   const end  = was !== null && was.k !== "" ? "\x1b]8;;\x1b\\" : "";
   const sgr  = "\x1b[0" + (s.b ? ";1" : "") + (s.i ? ";3" : "") + (s.u ? ";4" : "") + (s.d ? ";2" : "") + color_sgr(38, s.c) + color_sgr(48, s.g) + "m";
-  const link = s.k === "" ? "" : "\x1b]8;;" + s.k + "\x1b\\";
+  const link = s.k === "" ? "" : "\x1b]8;;" + text_clean(s.k) + "\x1b\\";
   return end + sgr + link;
 }
 

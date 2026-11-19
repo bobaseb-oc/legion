@@ -80,9 +80,13 @@ searxng_start() {
 # the server: its key and origin from LiteLLM, Opus 5.5 by default, Haiku
 # 5.5 for summaries, search by SearXNG instead of Anthropic's server tool
 # (LiteLLM serves Claude from Bedrock, which has none), your Claude Code
-# rules live (local/rules.md), no mail or push keys
+# rules live (local/rules.md), no mail or push keys, and (RED ZONE,
+# security review R6, DRAFT awaiting the user's sign-off) no GChat
+# webhook: the server reads it from the Keychain (UNII_GCHAT_KEYCHAIN=1),
+# as its environment is readable by any process of this user (ps -wwE)
 server_exec() {
-  exec env -u RESEND_API_KEY -u APNS_KEY -u OPENAI_API_KEY \
+  exec env -u RESEND_API_KEY -u APNS_KEY -u OPENAI_API_KEY -u GCHAT_WEBHOOK_URL \
+    UNII_GCHAT_KEYCHAIN=1 \
     ANTHROPIC_API_KEY="${LITELLM_API_KEY:?set LITELLM_API_KEY}" \
     UNII_ANTHROPIC_URL="${LITELLM_API_BASE:?set LITELLM_API_BASE}" \
     UNII_PICK="${UNII_PICK:-claude-api:opus-5.5:high:slow}" \

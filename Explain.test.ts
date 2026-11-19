@@ -75,7 +75,7 @@ Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
 const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 const heard = [];
-chat.socks.add({ send: (m) => heard.push(JSON.parse(m)), data: { seen: new Set(), watch: new Set() } });
+chat.socks.add({ send: (m) => heard.push(JSON.parse(m)), data: { host: null, seen: new Set(), watch: new Set() } });
 const asks = [];
 AskAI.ask = (ask, on) => {
   const [call, sink] = AskAI.tie(on, ask.bill, () => {}, () => {});
@@ -119,9 +119,21 @@ const ask = { searches: asks[2].ask.searches, server: asks[2].ask.server, tools:
 asks[2].sink.end({ ok: true, text: "It says what the team builds.", left: [] });
 const answered = await asked;
 await Bun.sleep(100);
+const before = asks.length;
+// a chat no view shows (none open, or a device's socket only) isn't written
+const lone = Chat.open({ id: "u2", name: "c@d.e" });
+Chat.chats.set("u2", lone);
+Memory.push(lone.mem, [{ kind: "user", text: "Make the page plainer" }]);
+lone.mem.goal = "Ship it";
+void Chat.observe(lone, T0 + 1);
+await Bun.sleep(50);
+lone.socks.add({ send: () => {}, data: { host: "mac", device: "mac", seen: new Set(), watch: new Set() } });
+void Chat.observe(lone, T0 + 2);
+await Bun.sleep(50);
+const unseen = asks.length - before;
 const kept = Memory.load(chat.mem.dir, () => null).explain;
 console.log(JSON.stringify({
-  empty, writing, observer, written, same, soon, after, cards: chat.mem.explain.cards.length,
+  empty, unseen, writing, observer, written, same, soon, after, cards: chat.mem.explain.cards.length,
   device: device.error ?? null, blank: blank.error ?? null, pending, twice: twice.error ?? null, ask, answered,
   qa: chat.mem.explain.qa, asking: chat.mem.explain.asking,
   chat: { added: chat.mem.count - count, busy: chat.busy, wait: chat.wait.length, sent: chat.sent.length, main: asks.filter((a) => String(a.ask.server).endsWith("/main")).length },
@@ -131,12 +143,13 @@ console.log(JSON.stringify({
 process.exit(0);
 `;
 
-test("the server: written on the tick only once changed and EVERY apart, with no tools; asked from a view only, answered on the page, never in the chat; kept", async () => {
+test("the server: written on the tick only once changed and EVERY apart, and only with a view open, with no tools; asked from a view only, answered on the page, never in the chat; kept", async () => {
   const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
   fs.writeFileSync(dir + "/explain.ts", SERVER);
   const proc = Bun.spawn([process.execPath, dir + "/explain.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.empty).toBe(0);
+  expect(out.unseen).toBe(0);
   expect(out.writing).toBe(true);
   expect(out.observer).toMatchObject({ searches: 0, server: "", tools: false, system: Explain.OBSERVE });
   expect(out.observer.model).toMatch(/haiku/);

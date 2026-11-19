@@ -168,6 +168,39 @@ test("a lock that is not a socket is left alone: the server ends", async () => {
   expect(fs.readFileSync(home + "/.unii/lock", "utf8")).toBe("not a socket");
 }, 30_000);
 
+// L6: two starts at once on a stale lock (a holder killed -9 left its
+// socket, which refuses): one takes it, the other finds it held. Without
+// a lock around taking a stale one, both see it stale, both remove what
+// is there and listen: the second removes the first's live socket. Its
+// take of the lock (Main.taking), left too, is removed: its pid is gone
+const RACE = `
+const { Main } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const won = [];
+Main.lock(1).then(() => won.push(1));
+Main.lock(2).then(() => won.push(2));
+await Bun.sleep(2500);
+console.log(JSON.stringify({ won: won.length }));
+process.exit(0);
+`;
+
+test("two starts at once on a stale lock: one takes it, the other finds it held", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  fs.mkdirSync(home + "/.unii");
+  const lock = home + "/.unii/lock";
+  const dead = Bun.spawn([process.execPath, "-e", "Bun.listen({ unix: " + JSON.stringify(lock) + ", socket: { data() {} } }); console.log('up'); setInterval(() => {}, 1e3);"], { stdout: "pipe" });
+  for await (const _ of dead.stdout) break;
+  dead.kill("SIGKILL");
+  await dead.exited;
+  expect(fs.lstatSync(lock).isSocket()).toBe(true);
+  // and its take of the lock, left as it died
+  fs.writeFileSync(lock + ".take", String(dead.pid));
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/race.ts", RACE);
+  const proc = Bun.spawn([process.execPath, dir + "/race.ts"], { env: { ...process.env, HOME: home, UNII_DIR: dir, UNII_ANOTHER: "" }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.won).toBe(1);
+});
+
 // a /model while the turn's call runs picks the next call's: the wait
 // names the model the running one asked. Its own process, as config is
 // read once a process (another test file's dir is not this one's)
@@ -986,6 +1019,51 @@ test("the user switches the mode, and approves or rejects the orchestrator's pla
   });
 });
 
+// RED ZONE (R3, DRAFT awaiting the user's sign-off): the user's say over
+// what agents may do (the mode, the plan, a waiting call, a worker's
+// start, a question's answer) is a view's act only: one from a device's
+// socket (within an agent's reach) is refused, nothing changed
+const VIEW_ONLY = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const go = new AbortController().signal;
+chat.mem.mode = "plan";
+await Tools.call(chat.tools, "main", "plan", { plan: "1. ship" }, go, "t1");
+await Tools.call(chat.tools, "main", "ask", { question: "Ship on Friday?" }, go, "q1");
+Tools.ask_user(chat.tools, "Wkr", "shell", { device: "mac", command: "make deploy" }, go);
+const call = Chat.state(chat).calls[0].id;
+const acts = [
+  { $: "mode", mode: "full" },
+  { $: "plan", yes: true, mode: "full" },
+  { $: "consent", n: call, yes: true },
+  { $: "approve", name: "Wkr", yes: true },
+  { $: "answer", q: 1, text: "yes" },
+];
+const refused = [];
+for (const [k, msg] of acts.entries()) {
+  refused.push((await Chat.act(chat, "d" + k, msg, "mac")).error ?? null);
+}
+const s = Chat.state(chat);
+console.log(JSON.stringify({ refused, mode: s.mode, plan: s.plan?.text ?? null, calls: s.calls.length, questions: s.questions.length }));
+process.exit(0);
+`;
+
+test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts only, refused from a device", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/views.ts", VIEW_ONLY);
+  const proc = Bun.spawn([process.execPath, dir + "/views.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.refused).toHaveLength(5);
+  for (const why of out.refused) {
+    expect(why).toMatch(/in a view/);
+  }
+  expect(out).toMatchObject({ mode: "plan", plan: "1. ship", calls: 1, questions: 1 });
+});
+
 // The question backlog: the orchestrator's open questions in the state;
 // an answer is the user's message quoting the question, and a turn; no
 // text dismisses it (a note, no turn); an unknown one is refused
@@ -1167,4 +1245,45 @@ test("the gateway's budget, read every 10 minutes through the gateway, and busy 
   const own = await run({ UNII_ANTHROPIC_URL: "https://api.anthropic.com", ANTHROPIC_API_KEY: "k-test" });
   expect(own.reads).toEqual([]);
   expect(own.sent[0]).toEqual({ $: "gateway", budget: null, busy: 42 });
+});
+
+// RED ZONE (R8, DRAFT awaiting the user's sign-off): the GChat bridge
+// posts a chat's questions to one space and acts on its replies, so it
+// bridges one owner's chat only: the user config gchat_user names; none
+// named, no chat's (fail closed), however many users the server has
+const BRIDGED = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+Chat.gchat_token = null;
+let posts = 0;
+globalThis.fetch = async () => (posts++, Response.json({}));
+const bridged = [];
+for (const id of ["u1", "u2"]) {
+  const chat = Chat.open({ id, name: id + "@b.c" });
+  Chat.chats.set(id, chat);
+  chat.mem.questions.push({ id: 1, text: "Ship?", at: Date.now(), date: "" });
+  const opened = chat.bridging !== undefined;
+  const before = posts;
+  await Chat.bridge(chat, Date.now());
+  bridged.push({ opened, posted: posts > before });
+}
+console.log(JSON.stringify({ bridged }));
+process.exit(0);
+`;
+
+test("the GChat bridge opens on and posts from the chat of the user gchat_user names only; none named, none", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/bridged.ts", BRIDGED);
+  const space = "spaces/TESTSPACE";
+  const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
+  const run = async (user: string | null) => {
+    const env: Record<string, string | undefined> = { ...process.env, UNII_DIR: fs.mkdtempSync(dir + "/d-"), UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_USER: user ?? undefined };
+    const proc = Bun.spawn([process.execPath, dir + "/bridged.ts"], { env, stdout: "pipe", stderr: "inherit" });
+    return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}").bridged;
+  };
+  const none = { opened: false, posted: false };
+  expect(await run("u2")).toEqual([none, { opened: true, posted: true }]);
+  expect(await run(null)).toEqual([none, none]);
+  expect(await run("")).toEqual([none, none]);
 });

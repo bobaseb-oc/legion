@@ -89,6 +89,9 @@ const dismissed = await Chat.act(chat, "u6", { $: "decision", n: chat.mem.decide
 await Bun.sleep(50);
 const turns = { said: said().length, asked: asks.length > 0 };
 const left = chat.mem.decided.length;
+// R5: the model's kind is not trusted: worded as money, it asks, even said "push" (unlocked)
+chat.mem.tallies.push = { n: 20, took: 20, auto: [] };
+const lied = await ask({ question: "Pay the vendor's $300 invoice?", options: ["Pay it", "Hold"], kind: "push", pick: 0 }, "t10");
 // kept with the chat
 const saved = Memory.load(chat.mem.dir, () => null);
 const kept = { tallies: saved.tallies.retry, likes: saved.likes.length, decided: saved.decided.length };
@@ -99,7 +102,17 @@ const json = JSON.parse(fs.readFileSync(file, "utf8"));
 delete json.tallies;
 fs.writeFileSync(file, JSON.stringify(json));
 const imported = Memory.load(chat.mem.dir, () => null).tallies.push;
-console.log(JSON.stringify({ mode, fresh, decided, open1, merge, access, nokind, retry, auto, filed, list, noted, tallies, likes, told, device: device.error ?? null, unknown: unknown.error ?? null, undo, again: again.error ?? null, reversed, after, second, plain, relocked, third, dismissed, turns, left, kept, imported }));
+// R5: a saved mode unknown, or none, fails closed to auto; a new chat is super (mode above)
+json.mode = "turbo";
+fs.writeFileSync(file, JSON.stringify(json));
+const unknownmode = Memory.load(chat.mem.dir, () => null).mode;
+delete json.mode;
+fs.writeFileSync(file, JSON.stringify(json));
+const nomode = Memory.load(chat.mem.dir, () => null).mode;
+json.mode = "full";
+fs.writeFileSync(file, JSON.stringify(json));
+const fullmode = Memory.load(chat.mem.dir, () => null).mode;
+console.log(JSON.stringify({ lied, unknownmode, nomode, fullmode, mode, fresh, decided, open1, merge, access, nokind, retry, auto, filed, list, noted, tallies, likes, told, device: device.error ?? null, unknown: unknown.error ?? null, undo, again: again.error ?? null, reversed, after, second, plain, relocked, third, dismissed, turns, left, kept, imported }));
 process.exit(0);
 `;
 
@@ -137,4 +150,9 @@ test("the server: super answers an unlocked kind with its pick, asks the rest; a
   expect(out.left).toBe(0);
   expect(out.kept).toEqual({ tallies: { n: 1, took: 1, auto: [] }, likes: 2, decided: 0 });
   expect(out.imported).toEqual({ n: 1, took: 1, est: true, auto: [] });
+  // R5: worded as money, asked though it says push; a saved mode unread fails closed
+  expect(out.lied).toMatchObject({ fail: false, text: expect.stringContaining("Filed as question") });
+  expect(out.unknownmode).toBe("auto");
+  expect(out.nomode).toBe("auto");
+  expect(out.fullmode).toBe("full");
 });

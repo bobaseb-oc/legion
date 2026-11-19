@@ -682,6 +682,13 @@ body.focus .hcols { grid-template-columns: 1fr; }
 .routine .rh { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .routine .rtask { margin: 4px 0 0; white-space: pre-wrap; color: var(--mid); }
 .routine .acts, .radd .rwhen { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+/* an agent's proposal (Pages.routines_html): not faded, marked, its words
+   quoted, the task it would run boxed with Turn on */
+.routine.proposed { opacity: 1; border-color: #d29922; }
+.routine .rbadge { padding: 0 8px; border: 1px solid #d29922; border-radius: 9px; color: #b07a00; font-size: 12px; }
+.routine .rwhy { margin: 6px 0 0; padding-left: 10px; border-left: 3px solid var(--hair); font-style: italic; color: var(--mid); }
+.routine .rapprove { margin-top: 8px; padding: 8px 10px; border: 1px dashed #d29922; border-radius: 8px; }
+.routine .rapprove > .meta { margin: 0; }
 .radd { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding: 12px; border: 1px dashed var(--frame); border-radius: 10px; }
 .radd :is(input, select, textarea) { padding: 5px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--lift); color: inherit; font: inherit; }
 .radd input[name="hours"] { width: 5em; }

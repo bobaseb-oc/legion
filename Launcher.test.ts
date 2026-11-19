@@ -100,12 +100,17 @@ test("legion server --install refuses with no key helper, or one not an executab
 
 test("legion server-run (the agent's) takes the gateway's key from its helper, and fails with none", () => {
   const f = fakes();
-  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", UNII_KEY_HELPER: f.helper };
+  const env = { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir, LITELLM_API_BASE: "https://gw.example", UNII_KEY_HELPER: f.helper, GCHAT_WEBHOOK_URL: "fake" };
   const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env });
   expect(out.exitCode).toBe(0);
   const names = out.stdout.toString().split("\n");
   expect(names).toContain("ANTHROPIC_API_KEY");
   expect(names).toContain("UNII_ANTHROPIC_URL");
+  // RED ZONE (security review R6, DRAFT awaiting the user's sign-off):
+  // the GChat webhook's URL never in the server's environment (any
+  // process of this user reads it: ps -E); the server reads the Keychain
+  expect(names).not.toContain("GCHAT_WEBHOOK_URL");
+  expect(names).toContain("UNII_GCHAT_KEYCHAIN");
   const none = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "server-run"], { env: { ...env, UNII_KEY_HELPER: "" } });
   expect(none.exitCode).not.toBe(0);
   expect(none.stdout.toString()).not.toContain("ANTHROPIC_API_KEY");

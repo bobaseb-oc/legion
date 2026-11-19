@@ -1167,3 +1167,30 @@ Success: an unpolished `gh pr create` by a Legion agent is refused by the plugin
 - [x] Mutation check on the plugin-source and allowlist lines; full suite
 
 Review: Hooks.ts runs oc-coding-assistant's own hooks.json (HOOKED allowlist, enabled + user-scoped via installed_plugins.json, CLAUDE_PLUGIN_ROOT set; a failing plugin hook only warns, the user's disableAllHooks drops it). The real installed gate refuses an unpolished `gh pr create` through Hooks.pre and allows it after mark-polished (Hooks.test.ts). skills.ts indexes plugin commands/agents ([command]/[agent]) and excludes coding-assistant@home; real index: 85 entries, 32 oc. rules.md routes all PR review through /oc-coding-assistant:review. Mutants 7/7 killed. Full suite 583 pass; 2 known logs.test.ts failures, plus Cloud.test.ts link_ask flaky under load (passes 3/3 alone, Cloud.ts untouched). Cost: two python3 spawns per Legion shell call (Pre + Post hooks). RED ZONE: the new gate source awaits the user's sign-off. Review itself is rule-enforced only: no hook can tell an improvised review from the command's.
+
+## Security review 3 (fix/security-review-3, one draft PR, RED ZONE)
+Review of 7a7bba5..a39f467 (PRs #22–#33), four auditor slices, each finding re-checked in code.
+Intent: close every finding. Constraints: red test first for each, mutation check (fix reverted alone
+fails a test), Red Zone items land as DRAFT for the user's sign-off. Success: suite at baseline (known
+logs.test.ts + flaky link_ask) plus the new tests; web bundle builds.
+User's call 2026-11-18: one PR, all findings; keep super as the default mode.
+
+- [x] R1 (High, RED) view vs device decided by how the session was made (cookie = view; Bearer/terminal never a view), not by ?device=; /api/act same → verify: Server.test.ts / Secure.test.ts
+- [x] R2 (High) every terminal run cleaned once in Paint.line_ansi (ESC/C0/C1 stripped) → verify: Paint/Deck test with \x1b]52 in PR body, event title, routine why
+- [x] R3 (Med, RED) mode, plan, consent, approve, answer refused from a device, as routine is → verify: Server.test.ts
+- [x] R4 (Med, RED) timers: shown with a close act (web + TUI); user Stop clears all; a timer-fired turn with no view can't set a timer; worker's note delivered as a note → verify: Timer.test.ts
+- [x] R5 (Med, RED) super auto floor from the question's text (redzone/money/outward patterns), import drops floor-kind questions; unreadable saved mode falls back to auto, new chats stay super → verify: Modes.test.ts / Super.test.ts
+- [x] R6 (Med, RED) server reads GCHAT_WEBHOOK_URL from Keychain itself; server_exec strips it → verify: Launcher.test.ts / Config test
+- [x] R7 (Med, RED) view.json gated for write/edit (Machine.gating) and validated on load (routine_check/timer_check, tallies) → verify: Machine.test.ts / Memory test
+- [x] R8 (Med, RED) GChat bridge only for the configured owner's chat → verify: Gchat.test.ts
+- [x] L1 plugin hook source: full key allowlist, installPath under ~/.claude/plugins, missing/broken hooks.json refuses → verify: Hooks.test.ts
+- [x] L2 rules.md says the polish gate is a process reminder, not enforcement
+- [x] L3 pending routine proposals visibly marked (web + TUI), agent text quoted, task shown → verify: Routines/Pages test
+- [x] L4 GChat item text scrubbed with the secret patterns before posting → verify: Gchat.test.ts
+- [x] L5 gchat_why also redacts the encoded token and the original url → verify: Gchat.test.ts
+- [x] L6 Main.lock: exclusive pid lockfile, no unlink-then-bind race → verify: Server.test.ts
+- [x] L7 Explain observer skips when no view is open → verify: Explain.test.ts
+- [x] L1+ (found while fixing L1, RED) a plugin's own hooks.json disableAllHooks no longer drops the user's hooks → verify: Hooks.test.ts
+- Review: 16 fixes, red test first for each; mutants per fix all killed (R1 4/4 after dropping a redundant check, R3 5, R4 13, R5 8, R7 7, R8 3, L1 7, L4–L5 3, L6 3, L7 2, R2 3, L3 5, R6 6); suite 601 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
+- User's calls 2026-11-18: R3 kept (mode/plan/consent/approve/answer refused from the terminal too, web only for now); gchat_user "10" set in ~/.unii/config.json.
+- Follow-ups: terminal gets its own token (Keychain, prompt on every read) so R3 can re-allow it; GCHAT_WEBHOOK_URL Keychain item re-stored prompt-on-read; gateway key (ANTHROPIC_API_KEY) still in the server's env (ps -wwE); terminal can't close a timer (device act); device-typed messages clear the timer no-view flag; plugin hooks that crash only warn; browsers on pre-2026-11-13 cookies must sign in again (R1); ~/.zshrc legion() should go back to the plain alias.

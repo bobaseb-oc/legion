@@ -127,7 +127,7 @@ export type Moved = {
 
 // what the server does for agents (report: work stopped stays unanswered;
 // pick: the chat's pick; halt: what stops its turn; note: a note in the
-// chat, as Chat.note)
+// chat, as Chat.note; viewed: whether a view of the user's is open)
 type Hooks = {
   push   : (agent: Agent, kind: Kind, text: string) => void;
   on     : (agent: Agent, ev: Event) => void;
@@ -136,6 +136,7 @@ type Hooks = {
   pick   : () => Pick;
   halt   : () => AbortSignal;
   note?  : (text: string) => void;
+  viewed?: () => boolean;
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -150,6 +151,7 @@ export type Tools = {
   pay?    : Pay;
   away    : PromiseWithResolvers<string>;
   consents?: Map<number, Consent>; // calls waiting for the user's yes (auto mode's reviewer couldn't check them)
+  rung?   : boolean; // a timer fired with no view open, since the user last spoke: no new timer till a view is (Tools.timer, R4)
 };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
@@ -1189,6 +1191,29 @@ export namespace Tools {
     return { text: "Sent. " + name + "'s reply will reach you as a message.", fail: false };
   }
 
+  // an agent's own timer fired (Server.ts Chat.rang): its note, as a note
+  // (not "user": no message from its manager, so no manager's say), read
+  // between its calls, or an idle one goes on. RED ZONE (who may start
+  // unattended work; security review R4): DRAFT awaiting the user's sign-off
+  export function remind(tools: Tools, name: string, text: string): Out {
+    const agent = Tools.agent(tools, name);
+    if (agent === null || agent.role.$ === "cli") {
+      return { text: "No agent " + name + " to remind.", fail: true };
+    }
+    if (agent.call !== null || agent.runs) {
+      tools.hooks.push(agent, "note", text);
+      agent.call?.send({ text: "note: " + text, imgs: [] });
+      return { text: "Reminded.", fail: false };
+    }
+    const busy = agent.role.$ === "hands" ? Tools.screen(tools, agent.role.device) : null;
+    if (busy !== null) {
+      return { text: busy, fail: true };
+    }
+    tools.hooks.push(agent, "note", text);
+    Tools.run(tools, Object.assign(agent, { replies: [], stop: false }));
+    return { text: "Reminded.", fail: false };
+  }
+
   // an agent the person starts (/agent): a manager of Unii's, as spawn's;
   // its name, else why not
   export async function begin(tools: Tools, task: string): Promise<{ name: string } | { why: string }> {
@@ -1423,9 +1448,17 @@ export namespace Tools {
 
   // a timer of `who`'s set (Routines.timer_check; at most TIMERS_EACH of
   // its own, TIMERS a chat), or one of its own closed; it fires on the
-  // chat's tick (Server.ts Chat.ticked)
+  // chat's tick (Server.ts Chat.ticked).
+  // RED ZONE (who may start unattended work; security review R4): DRAFT
+  // awaiting the user's sign-off. Once a timer fired with no view open
+  // (rung), none is set, by anyone (a woken agent could ask another),
+  // till a view is open or the user speaks: a chain of timers never runs
+  // on unattended; closing one always may
   export function timer(tools: Tools, who: string, args: any): Out {
     const mem = tools.mem;
+    if (args?.close === undefined && tools.rung === true && tools.hooks.viewed?.() !== true) {
+      return { text: "No new timer now: a timer woke this work with no view of the user's open, and timers don't chain unattended. Finish, or say what to check later in your report; the user can set it again.", fail: true };
+    }
     if (args?.close !== undefined) {
       const t = mem.timers.find((x) => x.id === Number(args.close));
       if (t === undefined || t.who !== who) {

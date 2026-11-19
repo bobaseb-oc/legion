@@ -73,7 +73,8 @@ Chat.ticked(chat, Date.now());
 await until(() => asks.length > before);
 const turned = asks.length - before;
 const work = msgs().filter((m) => m.kind === "work" && m.text.startsWith("[Timer")).map((m) => m.text);
-const told = (Memory.agent(chat.tools.mem, worker) ?? []).filter((e) => e.text.startsWith("[Timer")).map((e) => e.text);
+// R4 d): the worker's own reminder, a note, not a "user" message with its parent's say
+const told = (Memory.agent(chat.tools.mem, worker) ?? []).filter((e) => e.text.includes("[Timer")).map((e) => e.kind + ": " + e.text);
 const left = chat.mem.timers.map((x) => x.id);
 
 // a stopped agent's timers go
@@ -96,6 +97,57 @@ const onnow = chat.mem.routines[0].on;
 for (let k = 0; k < 4; k++) await call("main", "routine", { name: "P" + k, task: "t", when: { $: "every", hours: 2 }, why: "w" }, "p" + k);
 const pending = chat.mem.routines.filter((r) => r.by !== undefined && !r.on).length;
 
+// R4 a) (RED ZONE): the user sees each pending timer, closes any one from a view; a device can't
+await call("main", "timer", { minutes: 30, note: "check the deploy" }, "x1");
+const tid = chat.mem.timers.at(-1).id;
+const shown = Chat.state(chat).timers.filter((x) => x.id === tid).map((x) => ({ who: x.who, note: x.note }));
+const closedev = await Chat.act(chat, "x2", { $: "timer", n: tid }, "mac");
+const stilldev = chat.mem.timers.some((x) => x.id === tid);
+const closeview = await Chat.act(chat, "x3", { $: "timer", n: tid }, "");
+const goneview = !chat.mem.timers.some((x) => x.id === tid);
+const closenone = await Chat.act(chat, "x4", { $: "timer", n: 999 }, "");
+// b) the user's Stop (all) clears every timer: Unii's, and one of an agent not at work
+await call("main", "timer", { minutes: 30, note: "again" }, "x5");
+chat.mem.timers.push({ id: 900, who: "Old", at: Date.now() + 60e3, note: "n", made: Date.now() });
+await Chat.act(chat, "x6", { $: "stop" }, "");
+const stopped = chat.mem.timers.length;
+
+// c) (RED ZONE): a timer that fired while no view was open: no new timer
+// (Unii's or an agent's) till a view is open or the user speaks
+const c3 = Chat.open({ id: "u3", name: "e@f.g" });
+Chat.chats.set("u3", c3);
+c3.socks.add(view);
+await until(() => c3.posts === 0);
+c3.socks.delete(view);
+const t3 = (who, args, id) => Tools.call(c3.tools, who, "timer", args, go, id);
+const before3 = await t3("main", { minutes: 1, note: "check CI" }, "z1");
+await t3("main", { minutes: 600, note: "keeps it open" }, "z2");
+c3.mem.timers[0].at = 0;
+Chat.ticked(c3, Date.now());
+await Bun.sleep(50);
+// a device's socket (an agent's shell can reach it) is no view
+const dev = { send: () => {}, data: { ...view.data, who: "dev", host: "mac", device: "mac", seen: new Set(), watch: new Set() } };
+c3.socks.add(dev);
+const chained = await t3("main", { minutes: 5, note: "check CI again" }, "z3");
+const w3 = Tools.start(c3.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "t");
+const chainedsub = await t3(w3, { minutes: 5, note: "and again" }, "z4");
+c3.socks.delete(dev);
+c3.socks.add(view);
+const viewed = await t3("main", { minutes: 5, note: "seen" }, "z5");
+c3.socks.delete(view);
+const stillno = await t3("main", { minutes: 5, note: "unseen" }, "z6");
+await Chat.said(c3, "z7", "keep checking CI");
+const spoke = await t3("main", { minutes: 5, note: "asked" }, "z8");
+// a message the user typed (a body: Chat.text) counts as speaking too
+c3.tools.rung = true;
+const rungagain = await t3("main", { minutes: 5, note: "x" }, "z9");
+const bodyf = c3.mem.dir + "/body.txt";
+await Bun.write(bodyf, "hi there");
+const fh = await (await import("node:fs/promises")).open(bodyf, "r");
+await Chat.text(c3, { fh, size: 8 }, 0, [], "z10");
+await fh.close();
+const typed = await t3("main", { minutes: 5, note: "typed" }, "z11");
+
 // with no view, a pending timer keeps a chat (a fresh one: nothing runs); none, it goes
 const c2 = Chat.open({ id: "u2", name: "c@d.e" });
 Chat.chats.set("u2", c2);
@@ -108,7 +160,8 @@ const kept = Chat.chats.get("u2") === c2;
 c2.mem.timers = [];
 Chat.free(c2);
 const gone = Chat.chats.get("u2") !== c2;
-console.log(JSON.stringify({ w0, w9, w1, waited, w2, cutms, tools, m1, s1, bad, notyours, each, closed, open, state, saved, turned, work, told, left, afterstop, sub, p1, review, proposed, noted, ran, bydevice: bydevice.error ?? null, adddevice: adddevice.error ?? null, offstill, byview, onnow, pending, kept, gone }));
+const r4 = { shown, closedev: closedev.error ?? null, stilldev, closeview, goneview, closenone: closenone.error ?? null, stopped, before3, chained, chainedsub, viewed, stillno, spoke, rungagain, typed };
+console.log(JSON.stringify({ r4, w0, w9, w1, waited, w2, cutms, tools, m1, s1, bad, notyours, each, closed, open, state, saved, turned, work, told, left, afterstop, sub, p1, review, proposed, noted, ran, bydevice: bydevice.error ?? null, adddevice: adddevice.error ?? null, offstill, byview, onnow, pending, kept, gone }));
 process.exit(0);
 `;
 
@@ -142,7 +195,8 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   // fired: Unii takes a turn on "[Timer 1] check CI"; the worker is told
   expect(out.turned).toBeGreaterThanOrEqual(1);
   expect(out.work).toEqual(["[Timer 1] check CI"]);
-  expect(out.told).toEqual(["[Timer 2] poll the job"]);
+  // R4 d): the worker's timer reaches it as its own reminder (a note), not as its parent's message
+  expect(out.told).toEqual(["note: [Timer 2] poll the job"]);
   expect(out.left).not.toContain(1);
   expect(out.left).not.toContain(2);
   expect(out.afterstop).toBe(0);
@@ -164,4 +218,23 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   // a pending timer keeps a chat with no view open
   expect(out.kept).toBe(true);
   expect(out.gone).toBe(true);
+  // R4 a) RED ZONE: shown to the user; closed from a view only
+  const r4 = out.r4;
+  expect(r4.shown).toEqual([{ who: "main", note: "check the deploy" }]);
+  expect(r4.closedev).toMatch(/view/);
+  expect(r4.stilldev).toBe(true);
+  expect(r4.closeview).toEqual({});
+  expect(r4.goneview).toBe(true);
+  expect(r4.closenone).toMatch(/^No timer/);
+  // b) the user's Stop clears them all, Unii's and an idle agent's
+  expect(r4.stopped).toBe(0);
+  // c) RED ZONE: no timer set from a timer's unattended wake, till a view or the user's word
+  expect(r4.before3.fail).toBe(false);
+  expect(r4.chained).toMatchObject({ fail: true, text: expect.stringContaining("no view") });
+  expect(r4.chainedsub.fail).toBe(true);
+  expect(r4.viewed.fail).toBe(false);
+  expect(r4.stillno.fail).toBe(true);
+  expect(r4.spoke.fail).toBe(false);
+  expect(r4.rungagain.fail).toBe(true);
+  expect(r4.typed.fail).toBe(false);
 }, 30_000);

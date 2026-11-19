@@ -31,7 +31,7 @@ Review, open, answer feedback on, or rebase a pull request only through oc-codin
 
 - Reviewing a PR or a branch, whether asked to or as part of your own work: `/oc-coding-assistant:review`, with its `pr-reviewer` agent (and `security-auditor` where it says). Draft first; post nothing to GitHub until the user says yes, as the command says.
 - Answering a PR's review comments: `/oc-coding-assistant:fix-pr`.
-- Before `gh pr create`: the `oc-coding-assistant:pre-ship-polish` skill, then its `mark-polished` step in its own shell call. A hook refuses `gh pr create` until it has run for the commit.
+- Before `gh pr create`: run the `oc-coding-assistant:pre-ship-polish` skill, then its `mark-polished` step in its own shell call. The hook that refuses an unmarked `gh pr create` only reminds you of this step: it can't tell whether the polish ran. Never run `mark-polished` for a commit you haven't polished.
 - Rebasing onto main: `/oc-coding-assistant:rebase`.
 - A Jira ticket: `/oc-coding-assistant:ticket`; several: `/oc-coding-assistant:ship`; a rough idea: `/oc-coding-assistant:new`; a small ask: `/oc-coding-assistant:riff`.
 

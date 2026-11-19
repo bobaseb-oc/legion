@@ -132,7 +132,11 @@ test("what each mode allows: plan only reading; auto and full every tool (auto r
   expect(Modes.next("auto")).toBe("super");
   expect(Modes.next("super")).toBe("full");
   expect(Modes.next("full")).toBe("plan");
-  expect(Modes.read("bogus")).toBe("super");
+  // a saved mode unread or unknown fails closed to auto (security review
+  // R5); a new chat gets super explicitly (Memory.load)
+  expect(Modes.read("bogus")).toBe("auto");
+  expect(Modes.read(undefined)).toBe("auto");
+  expect(Modes.read("super")).toBe("super");
   expect(Modes.read("auto")).toBe("auto");
   // super reviews tool calls exactly as auto
   for (const command of ["git status", "git push origin main", "cat .env"]) {
@@ -434,6 +438,64 @@ test("super: decides only in super mode, for an unlocked kind with a pick among 
   expect(Modes.decides("super", { ...q, kind: "merge", prod: "no" }, tallies)).toBe(false);
 });
 
+// security review R5 (RED ZONE: who decides): the model's kind label is
+// not trusted. A question (or one of its options) worded as a floor kind
+// asks, whatever kind it says; a floor kind asks, whatever its record
+test("super: worded as a floor kind (red zone, money, outward), in its text or options, asks whatever kind it says", () => {
+  const all = { n: 20, took: 20 };
+  const tallies = { push: all, merge: all, redzone: all, money: all, outward: all };
+  const q = { kind: "push", pick: 1, options: ["Hold", "Push it"], text: "Push the branch?" };
+  expect(Modes.decides("super", q, tallies)).toBe(true);
+  for (const text of [
+    "Push the branch with the users table migration?",
+    "Push the RED ZONE auth change?",
+    "Push the fix to the prod db?",
+    "Push the script that drops the old data from the orders table?",
+    "Push the payment page?",
+    "Push it and pay the $300 invoice?",
+    "Push, then email the client the release notes?",
+    "Push and post it in Slack?",
+    "Push and publish the package?",
+  ]) {
+    expect([text, Modes.decides("super", { ...q, text }, tallies)]).toEqual([text, false]);
+  }
+  expect(Modes.decides("super", { ...q, options: ["Hold", "Push and email Dan"] }, tallies)).toBe(false);
+  for (const kind of ["redzone", "money", "outward", "access"]) {
+    expect([kind, Modes.decides("super", { ...q, kind }, tallies)]).toEqual([kind, false]);
+  }
+});
+
+test("super: the kind guessed from its words: the floor (access, red zone, money, outward) before merge and push", () => {
+  const cases: Array<[string, string]> = [
+    ["Run the database migration now?", "redzone"],
+    ["Merge the PR with the schema migration?", "redzone"],
+    ["Restart the production database?", "redzone"],
+    ["Change the repo's permissions for Dan?", "redzone"],
+    ["Delete the stale data in the events table?", "redzone"],
+    ["This touches a red zone: go on?", "redzone"],
+    ["Wire up the payment provider?", "money"],
+    ["Pay the invoice?", "money"],
+    ["Purchase the bigger plan for $40/month?", "money"],
+    ["Charge the card on file?", "money"],
+    ["It costs €120: go ahead?", "money"],
+    ["Spend the rest of the budget on GPUs?", "money"],
+    ["Email Dan the draft?", "outward"],
+    ["Send the summary to the client?", "outward"],
+    ["Post the review on the PR?", "outward"],
+    ["Publish the blog post?", "outward"],
+    ["Tweet the launch?", "outward"],
+    ["Message Ana on Slack about it?", "outward"],
+    ["Share the doc with the external auditors?", "outward"],
+    ["Merge PR #3?", "merge"],
+    ["Push the branch?", "push"],
+    ["Retry the flaky test?", "retry"],
+    ["Need a login", "access"],
+  ];
+  for (const [text, kind] of cases) {
+    expect([text, Modes.guess(text)]).toEqual([text, kind]);
+  }
+});
+
 test("super: a pick is taken when the answer is its option or starts with its letter", () => {
   const q = { options: ["Hold the push", "Push it now", "Ask Dan"], pick: 1 };
   expect(Modes.took(q, "Push it now")).toBe(true);
@@ -486,13 +548,16 @@ test("super: the bootstrap reads past answers from the log: a (rec) answer was t
     ask(9, "Merge it?", "do it"),
     "Reply to your note 10 (x):\nok",
     "Answer to your question 11 (Merge PR #5? A) go (my pick)):\nA",
+    // worded as the floor (R5): dropped, not counted toward merge or other
+    ask(12, "Merge PR #6, the prod db migration? A) merge (my pick) B) hold", "A"),
+    ask(13, "Pay the invoice? A) pay (my pick) B) hold", "A"),
+    ask(14, "Email the client the notes? A) send (my pick) B) hold", "A"),
   ];
   const t = Modes.imported(texts);
   expect(t).toEqual({
     push: { n: 1, took: 1, est: true, auto: [] },
     merge: { n: 3, took: 2, est: true, auto: [] },
     retry: { n: 1, took: 1, est: true, auto: [] },
-    access: { n: 1, took: 1, est: true, auto: [] },
     scope: { n: 1, took: 1, est: true, auto: [] },
     other: { n: 1, took: 0, est: true, auto: [] },
   });

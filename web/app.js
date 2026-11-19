@@ -527,6 +527,9 @@ var ANSWERED = /^Answer to your question (\d+) \(([\s\S]*)\):\n([\s\S]*)$/;
 var REC = /\(rec(?:ommended)?\)/i;
 var MARK = /my pick|\(rec(?:ommended)?\)|recommended/i;
 var LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
+var REDZONE = /\bred[- ]?zone|\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\bprod(uction)?\b[^.?!]{0,30}\b(db|database|data|table)s?\b|\b(db|database)\b[^.?!]{0,30}\bprod(uction)?\b|\bpermission|\b(delet|drop|truncat|wip|purg|eras)\w*\b[^.?!]{0,40}\b(data|table|tables|database|db|rows|records|bucket|backups?)\b/i;
+var MONEY = /\bpay(s|ing|ment|ments)?\b|\bpaid\b|\binvoic|\bpurchas|\bcharg(e|es|ed|ing)\b|\brefund|\bbilling\b|\bsubscri(be|ption)|\bbudget|\bspend(s|ing)?\b|[$€£]\s?\d|\d\s?(usd|eur|gbp|dollars?|euros?)\b/i;
+var OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpublish|\btweet|\bannounce|\bmessage\s+(him|her|them|someone|the (client|customer|team|channel))|\bDM\b|\bslack\b|\bshare\s+(it\s+|the\s+\w+\s+)?with|\bexternal|\breply to (the )?(client|customer|thread|email)/i;
 var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
 var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
@@ -627,7 +630,7 @@ var FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fp
 var Modes;
 ((Modes2) => {
   function read(x) {
-    return MODES.includes(x) ? x : "super";
+    return MODES.includes(x) ? x : "auto";
   }
   Modes2.read = read;
   function next(mode) {
@@ -683,7 +686,8 @@ var Modes;
     if (mode !== "super" || !Number.isInteger(q.pick) || q.pick < 0 || q.pick >= n) {
       return false;
     }
-    if (q.kind === "merge" && q.prod !== false || Modes.guess(q.text ?? "") === "access") {
+    const worded = [q.text ?? "", ...q.options ?? []].some((x) => Modes2.FLOOR.includes(Modes.guess(x)));
+    if (q.kind === "merge" && q.prod !== false || worded) {
       return false;
     }
     return Object.hasOwn(tallies, q.kind) && Modes.unlocked(q.kind, tallies[q.kind]);
@@ -722,7 +726,7 @@ var Modes;
   }
   Modes2.relocks = relocks;
   function guess(question) {
-    return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access" : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge" : /\bpush|\bbranch|\brebase/i.test(question) ? "push" : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry" : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope" : "other";
+    return /\bgrant|credential|secret|\btoken|\blog ?in\b|\bauth|\baccess/i.test(question) ? "access" : REDZONE.test(question) ? "redzone" : MONEY.test(question) ? "money" : OUTWARD.test(question) ? "outward" : /\bmerg|\bPRs?\b|\bapprov/i.test(question) ? "merge" : /\bpush|\bbranch|\brebase/i.test(question) ? "push" : /\bretr(y|ies)|\bfail|\bflaky|\btime(d)? ?out/i.test(question) ? "retry" : /\bticket|\bjira\b|\bAO-\d|\bPLP-\d/i.test(question) ? "scope" : "other";
   }
   Modes2.guess = guess;
   function imported(texts) {
@@ -742,8 +746,8 @@ var Modes;
         const said = Modes.letter(answer);
         took = pick === undefined || said === null ? null : said === pick.charCodeAt(0) - 65;
       }
-      if (took !== null) {
-        const kind = Modes.guess(question);
+      const kind = Modes.guess(question);
+      if (took !== null && !Modes2.FLOOR.includes(kind)) {
         out[kind] = { ...Modes.counted(out[kind], took), est: true };
       }
     }
@@ -2036,6 +2040,9 @@ function view_act(v, act) {
     case "Routine": {
       const { $, ...op } = act;
       return [{ $: "routine", ...op }];
+    }
+    case "Timer": {
+      return (v.timers ?? []).some((t) => t.id === act.n) ? [{ $: "timer", n: act.n }] : [];
     }
     case "Expand": {
       if (!v.expanded.delete(act.name)) {
@@ -3535,12 +3542,29 @@ function routines_html(v, now) {
     const flip = `<button class="pbtn"${act_html2({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html2({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
     const task = r.task === "" ? "" : `<p class="rtask">${esc2(r.task)}</p>`;
-    const by = !pending(r) ? "" : `<p class="meta">Proposed by ${r.by === "main" ? "Unii" : esc2(r.by)}: ${esc2(r.why ?? "")}. Turn it on to approve.</p>`;
-    return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc2(r.name)}</b>${when}</div>${by}${task}<div class="acts">${run}${flip}${drop}</div></div>`;
+    const acts = `<div class="acts">${run}${flip}${drop}</div>`;
+    if (!pending(r)) {
+      return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc2(r.name)}</b>${when}</div>${task}${acts}</div>`;
+    }
+    const who = r.by === "main" ? "Unii" : esc2(r.by);
+    return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc2(r.name)}”</b>${when}</div>` + `<blockquote class="rwhy">${who}'s words: “${esc2(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
   const head = `<div class="phead"><h2>Routines</h2><p class="meta">Each starts a Legion agent on its task; they run while Legion's server runs and a view or a device is connected.</p></div>`;
   const form = `<form class="radd"><b>New routine</b><input name="name" placeholder="Name" maxlength="${NAME}" required>` + `<div class="rwhen"><select name="kind"><option value="daily">daily at</option><option value="weekly">weekly on</option><option value="every">every</option><option value="review">on each new review request</option></select>` + `<select name="day" aria-label="day">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}"${i === 5 ? " selected" : ""}>${d}</option>`).join("")}</select>` + `<input name="at" type="time" value="09:00"><input name="hours" type="number" min="1" max="${HOURS}" value="4" aria-label="hours"><span class="meta">hours</span>` + `<select name="tier"><option value="worker">a worker</option><option value="manager">a manager</option></select></div>` + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${TASK}"></textarea><button class="pbtn">Add</button></form>`;
   return [head, ...rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows, form];
+}
+function timers_html(v) {
+  const ts = v.timers ?? [];
+  if (ts.length === 0) {
+    return [];
+  }
+  const time = (ms) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const rows = ts.map((t) => {
+    const who = t.who === "main" ? "Unii" : esc2(t.who);
+    const close2 = `<button class="pbtn"${act_html2({ $: "Timer", n: t.id })}>Close</button>`;
+    return `<div class="routine"><div class="rh"><b>${t.id}. ${who}</b><span class="meta">at ${esc2(time(t.at))}</span></div><p class="rtask">${esc2(t.note)}</p><div class="acts">${close2}</div></div>`;
+  });
+  return [`<div class="phead"><h3>Timers</h3><p class="meta">Each wakes the agent that set it with its note. Stop (all) clears them all.</p></div>`, ...rows];
 }
 function digest_html(v) {
   const d = v.inbox?.digest ?? null;
@@ -4927,7 +4951,7 @@ function page_bars(mode) {
   } else if (mode === "routines") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
-    markup($("#page .pbody"), routines_html(v, Date.now()));
+    markup($("#page .pbody"), [...routines_html(v, Date.now()), ...timers_html(v)]);
   } else if (mode === "home") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
