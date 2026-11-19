@@ -82,6 +82,22 @@ How it works
   draft). Legion gives a command for you to run in a code block of its
   own: the web's Copy, or the terminal's `/copy` (Ctrl+Y, through your
   terminal's OSC 52), copies it.
+  A shell command running (your `!cmd`, or Legion's own; an agent's on
+  its page) shows over the input as Claude Code's: the command, who and
+  where, its time ticking, its last lines, and "ctrl+b to run in
+  background · esc to stop" (the web adds Background and Stop buttons).
+  Ctrl+B (`/bg`) sends it to the background: it runs on, and the agent
+  that waited on it goes on at once, told its number; agents read and
+  stop their own with `shell_output` and `shell_stop`, and Legion is told
+  when one ends. The background list (the web's, over the input;
+  `/shells`, `/kill <n>` in the terminal) shows each with Stop; your Stop
+  of all work ends them all. Only what speaks for you may send one away
+  or stop it (the web, or `legion` on its own key; signed in with the
+  device key only, the terminal's Ctrl+B sends what runs on it away to a
+  file as before); at most 4 a caller and 8 a chat run in the
+  background, each stopped 10 minutes after it began, their output kept
+  to its head and tail (Red Zone drafts). A device that predates this
+  sends no live lines; the rest works as before.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
   checks each change; anything it can't decide comes to you), super
   auto (the default: as auto, and a question of a kind you answered with

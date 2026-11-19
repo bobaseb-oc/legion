@@ -217,7 +217,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
   return [
     ["Chat", [
       ["",                  "Enter",                   "send; on an empty input, interrupt Legion",    term_enter],
-      ["",                  "Esc",                     "interrupt Legion's turn; agents go on",        (t) => term_act(t, { $: "Send", text: "" })],
+      ["",                  "Esc",                     "interrupt Legion's turn and stop the shell command shown running; agents go on", term_esc],
       ["",                  "Ctrl+C, Ctrl+D",          "clear; on an empty input, interrupt, quit",      term_clear],
       ["/goal <message>",   "",                        "send a message as the goal: at each turn's end, Legion asks itself if it is met, and goes on till it is", (t, a) => term_act(t, { $: "Send", text: "/goal " + a })],
       ["/halt",             "",                        "drop the goal; the turn running ends as it would", (t) => term_act(t, { $: "Send", text: "/halt" })],
@@ -226,7 +226,9 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
       ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x explain, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
-      ["/bg",               "Ctrl+B",                  "send the shell commands running here to the background: they go on, output to a file (Ctrl+B eaten? type /bg)", term_bg],
+      ["/bg",               "Ctrl+B",                  "send the shell commands shown running to the background: they go on, and their callers (/shells lists them; Ctrl+B eaten? type /bg)", term_bg],
+      ["/shells",           "",                        "the commands in the background, running or ended", term_shells],
+      ["/kill <n>",         "",                        "stop background command n", term_kill],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
       ["/export",           "",                        "save memory and account as ./unii-memory.json",  term_export],
@@ -342,10 +344,11 @@ function term_new(url: string): Term {
   t.scr.keys = (key) => term_menu_key(t, key);
   term_status(t, false);
   setInterval(() => term_status(t), STATUS).unref();
-  // the crew panel's spinner (Paint.SPIN): a paint per frame while one works
+  // the crew panel's spinner (Paint.SPIN): a paint per frame while one works;
+  // a shell command's time ticking while one shows (Paint.shell_lines)
   setInterval(() => {
     const spins = t.scr.tty && t.deck === undefined && (t.crew ?? true) && (t.v.busy || t.v.crew.some((c) => c.status === "working"));
-    if (spins) {
+    if (spins || (t.scr.tty && t.deck === undefined && View.view_fore(t.v).length > 0)) {
       term_draw(t);
     }
   }, Paint.SPIN_MS).unref();
@@ -612,7 +615,7 @@ function term_clear(t: Term, key: string): void {
   } else if (key === "Ctrl+D") {
     term_quit(t);
   } else {
-    term_act(t, { $: "Send", text: "" });
+    term_esc(t);
   }
 }
 
@@ -1570,15 +1573,16 @@ function term_paint(t: Term): void {
   const menu  = term_menu(t);
   const over  = [...(menu.items.length === 0 ? [] : Deck.menu_lines(menu.items, menu.sel, iw)), ...(t.toast !== undefined && Date.now() < t.toast.until ? [Paint.toast_line(t.toast.text, iw)] : [])];
   const foot  = [Deck.foot_line(t.v, iw)];
-  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - over.length - foot.length, off ? OFF : hint, off);
+  const shells = Paint.shell_lines(t.v, iw, Date.now());
+  const input = Screen.screen_input(t.scr, iw, room - 2 - crew.length - over.length - shells.length - foot.length, off ? OFF : hint, off);
   const status = View.view_status_line(t.v, { dir: term_dir().split("/").pop() || "~", branch: t.branch ?? null, spend: t.spend ?? { spend: null, stale: true } }, Date.now());
   const under = Paint.rule_text(t.v.pick === null && t.v.up ? "" : Paint.status_text(status), iw);
-  const own   = term_inset([...over, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
+  const own   = term_inset([...over, ...shells, Paint.rule_line(t.v, iw), ...input.lines, under, ...crew, ...foot]);
   const rest  = View.view_stream(t.v).map((l) => ({ kind: l.kind, text: l.text.slice(t.flow.get(l) ?? 0) }));
   const held  = t.v.page === null ? View.view_rows(t.v, t.wait).flat() : [];
   const tail  = term_lines([...held, ...View.view_tail(t.v, rest)]).flatMap((l) => Paint.runs_wrap(l, w, true));
   const above = tail.slice(Math.max(0, tail.length - room + own.length));
-  const at    = { row: above.length + over.length + 1 + input.at.row, col: input.at.col + MARGIN };
+  const at    = { row: above.length + over.length + shells.length + 1 + input.at.row, col: input.at.col + MARGIN };
   Screen.screen_paint(t.scr, t.out, t.wipe, [...above, ...own], at);
   t.out  = [];
   t.wipe = false;
@@ -1588,19 +1592,46 @@ function term_paint(t: Term): void {
 // Jobs
 // ----
 
-// the shell commands running here, sent to the background: each answers
-// now and goes on, its output to a file; dropped from the jobs, so the
-// server's ids no longer stop them (quitting does)
+// Ctrl+B, /bg (B2): the shell commands in sight sent to the background,
+// as the user's act (the server's: on the terminal key, Chat.shell; the
+// background list, agents told their numbers); on the device key only,
+// the server can't take it as the user's, so the ones running here go
+// there as ever (Device.device_away: output to a file the AI is told of)
 function term_bg(t: Term): void {
-  const shells = [...t.jobs].filter(([, run]) => run.name === "shell");
-  if (shells.length === 0) {
+  if (TERMKEY !== null) {
+    term_act(t, { $: "Shell", op: "bg" });
+    return;
+  }
+  const n = Device.device_away(t.jobs);
+  if (n === 0) {
     return term_note(t, "No shell command is running here.");
   }
-  for (const [id, run] of shells) {
-    t.jobs.delete(id);
-    run.away.abort();
+  term_toast(t, "Sent " + n + (n === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
+}
+
+// Esc (and Ctrl+C on an empty input): Legion's turn interrupted, and the
+// shell commands in sight stopped (B2: the user's act, Chat.shell; on the
+// device key only, the server says it can't take it)
+function term_esc(t: Term): void {
+  if (View.view_fore(t.v).length > 0) {
+    term_act(t, { $: "Shell", op: "stop" });
   }
-  term_toast(t, "Sent " + shells.length + (shells.length === 1 ? " shell command" : " shell commands") + " to the background; each one's output goes to a file the AI is told of.");
+  term_act(t, { $: "Send", text: "" });
+}
+
+// /shells: the commands sent to the background (B2), running or ended
+function term_shells(t: Term): void {
+  const lines = View.view_bg_lines(t.v, Date.now());
+  term_note(t, lines.length === 0 ? "No command is in the background." : "In the background (/kill <n> stops one):\n" + lines.join("\n"));
+}
+
+// /kill <n>: background command n stopped (the user's act: Chat.shell)
+function term_kill(t: Term, arg: string): void {
+  const s = View.view_bgs(t.v).find((b) => String(b.n) === arg.trim() && b.ended === undefined);
+  if (s === undefined) {
+    return term_note(t, "No background command " + arg.trim() + " is running: /shells lists them.");
+  }
+  term_act(t, { $: "Shell", op: "stop", job: s.job });
 }
 
 // Login

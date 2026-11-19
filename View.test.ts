@@ -639,3 +639,33 @@ test("explain: the page as the server tells it; a question asked, trimmed; #expl
   expect(View.view_act(v, { $: "Explain", q: "  " })).toEqual([]);
   expect(View.view_route("#explain")).toEqual({ mode: "explain", name: null });
 });
+
+// B2: shell commands running like Claude Code's: the chat shows the
+// user's and Legion's in the foreground, an agent's page that agent's;
+// Ctrl+B and Esc act on those in sight (one shell act each), the
+// background list shows every one sent there; the status block's lines
+// say the command, who, where and how long, its last lines, and the keys
+test("shell commands in sight: their lines, the keys, the acts on them", () => {
+  const v = View.view_new();
+  expect(View.view_fore(v)).toEqual([]);
+  expect(View.view_act(v, { $: "Shell", op: "bg" })).toEqual([]);
+  expect(v.notes.splice(0)).toEqual(["No command is running here."]);
+  const shells: View.Shell[] = [
+    { job: "bang-1", n: null, who: "user", device: "mac", command: "make", since: 1000, lines: ["cc a.c", "cc b.c"] },
+    { job: "j2", n: null, who: "Ada", device: "pc", command: "npm test", since: 2000, lines: [] },
+    { job: "j3", n: 1, who: "main", device: "mac", command: "tail -f log", since: 500, lines: ["x"] },
+    { job: "j4", n: 2, who: "Ada", device: "pc", command: "sleep 9", since: 500, lines: ["(exit 0 in 9.0 s)"], ended: 9500, fail: false },
+  ];
+  View.view_hear(v, { $: "shells", shells });
+  expect(View.view_fore(v).map((s) => s.job)).toEqual(["bang-1"]);
+  expect(View.view_bgs(v).map((s) => s.job)).toEqual(["j3", "j4"]);
+  expect(View.view_act(v, { $: "Shell", op: "bg" })).toEqual([{ $: "shell", op: "bg", job: "bang-1" }]);
+  expect(View.view_act(v, { $: "Shell", op: "stop", job: "j3" })).toEqual([{ $: "shell", op: "stop", job: "j3" }]);
+  expect(View.view_shell_lines(v, 66_000)).toEqual(["$ make · you on mac · 1m 05s", "  cc a.c", "  cc b.c", View.RUN_HINT]);
+  expect(View.RUN_HINT).toBe("ctrl+b to run in background · esc to stop");
+  View.view_hear(v, { $: "state", ...v, shells: shells.slice(1) });
+  v.page = { name: "Ada", log: [], live: [] };
+  expect(View.view_fore(v).map((s) => s.job)).toEqual(["j2"]);
+  expect(View.view_shell_lines(v, 14_000)).toEqual(["$ npm test · Ada on pc · 12s", View.RUN_HINT]);
+  expect(View.view_bg_lines(v, 20_000)).toEqual(["1 · running 19s · Legion on mac · $ tail -f log", "2 · done (exit 0 in 9.0 s) · Ada on pc · $ sleep 9"]);
+});

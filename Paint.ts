@@ -437,6 +437,16 @@ export function toast_line(text: string, w: number): Line {
   return [Run(text_cut(text_clean(text), w), { ...INK, b: true, c: Theme.ANSI.you })];
 }
 
+// B2: the shell commands running in sight, over the input (as Claude
+// Code's): each head ("$ cmd · who on device · 12s") in the shell's
+// color, its last lines and the keys dim, each cut to w. RED ZONE (DRAFT
+// awaiting the user's sign-off): what a command prints is cleaned
+// (text_clean: no control character, so no escape of its own reaches the
+// terminal), as every Run's is
+export function shell_lines(v: View.View, w: number, now: number): Line[] {
+  return View.view_shell_lines(v, now).map((l) => [Run(text_cut(text_clean(l), w), l.startsWith("$ ") ? SHELL : DIM)]);
+}
+
 export function rule_text(text: string, w: number): Line {
   const tag = text === "" ? "" : " " + text + " ";
   return [Run("─".repeat(Math.max(0, w - text_width(tag) - 1)) + tag + "─", DIM)];

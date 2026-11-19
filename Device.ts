@@ -92,6 +92,21 @@ export async function device_run(jobs: Map<string, Run>, id: string, job: Job, r
   send({ $: "out", job: id, out: size > most ? big : out });
 }
 
+// the shell commands running here (an agent's, the user's !command) sent
+// to the background by this terminal's own Ctrl+B, where its socket
+// can't speak for the user (no terminal key: the server's background,
+// Chat.shell, refuses it): each answers now and goes on, its output to
+// a file (Machine.shell); dropped from the jobs, so the server's ids no
+// longer stop them (quitting does). How many
+export function device_away(jobs: Map<string, Run>): number {
+  const shells = [...jobs].filter(([, run]) => run.name === "shell" || run.name === USER_SHELL);
+  for (const [id, run] of shells) {
+    jobs.delete(id);
+    run.away.abort();
+  }
+  return shells.length;
+}
+
 // how often a device reports its status (ms)
 export const STATUS_EVERY = 60_000;
 

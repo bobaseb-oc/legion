@@ -1774,6 +1774,10 @@ function view_hear(v, msg) {
       Object.assign(v, state, { crew: state.crew ?? [] });
       return [];
     }
+    case "shells": {
+      v.shells = msg.shells;
+      return [];
+    }
     case "agent": {
       const page = v.pages.get(msg.name);
       if (page === undefined) {
@@ -1890,6 +1894,11 @@ function view_act(v, act) {
     }
     case "Stop": {
       return [{ $: "stop", name: act.name }];
+    }
+    case "Shell": {
+      const jobs = act.job === undefined ? view_fore(v).map((s) => s.job) : [act.job];
+      v.notes.push(...jobs.length === 0 ? ["No command is running here."] : []);
+      return jobs.map((job) => ({ $: "shell", op: act.op, job }));
     }
     case "Undo": {
       return [{ $: "undo", name: act.name }];
@@ -2127,6 +2136,29 @@ function view_typing(_v) {
 }
 function view_shell(text) {
   return text.trimStart().startsWith("!");
+}
+var RUN_HINT = "ctrl+b to run in background · esc to stop";
+function view_fore(v) {
+  const here = v.page === null ? ["user", "main"] : [v.page.name];
+  return (v.shells ?? []).filter((s) => s.n === null && s.ended === undefined && here.includes(s.who));
+}
+function view_bgs(v) {
+  return (v.shells ?? []).filter((s) => s.n !== null);
+}
+function shell_who(s) {
+  return s.who === "user" ? "you" : s.who === "main" ? "Legion" : s.who;
+}
+function shell_time(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n) => String(n).padStart(2, "0");
+  return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m " + pad(s % 60) + "s" : Math.floor(s / 3600) + "h " + pad(Math.floor(s / 60) % 60) + "m";
+}
+function shell_state(s, now) {
+  if (s.ended === undefined) {
+    return "running " + shell_time(now - s.since);
+  }
+  const last = s.lines.at(-1);
+  return (s.fail ? "failed" : "done") + (last === undefined ? "" : " " + last);
 }
 function view_crew(v, now) {
   const known = new Set(v.crew.map((c) => c.name));
@@ -2917,6 +2949,31 @@ function tabs_html(tabs) {
     const here = tab.here ? ` class="here"` : "";
     return `<button${here}${act_html({ $: "Goto", name: tab.name })}>${esc2(tab.text)}</button>`;
   });
+}
+function shells_html(v) {
+  const fore = view_fore(v);
+  if (fore.length === 0) {
+    return [];
+  }
+  const rows = fore.map((s) => {
+    const lines = s.lines.length === 0 ? "" : `<pre class="slines">${esc2(s.lines.join(`
+`))}</pre>`;
+    const buttons = `<button class="sbg"${act_html({ $: "Shell", op: "bg", job: s.job })}>Background</button><button class="sstop"${act_html({ $: "Shell", op: "stop", job: s.job })}>Stop</button>`;
+    return `<div class="shell"><div class="shead"><code>$ ${esc2(s.command)}</code><span class="swho">${esc2(shell_who(s))} on ${esc2(s.device)} · <span class="stime" data-since="${s.since}"></span></span>${buttons}</div>${lines}</div>`;
+  });
+  return [...rows, `<div class="shint">${esc2(RUN_HINT)}</div>`];
+}
+function bgs_html(v) {
+  const bgs = view_bgs(v);
+  if (bgs.length === 0) {
+    return [];
+  }
+  const rows = bgs.map((s) => {
+    const stop = s.ended === undefined ? `<button class="sstop"${act_html({ $: "Shell", op: "stop", job: s.job })}>Stop</button>` : "";
+    return `<div class="bg${s.fail ? " failed" : ""}"><span class="bgn">${s.n}</span><code>$ ${esc2(s.command)}</code><span class="swho">${esc2(shell_who(s))} on ${esc2(s.device)} · ${s.ended === undefined ? `running <span class="stime" data-since="${s.since}"></span>` : esc2(shell_state(s, 0))}</span>${stop}</div>`;
+  });
+  const running = bgs.filter((s) => s.ended === undefined).length;
+  return [`<details class="bgs"><summary>${running} running in the background${bgs.length > running ? ", " + (bgs.length - running) + " ended" : ""}</summary>${rows.join("")}</details>`];
 }
 function credit_html(app) {
   const buttons = [10, 25, 50, 100].map((usd) => `<button data-usd="${usd}">$${usd}</button>`).join("");
@@ -4051,6 +4108,8 @@ function chat() {
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
   document.addEventListener("keydown", palette_keys);
+  document.addEventListener("keydown", shell_keys);
+  setInterval(() => (v.shells ?? []).some((s) => s.ended === undefined) && shell_times(), 1000);
   $("#pq").oninput = () => {
     C.pal = 0;
     palette_draw();
@@ -4384,7 +4443,7 @@ function hear(msg) {
   if (now.length > 0) {
     toast("Now " + now.map((k) => k.hint).join("; ") + ".");
   }
-  P.rows ||= msg.$ === "state" ? v.agents.join() !== agents : msg.$ !== "delta" && msg.$ !== "live";
+  P.rows ||= msg.$ === "state" ? v.agents.join() !== agents : msg.$ !== "delta" && msg.$ !== "live" && msg.$ !== "shells";
   if (msg.$ === "state") {
     view_alerts(v, Date.now()).forEach(notify);
   }
@@ -4795,8 +4854,28 @@ function bars() {
   $("#tabs").hidden = crew || tabs.length < 2;
   markup($("#tabs"), crew ? [] : tabs_html(tabs));
   $("#status").textContent = P.guest ? "" : view_status(v);
+  markup($("#shells"), P.guest ? [] : shells_html(v));
+  markup($("#bgs"), P.guest ? [] : bgs_html(v));
+  shell_times();
   crew_bars();
   import_bar();
+}
+function shell_times() {
+  for (const el of document.querySelectorAll(".stime[data-since]")) {
+    el.textContent = shell_time(Date.now() - Number(el.dataset.since));
+  }
+}
+function shell_keys(ev) {
+  if (view_fore(v).length === 0 || ev.metaKey || ev.altKey || document.querySelector("dialog[open]") !== null) {
+    return;
+  }
+  if (ev.ctrlKey && ev.key.toLowerCase() === "b") {
+    ev.preventDefault();
+    act({ $: "Shell", op: "bg" });
+  } else if (ev.key === "Escape" && !ev.ctrlKey) {
+    ev.preventDefault();
+    act({ $: "Shell", op: "stop" });
+  }
 }
 function crew_route() {
   const r = view_route(location.hash);

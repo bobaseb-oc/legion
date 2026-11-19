@@ -722,3 +722,17 @@ test("a running shell sends what it printed since its last tail, then its output
   expect((await until(() => outs().some((o) => o.job === "j10"))) || (await until(() => outs().some((o) => o.job === "j10")))).toBe(true);
   expect(got.some((m) => m.$ === "tail" && m.job === "j10")).toBe(false);
 }, 10_000);
+
+// B2 (B1's note): a terminal on its device key only (no terminal key: the
+// server can't take its Ctrl+B as the user's) sends its own running shell
+// commands to the background where they run, the user's !command too:
+// each answers now, its output to a file; any other job stays
+test("a terminal's own Ctrl+B sends its shell commands here away, the user's !command too, nothing else", () => {
+  const run = (name: string) => ({ abort: new AbortController(), away: new AbortController(), name });
+  const jobs = new Map([["a", run("shell")], ["b", run("user_shell")], ["c", run("read")]]);
+  const [a, b, c] = [jobs.get("a")!, jobs.get("b")!, jobs.get("c")!];
+  expect(Device.device_away(jobs)).toBe(2);
+  expect([a.away.signal.aborted, b.away.signal.aborted, c.away.signal.aborted]).toEqual([true, true, false]);
+  expect([...jobs.keys()]).toEqual(["c"]);
+  expect(Device.device_away(jobs)).toBe(0);
+});

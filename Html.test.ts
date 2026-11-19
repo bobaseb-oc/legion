@@ -354,3 +354,32 @@ test("a code block has a Copy button with its whole text, escaped", () => {
   expect(html).toContain(`<button class="copy" data-copy="${esc}" title="Copy">`);
   expect(html).not.toContain("<img");
 });
+
+// B2: a shell command running shows over the composer as Claude Code's:
+// its command, who and where, its time (ticking: data-since), its last
+// lines, Background and Stop, the keys; the background list each one
+// sent there, Stop on those running. RED ZONE (DRAFT): what a command
+// prints, and the command itself, are escaped: never markup
+test("the shell status block and background list: buttons acting on each, a command's text escaped", () => {
+  const v = View.view_new();
+  expect(Html.shells_html(v)).toEqual([]);
+  expect(Html.bgs_html(v)).toEqual([]);
+  const evil = "<img src=x onerror=alert(1)>";
+  View.view_hear(v, { $: "shells", shells: [
+    { job: "bang-1", n: null, who: "user", device: "mac", command: "echo " + evil, since: 1000, lines: [evil, "b & c"] },
+    { job: "j3", n: 1, who: "main", device: "mac", command: "tail " + evil, since: 0, lines: [] },
+    { job: "j4", n: 2, who: "Ada", device: "pc", command: "make", since: 0, lines: ["(exit 2 in 1.0 s)"], ended: 1000, fail: true },
+  ] });
+  const html = [...Html.shells_html(v), ...Html.bgs_html(v)].join("");
+  expect(html).not.toContain("<img");
+  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;\nb &amp; c");
+  expect(html).toContain('data-since="1000"');
+  expect(html).toContain('running <span class="stime" data-since="0"></span>');
+  const act = (a: View.Act) => `data-act="${Html.esc(JSON.stringify(a))}"`;
+  expect(html).toContain(act({ $: "Shell", op: "bg", job: "bang-1" }));
+  expect(html).toContain(act({ $: "Shell", op: "stop", job: "bang-1" }));
+  expect(html).toContain(act({ $: "Shell", op: "stop", job: "j3" }));
+  expect(html).not.toContain(act({ $: "Shell", op: "stop", job: "j4" }));
+  expect(html).toContain(View.RUN_HINT);
+  expect(html).toContain("failed (exit 2 in 1.0 s)");
+});
