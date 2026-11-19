@@ -165,7 +165,7 @@ export namespace Cloud {
     return Cloud.live(cloud, Cloud.hash(Cloud.token(req)));
   }
 
-  // RED ZONE (R1, DRAFT awaiting the user's sign-off): whether a request
+  // RED ZONE (R1, signed off by the user 2026-11-19): whether a request
   // is a browser's: its session made by a browser's sign-in, not a
   // terminal's (term 0), however its token is sent (a terminal's sent as
   // a cookie is no browser's)

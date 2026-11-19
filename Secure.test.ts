@@ -118,7 +118,7 @@ test("HTML goes with a CSP; every answer with nosniff and no referrer; /tree run
   expect(await tree.text()).not.toContain("<script");
 });
 
-// RED ZONE (R1, DRAFT awaiting the user's sign-off): a view is a
+// RED ZONE (R1, signed off by the user 2026-11-19): a view is a
 // browser's only: its session a cookie's, made by a browser's sign-in. A
 // terminal's Bearer session (its token in ~/.unii, within an agent
 // shell's reach) is never one: its socket names its device or is

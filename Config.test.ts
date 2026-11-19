@@ -64,7 +64,7 @@ test("mcp_reads: exact mcp__server__tool names, comma-separated; others refuse t
   }
 });
 
-// RED ZONE (security review R6, DRAFT awaiting the user's sign-off): the
+// RED ZONE (security review R6, signed off by the user 2026-11-19): the
 // GChat webhook's URL read by the server itself from the login Keychain
 // (UNII_GCHAT_KEYCHAIN=1, the launcher's), never from its environment
 // (any process of this user reads that: ps -E), and not put back in a

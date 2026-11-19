@@ -1,7 +1,7 @@
 // Memory test
 // ===========
 // `bun test Memory.test.ts`. A chat's view.json read back (Memory.load):
-// RED ZONE (R7, DRAFT awaiting the user's sign-off): what it says of who
+// RED ZONE (R7, signed off by the user 2026-11-19): what it says of who
 // decides (the mode, routines on or off, super auto's tallies, timers) is
 // checked as it loads, each entry not well formed dropped, so a file
 // written by hand (or by an agent) can't start work or decide for the user.

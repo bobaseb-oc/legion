@@ -235,7 +235,7 @@ export namespace Hooks {
   // the project's; only a managed disableAllHooks drops managed ones, and a
   // project's drops none (RED ZONE, security review SB, DRAFT awaiting
   // the user's sign-off, M3: an agent can write its project's settings).
-  // RED ZONE (security review L1, DRAFT awaiting the user's sign-off): an
+  // RED ZONE (security review L1, signed off by the user 2026-11-19): an
   // allowlisted plugin's hooks.json fails closed as managed settings do,
   // missing or unreadable, or its root not really under the plugins dir,
   // unless the user's disableAllHooks drops its hooks anyway; a plugin's

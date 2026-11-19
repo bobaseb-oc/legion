@@ -1194,7 +1194,7 @@ export namespace Tools {
   // an agent's own timer fired (Server.ts Chat.rang): its note, as a note
   // (not "user": no message from its manager, so no manager's say), read
   // between its calls, or an idle one goes on. RED ZONE (who may start
-  // unattended work; security review R4): DRAFT awaiting the user's sign-off
+  // unattended work; security review R4): signed off by the user 2026-11-19
   export function remind(tools: Tools, name: string, text: string): Out {
     const agent = Tools.agent(tools, name);
     if (agent === null || agent.role.$ === "cli") {
@@ -1449,8 +1449,8 @@ export namespace Tools {
   // a timer of `who`'s set (Routines.timer_check; at most TIMERS_EACH of
   // its own, TIMERS a chat), or one of its own closed; it fires on the
   // chat's tick (Server.ts Chat.ticked).
-  // RED ZONE (who may start unattended work; security review R4): DRAFT
-  // awaiting the user's sign-off. Once a timer fired with no view open
+  // RED ZONE (who may start unattended work; security review R4): signed
+  // off by the user 2026-11-19. Once a timer fired with no view open
   // (rung), none is set, by anyone (a woken agent could ask another),
   // till a view is open or the user speaks: a chain of timers never runs
   // on unattended; closing one always may

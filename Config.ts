@@ -99,7 +99,7 @@ const VARS: Record<string, string> = {
 // the GChat bridge's space (Gchat.ts: on only with KEYS.gchat, its webhook)
 export const GCHAT_SPACE = config_get("gchat_space", "");
 
-// RED ZONE (security review R6, DRAFT awaiting the user's sign-off): the
+// RED ZONE (security review R6, signed off by the user 2026-11-19): the
 // GChat webhook's URL (a key: who has it posts to the space) read by this
 // server from the login Keychain itself (service GCHAT_WEBHOOK_URL, the
 // README's), never from its environment, which any process of this user
@@ -112,7 +112,7 @@ export const GCHAT_SPACE = config_get("gchat_space", "");
 // said without a key
 const GCHAT_KEYCHAIN = process.env.UNII_GCHAT_KEYCHAIN === "1";
 
-// RED ZONE (R8, DRAFT awaiting the user's sign-off): the one user whose
+// RED ZONE (R8, signed off by the user 2026-11-19): the one user whose
 // chat it bridges (their id, as in users/<id>); none: no one's
 export const GCHAT_USER  = config_get("gchat_user", "");
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
