@@ -1194,3 +1194,13 @@ User's call 2026-11-18: one PR, all findings; keep super as the default mode.
 - Review: 16 fixes, red test first for each; mutants per fix all killed (R1 4/4 after dropping a redundant check, R3 5, R4 13, R5 8, R7 7, R8 3, L1 7, L4–L5 3, L6 3, L7 2, R2 3, L3 5, R6 6); suite 601 pass, 3 known fails (link_ask, two local/prime logs); bundle builds.
 - User's calls 2026-11-18: R3 kept (mode/plan/consent/approve/answer refused from the terminal too, web only for now); gchat_user "10" set in ~/.unii/config.json.
 - Follow-ups: terminal gets its own token (Keychain, prompt on every read) so R3 can re-allow it; GCHAT_WEBHOOK_URL Keychain item re-stored prompt-on-read; gateway key (ANTHROPIC_API_KEY) still in the server's env (ps -wwE); terminal can't close a timer (device act); device-typed messages clear the timer no-view flag; plugin hooks that crash only warn; browsers on pre-2026-11-13 cookies must sign in again (R1); ~/.zshrc legion() should go back to the plain alias.
+
+## Tests never touch the real ~/.unii (fix/test-isolation)
+Why: on 2026-11-18 a full `bun test` replaced the user's real ~/.unii/cloud.db with Cloud.test.ts fixtures (all sessions and the email → account 10 row lost; restored by hand 2026-11-19), and left test dirs in ~/.unii/work and lines in ~/.unii/okf-gaps.jsonl. Bun runs every test file in one process with one module cache, so Config.DIR is fixed by whichever file imports Config first; Cloud.test.ts sets UNII_DIR then deletes config.DIR/cloud.db. Other paths use os.homedir() + "/.unii" directly (Server work default, lock, okf-wiki, Computer, Term).
+Promise: `bun test` (whole suite or one file) runs with HOME and UNII_DIR in a fresh temp dir set before any test file loads, and fails loudly if not; Cloud.test.ts refuses to delete a cloud.db outside that dir.
+Edit scope: bunfig.toml (new), test/setup.ts (new), Isolation.test.ts (new), Cloud.test.ts, any test that breaks under a temp HOME (minimal), tasks/lessons.md.
+- [x] Red: Isolation.test.ts asserts os.homedir(), config.DIR and UNII_DIR sit under the preload's temp root → fails without the preload
+- [x] test/run.sh (`bun run test`) sets a temp HOME, UNII_DIR and git identity before bun starts (bun reads HOME once, so a preload can't move it), --isolate; the preload (bunfig.toml, test/setup.ts) refuses a bare `bun test` → Isolation green; mutants (no HOME in run.sh, no refusal) caught
+- [x] Cloud.test.ts guard dropped: with the wrapper and the refusal it could never fire (untestable), so not added
+- [x] Full suite via bun run test: 603 pass, 2 known logs fails (link_ask no longer fails: it was this bug); real ~/.unii untouched (cloud.db inode, work dirs, okf-gaps size, users same before and after)
+- [x] Lesson in tasks/lessons.md
