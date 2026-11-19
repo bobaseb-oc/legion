@@ -12,11 +12,14 @@ const { Cloud } = await import("./Cloud.ts");
 // the site, as the first test file to load Config set it (one process)
 const config = await import("./Config.ts");
 
-// accounts in a dir made anew; the last test's goes after all
-function cloud_new() {
+// accounts in a dir made anew; the last test's goes after all. local: a
+// server with no mail key (S1b), else one that mails (its post a stub)
+function cloud_new(local = false) {
   fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true });
   fs.mkdirSync(process.env.UNII_DIR ?? "", { recursive: true });
-  return Cloud.open(() => {}, () => {}, async () => null);
+  const cloud = Cloud.open(() => {}, () => {}, async () => null);
+  cloud.local = local;
+  return cloud;
 }
 
 afterAll(() => fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true }));
@@ -341,4 +344,102 @@ test("phone features are off by default", async () => {
   cloud.phone = true;
   expect((await push())?.status).toBe(200);
   expect(stored().n).toBe(1);
+});
+
+// RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): a local Legion
+// (no mail key) prints no link: the terminal that asked gets its ticket
+// and confirms with code and the sign-in secret. The first registers it
+// (its hash only, 0600), once; then only that secret signs in; a missing
+// or wrong one is refused and uses the link up. A browser's sign-in there
+// is refused (legion web), and nothing is printed
+test("a local Legion's sign-in needs the sign-in secret: registered once, then required; no link printed", async () => {
+  const cloud = cloud_new(true);
+  const said: string[] = [];
+  const log = console.log;
+  const err = console.error;
+  console.log = (...a: any[]) => said.push(a.join(" "));
+  console.error = (...a: any[]) => said.push(a.join(" "));
+  try {
+    const ask = async (body: object) => (await Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify(body) })))!;
+    const begin = async () => {
+      const key = Cloud.random();
+      const term = Cloud.random();
+      const res = await ask({ who: "me@x.com", key, term });
+      expect(res.status).toBe(200);
+      return { key, term, ...(await res.json()) as { t: string; code: string; secret: boolean } };
+    };
+    const confirm = (t: string, code: string, more: Record<string, string>) => Cloud.confirm(cloud, new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t, code, ...more }).toString() }));
+    const live = (token: string) => Cloud.live(cloud, Cloud.hash(token)) !== null;
+    // a browser's (no key): refused, no ticket
+    const browser = await ask({ who: "me@x.com" });
+    expect(browser.status).toBe(400);
+    expect(((await browser.json()) as { error: string }).error).toContain("legion login");
+    expect(cloud.db.query("select count(*) n from tickets").get()).toEqual({ n: 0 });
+    // none registered yet: without one, refused, the link used up
+    const a = await begin();
+    expect(a.secret).toBe(false);
+    expect(a.code).toBe(Cloud.code(Cloud.hash(a.key)));
+    expect((await confirm(a.t, a.code, {})).status).toBe(403);
+    expect(live(a.key)).toBe(false);
+    expect((await confirm(a.t, a.code, { secret: Cloud.random(), register: "1" })).headers.get("location")).toContain("expired=1");
+    // a well-formed secret, none registered: refused; a weak one never
+    // registers
+    for (const more of [{ secret: Cloud.random() }, { secret: "short", register: "1" }]) {
+      const n = await begin();
+      expect((await confirm(n.t, n.code, more)).status).toBe(403);
+      expect(live(n.key)).toBe(false);
+    }
+    expect(fs.existsSync(config.DIR + "/signin-hash")).toBe(false);
+    // the first registers it: signed in, only its hash kept, 0600
+    const secret = Cloud.random();
+    const b = await begin();
+    expect((await confirm(b.t, b.code, { secret, register: "1" })).status).toBe(200);
+    expect(live(b.key)).toBe(true);
+    expect(live(b.term)).toBe(true);
+    const file = config.DIR + "/signin-hash";
+    expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    // once one is: another registration is refused, and so are no secret,
+    // a wrong one, and a right one after the link was used up
+    const c = await begin();
+    expect(c.secret).toBe(true);
+    expect((await confirm(c.t, c.code, { secret: Cloud.random(), register: "1" })).status).toBe(403);
+    expect(live(c.key)).toBe(false);
+    expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
+    for (const more of [{}, { secret: Cloud.random() }, { secret: "short" }] as Record<string, string>[]) {
+      const d = await begin();
+      expect((await confirm(d.t, d.code, more)).status).toBe(403);
+      expect((await confirm(d.t, d.code, { secret })).headers.get("location")).toContain("expired=1");
+      expect(live(d.key)).toBe(false);
+    }
+    // the right one, with the code: signed in
+    const e = await begin();
+    expect((await confirm(e.t, e.code, { secret })).status).toBe(200);
+    expect(live(e.key)).toBe(true);
+    expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + e.term } }))).toBe(true);
+    // an emailed link's ticket (one from before, or forged) signs no
+    // browser in there
+    const mailed = Cloud.ticket(cloud, { who: "me@x.com", session: null }, 60000);
+    const pressed = await Cloud.http(cloud, new Request("http://127.0.0.1/auth", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ t: mailed }).toString() }));
+    expect(pressed?.headers.get("set-cookie") ?? "").toBe("");
+    // nothing printed, no link, no ticket
+    expect(said).toEqual([]);
+  } finally {
+    console.log = log;
+    console.error = err;
+  }
+});
+
+// a server with a mail key mails the link (cloud.post), as before: no
+// ticket in the answer, no sign-in secret asked
+test("a server that mails: the link goes by mail, never in the answer", async () => {
+  const cloud = cloud_new();
+  const mails: any[] = [];
+  cloud.post = async (m: object) => (mails.push(m), null);
+  const key = Cloud.random();
+  const res = await Cloud.http(cloud, new Request("http://127.0.0.1/api/login", { method: "POST", body: JSON.stringify({ who: "m@x.com", key }) }));
+  const out = (await res!.json()) as Record<string, unknown>;
+  expect(out.t).toBeUndefined();
+  expect(mails).toHaveLength(1);
+  expect(mails[0].text).toContain(config.SITE + "/auth?t=");
 });

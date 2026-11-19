@@ -563,3 +563,14 @@ test("super: the bootstrap reads past answers from the log: a (rec) answer was t
   });
   expect(["Approve the PR?", "Rebase the branch?", "The build timed out", "Need a login", "Jira PLP-9 scope", "Lunch?", "Merge the PR that rotates the deploy token?"].map(Modes.guess)).toEqual(["merge", "push", "retry", "access", "scope", "other", "access"]);
 });
+
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
+// that names Legion's dir or its trust state (cloud.db, server.log, the
+// sign-in hash), however it reaches it, goes to auto mode's reviewer,
+// even a plain read
+test("auto reviews shell commands touching Legion's trust state", () => {
+  for (const c of ["cat ~/.unii/cloud.db", "cd ~/.unii && cat cloud.db", "sqlite3 cloud.db .dump", "tail server.log", "cat signin-hash", "ls $UNII_DIR", "ls ~/.unii"]) {
+    expect([c, Modes.reviews("auto", "shell", { command: c })]).toEqual([c, true]);
+  }
+  expect(Modes.reviews("auto", "shell", { command: "ls src" })).toBe(false);
+});

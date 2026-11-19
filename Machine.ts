@@ -21,7 +21,7 @@ import { Computer } from "./Computer.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import { Hooks, type Call, type Source } from "./Hooks.ts";
-import { SECRET, SECRET_AT } from "./Modes.ts";
+import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
 
 // Types
 // =====
@@ -85,6 +85,16 @@ const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 // view.json, users/<id>/view.json in that dir: its mode, routines (on or
 // off), tallies (what super auto decides for the user) and timers
 const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
+
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
+// naming Legion's trust state (Modes.ts TRUST) by its path in ~/.unii or
+// $UNII_DIR / $UNII_HOME, or the launcher's `legion log` (server.log):
+// refused in every mode (Machine.trust_named; one naming the dir only, or
+// such a file elsewhere, goes to auto mode's reviewer: Modes SECRETS).
+// Residual: an agent's shell runs as the user, so a disguised command
+// (cd, a variable, a script) in full mode still reaches them; the gates
+// (the reviewer, hooks, these) are the boundary, not the disk
+const TRUST_SHELL = /(\.unii|\$\{?UNII_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|unii-local\.sh)\s+log\b/i;
 
 // RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
 // own !command (Chat.bang makes it, only from what speaks for the user:
@@ -232,7 +242,36 @@ export namespace Machine {
     if ((c.tool === "Read" || c.tool === "Grep" || c.tool === "Glob") && Machine.secret(p)) {
       return "Refused: " + p + " may hold a secret: not read.";
     }
+    if (c.tool === "Bash" && Machine.trust_named(String(c.input.command ?? ""))) {
+      return "Refused: the command touches Legion's own sign-ins (cloud.db, the sign-in hash, server.log, a token): the user does that, not an agent.";
+    }
     return null;
+  }
+
+  // RED ZONE (S1c, DRAFT awaiting the user's sign-off): whether a path is
+  // Legion's trust state (Modes.ts TRUST) in its dir (~/.unii, $UNII_DIR,
+  // $UNII_HOME), by its path or its real one, in any case: secret (no
+  // read, grep, glob) and gating (no write, edit)
+  export function trust(p: string): boolean {
+    const fold = (q: string) => q.normalize("NFKC").toLowerCase();
+    const dirs = Machine.trust_dirs().map(fold);
+    const at = path.resolve(p);
+    return [at, Machine.real(at)].map(fold).some((q) => dirs.some((d) => q.startsWith(d + "/") && TRUST.test(q.slice(d.length))));
+  }
+
+  // whether a shell command names Legion's trust state by its path
+  // (TRUST_SHELL, or a dir of trust_dirs written out), in any case
+  export function trust_named(command: string): boolean {
+    const q = command.normalize("NFKC").toLowerCase();
+    const after = (d: string) => q.split(d.toLowerCase() + "/").slice(1).map((rest) => "/" + rest.split(/[\s'"`;|&<>()]/)[0]);
+    return TRUST_SHELL.test(q) || Machine.trust_dirs().some((d) => after(d).some((rest) => TRUST.test(rest)));
+  }
+
+  // Legion's dirs, as named and real: the server's (~/.unii, $UNII_DIR)
+  // and a terminal's ($UNII_HOME, its token files)
+  export function trust_dirs(): string[] {
+    const env = [process.env.UNII_DIR, process.env.UNII_HOME].filter((d): d is string => !!d);
+    return [os.homedir() + "/.unii", ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
   }
 
   // a path's real path: its symlinks followed as far as it exists
@@ -249,7 +288,7 @@ export namespace Machine {
   // its real one
   export function secret(p: string): boolean {
     const at = path.resolve(p);
-    return [at, Machine.real(at)].some(Machine.secret_name);
+    return [at, Machine.real(at)].some(Machine.secret_name) || Machine.trust(at);
   }
 
   // whether a path, as named (no link followed), may hold a secret
@@ -268,7 +307,7 @@ export namespace Machine {
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
-    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length))));
+    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
   }
 
   // this unii's environment for a job (ENV; also: a worker's more), marked

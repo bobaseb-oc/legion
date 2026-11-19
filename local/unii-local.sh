@@ -18,7 +18,7 @@
 #                     (routines run with no tab or terminal open; it reads the
 #                     gateway's key from $UNII_KEY_HELPER at each start),
 #                     `--uninstall` removes it
-#   legion log          follow the server's log (sign-in links print there)
+#   legion log          follow the server's log (no sign-in link prints there)
 #   legion knowledge    rebuild ~/.unii-prime/knowledge.json (OKF, graphify guides,
 #                     repo digests and cards; local/prime/knowledge.ts)
 #   legion mcp-login S  sign in to the MCP server S with OAuth (e.g. atlassian);

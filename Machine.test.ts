@@ -381,3 +381,43 @@ test("write and edit refuse this checkout's local/mcp.extra.json", () => {
   expect(Machine.gating(import.meta.dir + "/local/MCP.Extra.json")).toBe(true);
   expect(Machine.gating(os.tmpdir() + "/other/local/mcp.extra.json")).toBe(false);
 });
+
+// RED ZONE (S1c, DRAFT awaiting the user's sign-off): Legion's own trust
+// state (in ~/.unii or $UNII_DIR): cloud.db (its sessions) and its -wal,
+// -shm, the sign-in secret's hash, server.log, a terminal's token file
+// (<host>/token). An agent's read, grep or glob gets none (secret), its
+// write or edit none (gating), its shell command naming one by its path
+// is refused before any hook, in every mode (guard); a file of the same
+// name elsewhere (a repo's server.log) is not
+test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, server.log, token files", () => {
+  const dir = os.homedir() + "/.unii";
+  const files = ["cloud.db", "cloud.db-wal", "cloud.db-shm", "Cloud.DB", "signin-hash", "server.log", "127.0.0.1:8788/token"];
+  for (const f of files) {
+    expect([f, Machine.secret(dir + "/" + f)]).toEqual([f, true]);
+    expect([f, Machine.gating(dir + "/" + f)]).toEqual([f, true]);
+    expect([f, Machine.guard({ tool: "Read", input: { file_path: dir + "/" + f } })]).toEqual([f, expect.stringContaining("Refused")]);
+    expect([f, Machine.guard({ tool: "Write", input: { file_path: dir + "/" + f, content: "x" } })]).toEqual([f, expect.stringContaining("Refused")]);
+  }
+  expect(Machine.secret(os.tmpdir() + "/repo/server.log")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/repo/cloud.db")).toBe(false);
+  expect(Machine.secret(dir + "/users/10/main.index")).toBe(false);
+  const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
+  for (const c of ["cat ~/.unii/cloud.db", "sqlite3 $HOME/.unii/cloud.db 'select * from sessions'", "cp x ~/.unii/cloud.db-wal", "tail -f ~/.unii/server.log", "grep auth ${HOME}/.unii/server.log",
+    "echo h > ~/.unii/signin-hash", "rm ~/.unii/signin-hash", "cat \"$UNII_DIR/cloud.db\"", "cat " + dir + "/server.log", "local/legion log", "legion log | tail"]) {
+    expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
+  }
+  for (const c of ["grep -n cloud.db Cloud.ts", "tail server.log", "ls ~/.unii", "legion login"]) {
+    expect([c, shell(c)]).toEqual([c, null]);
+  }
+  // a $UNII_DIR of another name, written out in the command
+  const was = process.env.UNII_DIR;
+  const other = os.tmpdir() + "/legion-trust-dir";
+  process.env.UNII_DIR = other;
+  try {
+    expect(shell("sqlite3 " + other + "/cloud.db .dump")).toContain("Refused");
+    expect(shell("cat " + other + "/notes.txt")).toBeNull();
+    expect(Machine.secret(other + "/server.log")).toBe(true);
+  } finally {
+    process.env.UNII_DIR = was;
+  }
+});

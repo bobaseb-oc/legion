@@ -91,7 +91,7 @@ type Cmd = [use: string, keys: string, text: string, run: (t: Term, arg: string)
 
 // this unii's version: each release ships one, a new one for every
 // change to Term.ts or what it imports
-const VERSION = "1.0.144";
+const VERSION = "1.0.145";
 
 const ARGS   = process.argv.slice(2);
 const LOGIN  = ARGS.includes("login");
@@ -121,6 +121,9 @@ const TOKEN  = HOME + "/" + new URL(SERVER).host + "/token";
 // none (signed in before it) or refused, it runs on the device key
 const KEYCHAIN = "legion-terminal";
 let TERMKEY: string | null = null;
+// RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local Legion's
+// sign-in secret, the Keychain's "legion-signin-<host>" (login_local)
+const SIGNIN = "legion-signin";
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
 // server's own dir, as Config.DIR reads it ($UNII_DIR, default ~/.unii),
 // where its socket is; every request and socket to the server goes over
@@ -1629,11 +1632,15 @@ async function login_run(url: string): Promise<string | null> {
   const key = random();
   const term = random();
   const out = await login_ask(url, key, term, github);
-  if (out.url) {
-    browse(out.url);
+  if (out.t !== undefined) {
+    await login_local(url, out.t, out.code, out.secret === true);
+  } else {
+    if (out.url) {
+      browse(out.url);
+    }
+    console.log(out.url ? "Sign in with GitHub in the browser: " + out.url : "A sign-in link is on its way to " + out.who + ". Open it.");
+    console.log("On the page it opens, type this code: " + out.code);
   }
-  console.log(out.url ? "Sign in with GitHub in the browser: " + out.url : "A sign-in link is on its way to " + out.who + ". Open it.");
-  console.log("On the page it opens, type this code: " + out.code);
   // the link lives on the server, so only it ends the wait: signed in (ok),
   // or the link gone (410); a wait that fails is asked again
   const wait = { headers: { authorization: "Bearer " + key }, timeout: false } as RequestInit;
@@ -1666,7 +1673,7 @@ async function login_run(url: string): Promise<string | null> {
 // until the server takes one (it says why it doesn't): the address, and
 // the server's answer. key: the device key's; term: the terminal key's
 // (K1), both signed in by the one code
-async function login_ask(url: string, key: string, term: string, github: boolean): Promise<{ who: string; url?: string; code: string }> {
+async function login_ask(url: string, key: string, term: string, github: boolean): Promise<{ who: string; url?: string; code: string; t?: string; secret?: boolean }> {
   while (true) {
     process.stdout.write(github ? "Email or @github: " : "Email: ");
     const who  = (await login_line()).trim();
@@ -1680,6 +1687,39 @@ async function login_ask(url: string, key: string, term: string, github: boolean
       return { ...out, who };
     }
     console.log(out.error);
+  }
+}
+
+// RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local Legion (no
+// mail: Cloud.ts SIGNIN) gives its ticket t to the terminal that asked,
+// which confirms it with the code and the sign-in secret, over the
+// server's socket only, in the body (never an argument, the environment,
+// a file or a URL). The secret: the Keychain's, of service
+// "legion-signin-<host>" (Auth.asking: every read the user allows, one
+// here); none registered yet (registered false), made here, kept there
+// first, then registered (trust on first use, once). Refused: why, and
+// the sign-in ends
+async function login_local(url: string, t: string, code: string, registered: boolean): Promise<void> {
+  const store = Auth.asking(SIGNIN);
+  const host = new URL(url).host;
+  const made = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+  if (registered) {
+    console.log("Confirming with this Legion's sign-in secret: the Keychain asks you (Allow, never Always Allow).");
+  } else {
+    await store.set(host, made).catch(() => login_fail("the Keychain didn't keep a sign-in secret, so none is registered."));
+    console.log("This Legion's sign-in secret is made and kept in the Keychain; each sign-in reads it (Allow, never Always Allow).");
+  }
+  const secret = registered ? await store.get(host).catch(() => null) : made;
+  if (secret === null) {
+    login_fail("this Legion's sign-in secret isn't in the Keychain, or reading it was refused. To start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
+  }
+  const body = new URLSearchParams({ t, code, secret, ...(registered ? {} : { register: "1" }) }).toString();
+  const init = { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body };
+  // signed in: JSON; refused: why (403); the link gone: a redirect, which
+  // device_fetch follows nowhere (null)
+  const res = await Device.device_fetch(term_wire(url), "/auth", init).catch(() => null);
+  if (res === null || !res.ok) {
+    login_fail(res === null ? "the sign-in didn't go through (no server at " + url + ", or the link expired): run legion login again" : (await res.text()).slice(0, 300));
   }
 }
 

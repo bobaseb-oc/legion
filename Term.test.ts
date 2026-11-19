@@ -296,3 +296,57 @@ test("legion device never reads the Keychain: it runs on the device key", async 
     srv.stop(true);
   }
 });
+
+// RED ZONE (S1b, DRAFT awaiting the user's sign-off): against a real
+// local Legion (Server.ts, no mail key), the first `legion login` makes
+// the sign-in secret, keeps it in the Keychain (by stdin) and registers
+// it (the server keeps its hash); each later one reads it (one prompt)
+// and sends it with the confirm. With none in the Keychain it signs in
+// nowhere and says how to start over. The secret is in no argument and
+// no file of the terminal's; the server prints no link
+test("legion login on a local Legion: the sign-in secret registered once, then read from the Keychain; none: refused", async () => {
+  const port = 39516;
+  const { dir, home } = dirs(port, false);
+  const { RESEND_API_KEY, ...env } = process.env;
+  const srv = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], { env: { ...env, UNII_DIR: dir, UNII_SITE: "http://127.0.0.1:" + port, UNII_WORK: dir + "/work", UNII_ANOTHER: "1" }, stdout: "pipe", stderr: "pipe" });
+  const item = "legion-signin-127.0.0.1:" + port;
+  const token = home + "/127.0.0.1:" + port + "/token";
+  try {
+    for (let k = 0; k < 100 && !fs.existsSync(dir + "/server.sock"); k++) {
+      await Bun.sleep(50);
+    }
+    const first = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n");
+    expect(first.out).toContain("Signed in.");
+    const secret = first.items[item];
+    expect(secret).toMatch(/^[\w-]{43}$/);
+    expect(fs.readFileSync(dir + "/signin-hash", "utf8").trim()).toBe(new Bun.CryptoHasher("sha256").update(secret).digest("hex"));
+    for (const c of first.calls) {
+      expect(c.args.join(" ")).not.toContain(secret);
+    }
+    for (const f of fs.readdirSync(home, { recursive: true }) as string[]) {
+      const p = home + "/" + f;
+      if (fs.statSync(p).isFile() && !p.startsWith(home + "/keychain.json")) {
+        expect([f, fs.readFileSync(p, "utf8").includes(secret)]).toEqual([f, false]);
+      }
+    }
+    // again: the secret read once, kept as it was
+    fs.rmSync(home + "/keychain.json.log", { force: true });
+    const again = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n");
+    expect(again.out).toContain("Signed in.");
+    expect(again.items[item]).toBe(secret);
+    expect(again.calls.filter((c) => c.args[0] === "find-generic-password" && c.args[2] === item)).toHaveLength(1);
+    // none in the Keychain: no sign-in, how to start over said
+    const { [item]: _, ...rest } = again.items;
+    fs.writeFileSync(home + "/keychain.json", JSON.stringify(rest));
+    fs.rmSync(token, { force: true });
+    const none = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n");
+    expect(none.out).not.toContain("Signed in.");
+    expect(none.out).toContain("signin-hash");
+    expect(fs.existsSync(token)).toBe(false);
+  } finally {
+    srv.kill();
+    await srv.exited;
+  }
+  const printed = (await new Response(srv.stdout).text()) + (await new Response(srv.stderr).text());
+  expect(printed).not.toContain("/auth?t=");
+}, 45000);
