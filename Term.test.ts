@@ -60,18 +60,21 @@ async function legion(args: string[], port: number, dir: string, home: string, m
   return (await stubbed(args, port, dir, home, ms, stdin, {}, false)).out;
 }
 
-// RED ZONE (K1, K2, DRAFT awaiting the user's sign-off): the terminal
-// key. The Keychain is a stub in every run here (Auth.security replaced
-// before Term.ts loads, its items a file in the test's home): never the
-// real one
+// RED ZONE (K1, K2, T1, DRAFT awaiting the user's sign-off): the terminal
+// key. The Keychain is a stub in every run here, never the real one: the
+// items legion-key keeps (keychain.json in the test's home), read by a
+// fake legion-key in <UNII_DIR>/bin (HELPER: it asks no Touch ID;
+// FAKE_REFUSE in keychain.json's dir refuses as if not given), and the
+// items made the old way, by `security` (keychain-old.json: Auth.security
+// replaced before Term.ts loads). Every call of either is logged
 const STUB = `
 const fs = await import("node:fs");
 const { Auth } = await import(${JSON.stringify(import.meta.dir + "/Auth.ts")});
-const file = process.env.FAKE_KEYCHAIN;
+const file = process.env.FAKE_OLD;
 const items = () => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 const save = (x) => fs.writeFileSync(file, JSON.stringify(x));
 const fake = async (args, input) => {
-  fs.appendFileSync(file + ".log", JSON.stringify({ args, input: input ?? null }) + "\\n");
+  fs.appendFileSync(process.env.FAKE_KEYCHAIN + ".log", JSON.stringify({ via: "security", args, input: input ?? null }) + "\\n");
   const all = items();
   if (process.env.FAKE_REFUSE === "1") return { code: 51, out: "" };
   if (args[0] === "find-generic-password") return args[2] in all ? { code: 0, out: all[args[2]] + "\\n" } : { code: 44, out: "" };
@@ -85,15 +88,50 @@ if (Auth.security !== fake) throw new Error("no stub: the real Keychain would be
 await import(${JSON.stringify(import.meta.dir + "/Term.ts")});
 `;
 
+// the fake legion-key: get (44 none, 45 an old item, 1 refused), set
+// (from stdin; the old item gone), delete; it logs its arguments, its
+// stdin and its whole environment
+function helper(keychain: string): string {
+  return `#!${process.execPath}
+const fs = require("node:fs");
+const file = ${JSON.stringify(keychain)}, oldf = ${JSON.stringify(keychain.replace(/\.json$/, "-old.json"))};
+const read = (f) => fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : {};
+const [verb, service, account] = process.argv.slice(2);
+const input = verb === "set" ? fs.readFileSync(0, "utf8") : null;
+fs.appendFileSync(file + ".log", JSON.stringify({ via: "helper", args: [verb, service, account], input, env: process.env }) + "\\n");
+const all = read(file), old = read(oldf);
+if (fs.existsSync(file + ".refuse") || account !== "oauth") process.exit(1);
+if (verb === "get") {
+  if (service in all) { process.stdout.write(all[service] + "\\n"); process.exit(0); }
+  process.exit(service in old ? 45 : 44);
+}
+if (verb === "set") { delete old[service]; all[service] = input.replace(/\\n$/, ""); }
+const had = service in all || service in old;
+if (verb === "delete") { delete all[service]; delete old[service]; }
+fs.writeFileSync(file, JSON.stringify(all)); fs.writeFileSync(oldf, JSON.stringify(old));
+process.exit(verb === "delete" && !had ? 44 : 0);
+`;
+}
+
 // `legion <args>` through the Keychain stub, its stdin `stdin` (left
-// open: open), its output after ms or once it ends; the stub's items and
-// the calls it got
+// open: open), its output after ms or once it ends; the stub's items
+// (legion-key's, and the old ones) and the calls it got. NO_HELPER: no
+// legion-key in <UNII_DIR>/bin (local/legion could not build it)
 async function stubbed(args: string[], port: number, dir: string, home: string, ms: number, stdin: string, env: Record<string, string> = {}, open = true) {
   const stub = home + "/stub.ts";
   fs.writeFileSync(stub, STUB);
   const keychain = home + "/keychain.json";
+  fs.rmSync(dir + "/bin", { recursive: true, force: true });
+  if (env.NO_HELPER !== "1") {
+    fs.mkdirSync(dir + "/bin", { mode: 0o700 });
+    fs.writeFileSync(dir + "/bin/legion-key", helper(keychain), { mode: 0o700 });
+  }
+  fs.rmSync(keychain + ".refuse", { force: true });
+  if (env.FAKE_REFUSE === "1") {
+    fs.writeFileSync(keychain + ".refuse", "");
+  }
   const { UNII_URL, ...rest } = process.env;
-  const all = { ...rest, UNII_HOME: home, UNII_DIR: dir, UNII_WORK: home + "/work", UNII_SPACES: home, UNII_NO_TELEMETRY: "1", FAKE_KEYCHAIN: keychain, ...env };
+  const all = { ...rest, UNII_HOME: home, UNII_DIR: dir, UNII_WORK: home + "/work", UNII_SPACES: home, UNII_NO_TELEMETRY: "1", FAKE_KEYCHAIN: keychain, FAKE_OLD: home + "/keychain-old.json", ...env };
   const proc = Bun.spawn([process.execPath, stub, ...args, "http://127.0.0.1:" + port], { env: all, stdin: open ? "pipe" : new Blob([stdin]), stdout: "pipe", stderr: "pipe" });
   if (open) {
     (proc.stdin as Bun.FileSink).write(stdin);
@@ -103,7 +141,9 @@ async function stubbed(args: string[], port: number, dir: string, home: string, 
   const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
   const items = fs.existsSync(keychain) ? JSON.parse(fs.readFileSync(keychain, "utf8")) : {};
   const calls = fs.existsSync(keychain + ".log") ? fs.readFileSync(keychain + ".log", "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
-  return { out, items, calls };
+  const oldf = home + "/keychain-old.json";
+  const old = fs.existsSync(oldf) ? JSON.parse(fs.readFileSync(oldf, "utf8")) : {};
+  return { out, items, old, calls };
 }
 
 test("legion device: with no server socket, the TCP port's squatter gets nothing; it says so and waits", async () => {
@@ -197,10 +237,14 @@ test("legion login makes two keys, one code: the device key in its file, the ter
     expect(body.term).not.toBe(body.key);
     expect(fs.readFileSync(home + "/127.0.0.1:" + port + "/token", "utf8")).toBe(body.key);
     expect(items).toEqual({ ["legion-terminal-127.0.0.1:" + port]: body.term });
-    // never an argument, nor in any file of the terminal's
-    expect(calls.length).toBeGreaterThan(0);
+    // kept by legion-key, from its stdin (T1); never by `security`, never
+    // an argument nor in its environment, nor in any file of the terminal's
+    expect(calls.filter((c) => c.via === "helper" && c.args[0] === "set")).toEqual([expect.objectContaining({ args: ["set", "legion-terminal-127.0.0.1:" + port, "oauth"], input: body.term + "\n" })]);
+    expect(calls.filter((c) => c.via === "security")).toEqual([]);
     for (const c of calls) {
       expect(c.args.join(" ")).not.toContain(body.term);
+      expect(JSON.stringify(c.env ?? {})).not.toContain(body.term);
+      expect(Object.keys(c.env ?? {}).filter((k) => !["HOME", "__CF_USER_TEXT_ENCODING"].includes(k))).toEqual([]);
     }
     for (const f of fs.readdirSync(home, { recursive: true }) as string[]) {
       const p = home + "/" + f;
@@ -236,9 +280,10 @@ test("the terminal reads its key once as it starts and connects on it; none, ref
   const { dir, home } = dirs(port, true);
   const item = "legion-terminal-127.0.0.1:" + port;
   const sockets = (seen: Seen) => seen.filter((s) => s.startsWith("GET /ws?"));
-  const finds = (calls: any[]) => calls.filter((c) => c.args[0] === "find-generic-password" && c.args[2] === item);
+  const finds = (calls: any[]) => calls.filter((c) => c.via === "helper" && c.args[0] === "get" && c.args[1] === item);
   const run = async (kept: Record<string, string>, env: Record<string, string> = {}, me?: (auth: string) => number) => {
     fs.writeFileSync(home + "/keychain.json", JSON.stringify(kept));
+    fs.writeFileSync(home + "/keychain-old.json", "{}");
     fs.rmSync(home + "/keychain.json.log", { force: true });
     const seen: Seen = [];
     const srv = keeper(dir, seen, me);
@@ -260,6 +305,44 @@ test("the terminal reads its key once as it starts and connects on it; none, ref
     expect(finds(off.calls)).toHaveLength(1);
     expect(off.out).toContain("legion login once");
   }
+}, 20000);
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): with no legion-key
+// (swiftc missing) the terminal runs keyless, and never falls back to
+// `security` (whose "Always Allow" would let agents read the key); an
+// item kept the old way (by `security`: legion-key says 45) is read once
+// from there and kept by legion-key from then on
+test("the terminal key without legion-key: keyless, no read by security; an old item moves to legion-key once", async () => {
+  const port = 39517;
+  const { dir, home } = dirs(port, true);
+  const item = "legion-terminal-127.0.0.1:" + port;
+  const run = async (kept: Record<string, string>, old: Record<string, string>, env: Record<string, string> = {}) => {
+    fs.writeFileSync(home + "/keychain.json", JSON.stringify(kept));
+    fs.writeFileSync(home + "/keychain-old.json", JSON.stringify(old));
+    fs.rmSync(home + "/keychain.json.log", { force: true });
+    const seen: Seen = [];
+    const srv = keeper(dir, seen);
+    try {
+      const got = await stubbed([], port, dir, home, 2500, "", env);
+      return { ...got, ws: seen.filter((s) => s.startsWith("GET /ws?")) };
+    } finally {
+      srv.stop(true);
+    }
+  };
+  const none = await run({ [item]: "termkey" }, { [item]: "oldkey" }, { NO_HELPER: "1" });
+  expect(none.ws.length).toBeGreaterThan(0);
+  expect(none.ws.every((s) => / Bearer sekrit $/.test(s))).toBe(true);
+  expect(none.calls.filter((c) => JSON.stringify(c).includes("legion-terminal"))).toEqual([]);
+  expect(none.out).toContain("legion login once");
+  const moved = await run({}, { [item]: "oldkey" });
+  expect(moved.ws.length).toBeGreaterThan(0);
+  expect(moved.ws.every((s) => / Bearer oldkey $/.test(s))).toBe(true);
+  expect(moved.items).toEqual({ [item]: "oldkey" });
+  expect(moved.old).toEqual({});
+  expect(moved.calls.filter((c) => c.via === "security" && c.args[0] === "find-generic-password" && c.args[2] === item)).toHaveLength(1);
+  const after = await run(moved.items, moved.old);
+  expect(after.ws.every((s) => / Bearer oldkey $/.test(s))).toBe(true);
+  expect(after.calls.filter((c) => c.via === "security" && JSON.stringify(c).includes("legion-terminal"))).toEqual([]);
 }, 20000);
 
 test("/logout signs out both keys' sessions and deletes the terminal key's Keychain item and the device key's file", async () => {
@@ -334,7 +417,8 @@ test("legion login on a local Legion: the sign-in secret registered once, then r
     const again = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n");
     expect(again.out).toContain("Signed in.");
     expect(again.items[item]).toBe(secret);
-    expect(again.calls.filter((c) => c.args[0] === "find-generic-password" && c.args[2] === item)).toHaveLength(1);
+    expect(again.calls.filter((c) => c.via === "helper" && c.args[0] === "get" && c.args[1] === item)).toHaveLength(1);
+    expect([...first.calls, ...again.calls].filter((c) => c.via === "security" && JSON.stringify(c).includes("signin"))).toEqual([]);
     // none in the Keychain: no sign-in, how to start over said
     const { [item]: _, ...rest } = again.items;
     fs.writeFileSync(home + "/keychain.json", JSON.stringify(rest));
@@ -342,6 +426,15 @@ test("legion login on a local Legion: the sign-in secret registered once, then r
     const none = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n");
     expect(none.out).not.toContain("Signed in.");
     expect(none.out).toContain("signin-hash");
+    expect(fs.existsSync(token)).toBe(false);
+    // RED ZONE (T1): no legion-key, the secret kept: refused, and why
+    // (never read by `security` instead)
+    fs.writeFileSync(home + "/keychain.json", JSON.stringify(again.items));
+    fs.rmSync(home + "/keychain.json.log", { force: true });
+    const keyless = await stubbed(["login"], port, dir, home, 10000, "me@x.com\n", { NO_HELPER: "1" });
+    expect(keyless.out).not.toContain("Signed in.");
+    expect(keyless.out).toContain("xcode-select --install");
+    expect(keyless.calls).toEqual([]);
     expect(fs.existsSync(token)).toBe(false);
   } finally {
     srv.kill();

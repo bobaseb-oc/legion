@@ -10,6 +10,7 @@
 #   legion              start the server if it is not running, open the chat
 #   legion serve        run the server in the foreground
 #   legion start|stop   start (background) or stop the server and SearXNG
+#   legion login        sign in (the terminal's own key, read by legion-key)
 #   legion web          open the site in your browser, signed in as your terminal
 #   legion device       this computer runs the agents' jobs with no terminal open
 #                     (foreground; `legion device --install` keeps one running
@@ -146,6 +147,45 @@ logs_make() {
 term_exec() {
   exec env -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u OPENAI_API_KEY -u RESEND_API_KEY -u APNS_KEY -u GCHAT_WEBHOOK_URL \
     UNII_IMPORT_DIRS="${UNII_IMPORT_DIRS:-$HOME/.unii-prime/claude/projects}" UNII_IMPORT_ASK="${UNII_IMPORT_ASK:-}" bun "$ROOT/Term.ts" "$@"
+}
+
+# RED ZONE (T1, DRAFT awaiting the user's sign-off): legion-key, the one
+# program the terminal key's and the sign-in secret's Keychain items
+# trust, which asks for Touch ID (or the password) before every read
+# (local/legion-key/main.swift), built here with swiftc into $DIR/bin
+# (0700), ad hoc signed with the hardened runtime (no debugger attaches,
+# no library is injected), only when its source's sha256 is not the one
+# kept beside it or it is gone. A new build is new code to the Keychain:
+# its first read of each item asks (legion-key wants to use...), where
+# Always Allow is fine. No swiftc, or a failed build: said loudly, and
+# Term.ts runs keyless (no approving from the terminal, local sign-in
+# refused), never falling back to `security`
+KEY_SRC="$ROOT/local/legion-key/main.swift"
+KEY_BIN="$DIR/bin/legion-key"
+key_make() {
+  local sum tmp
+  sum="$(shasum -a 256 "$KEY_SRC" | cut -d' ' -f1)"
+  if [[ -x "$KEY_BIN" && "$(cat "$KEY_BIN.sha256" 2>/dev/null)" == "$sum" ]]; then
+    return 0
+  fi
+  mkdir -p "$DIR/bin"
+  chmod 700 "$DIR/bin"
+  tmp="$DIR/bin/legion-key.new"
+  rm -f "$tmp"
+  if command -v swiftc >/dev/null && swiftc -O -o "$tmp" "$KEY_SRC" >/dev/null 2>&1 \
+    && codesign -s - -o runtime --identifier legion-key --force "$tmp" >/dev/null 2>&1; then
+    chmod 700 "$tmp"
+    mv -f "$tmp" "$KEY_BIN"
+    printf '%s\n' "$sum" >"$KEY_BIN.sha256"
+    echo "legion: built legion-key ($KEY_BIN) from a new source; its first read of each key asks whether this build may use it: Always Allow if you expected it (you changed or pulled local/legion-key), else Deny and check git diff local/legion-key" >&2
+    return 0
+  fi
+  rm -f "$tmp"
+  {
+    echo "legion: WARNING: could not build legion-key (no swiftc?): get it with  xcode-select --install  then run legion again."
+    echo "legion: WARNING: until then approving from the terminal is OFF and a local sign-in is refused (the web still works)."
+  } >&2
+  return 0
 }
 
 # `legion device --install`: a launchd agent (at login, kept alive) that
@@ -304,7 +344,7 @@ case "${1:-}" in
   serve) searxng_start && skills_make && mcp_make && server_exec ;;
   start) server_start ;;
   stop)  server_stop ;;
-  web)   server_start && term_exec web "$URL" ;;
+  web)   server_start && key_make && term_exec web "$URL" ;;
   device)
     case "${2:-}" in
       --install)   device_install ;;
@@ -327,6 +367,7 @@ case "${1:-}" in
   google-logout) exec bun "$ROOT/local/google-login.ts" --logout ;;
   harvest-login)  exec bun "$ROOT/local/harvest-login.ts" "${@:2}" ;;
   harvest-logout) exec bun "$ROOT/local/harvest-login.ts" --logout ;;
-  "")    server_start && logs_make && UNII_IMPORT_ASK=1 term_exec "$URL" ;;
+  "")    server_start && key_make && logs_make && UNII_IMPORT_ASK=1 term_exec "$URL" ;;
+  login) key_make && term_exec "$@" ;;
   *)     term_exec "$@" ;;
 esac

@@ -22,7 +22,7 @@ import * as child from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Kind } from "./AskAI.ts";
-import { Auth } from "./Auth.ts";
+import { Auth, type Store } from "./Auth.ts";
 import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Deck from "./Deck.ts";
@@ -114,8 +114,8 @@ const TOKEN  = HOME + "/" + new URL(SERVER).host + "/token";
 // device`, launchd's) by the one code, its session speaks for the user
 // (Cloud.speaks: /mode, /plan, /allow, /approve, /answer, routines,
 // timers, todos...). Kept only in the Keychain, as the generic password
-// of service "legion-terminal-<host>" (Auth.asking: every read the user
-// allows, the value on security's stdin), never in a file, the
+// of service "legion-terminal-<host>" (term_keys: legion-key's, every
+// read after Touch ID, the value on its stdin), never in a file, the
 // environment, an argument nor anything sent to a job. The full-screen
 // terminal reads it once as it starts (TERMKEY: in this process only);
 // none (signed in before it) or refused, it runs on the device key
@@ -141,6 +141,18 @@ try {
 // the wire to the server at url (its socket in SOCKDIR)
 function term_wire(url: string): Device.Wire {
   return Device.device_wire(url, SOCKDIR);
+}
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): where the terminal
+// key (KEYCHAIN) and the sign-in secret (SIGNIN) are kept: by legion-key
+// only (Auth.present), the helper local/legion builds into the server's
+// dir (<SOCKDIR>/bin, 0700), which asks for Touch ID or the password
+// before every read; an item made by `security` before it (Auth.asking)
+// is read once that way and kept by legion-key from then on. No
+// legion-key (no swiftc): every read and write fails, so the terminal
+// runs keyless and a local sign-in is refused, never weaker
+function term_keys(prefix: string): Store {
+  return Auth.present(prefix, Auth.keybin(SOCKDIR + "/bin/legion-key"), Auth.asking(prefix));
 }
 
 const USAGE = `Usage: legion [url]         the chat (url: $UNII_URL, else http://127.0.0.1:8788)
@@ -1270,7 +1282,7 @@ async function term_logout(t: Term): Promise<void> {
 // memory), the device key's file
 async function term_forget(t: Term): Promise<void> {
   TERMKEY = null;
-  await Auth.asking(KEYCHAIN).delete(new URL(t.url).host).catch(() => false);
+  await term_keys(KEYCHAIN).delete(new URL(t.url).host).catch(() => false);
   fs.rmSync(TOKEN, { force: true });
 }
 
@@ -1690,13 +1702,13 @@ async function login_run(url: string): Promise<string | null> {
   }
   fs.writeFileSync(TOKEN, key, { mode: 0o600 });
   console.log("Signed in.");
-  const kept = await Auth.asking(KEYCHAIN).set(new URL(url).host, term).then(() => true, () => false);
-  if (!kept) {
+  const kept = await term_keys(KEYCHAIN).set(new URL(url).host, term).then(() => null, (err: Error) => err.message);
+  if (kept !== null) {
     await Device.device_fetch(term_wire(url), "/api/logout", { method: "POST", headers: { authorization: "Bearer " + term } }).catch(() => null);
-    console.log("The Keychain didn't keep the terminal's key, so approving from the terminal stays off (the web still can).");
+    console.log("The Keychain didn't keep the terminal's key (" + kept + "), so approving from the terminal stays off (the web still can).");
     return null;
   }
-  console.log("Approving from the terminal is on: its key is in the Keychain, which asks you each time legion starts (Allow, never Always Allow).");
+  console.log("Approving from the terminal is on: its key is in the Keychain, read only by legion-key after Touch ID (or your password) each time legion starts.");
   return term;
 }
 
@@ -1726,23 +1738,23 @@ async function login_ask(url: string, key: string, term: string, github: boolean
 // which confirms it with the code and the sign-in secret, over the
 // server's socket only, in the body (never an argument, the environment,
 // a file or a URL). The secret: the Keychain's, of service
-// "legion-signin-<host>" (Auth.asking: every read the user allows, one
-// here); none registered yet (registered false), made here, kept there
-// first, then registered (trust on first use, once). Refused: why, and
-// the sign-in ends
+// "legion-signin-<host>" (term_keys, RED ZONE T1: legion-key's, read
+// after Touch ID, one here); none registered yet (registered false),
+// made here, kept there first, then registered (trust on first use,
+// once). Refused, or no legion-key: why, and the sign-in ends
 async function login_local(url: string, t: string, code: string, registered: boolean): Promise<void> {
-  const store = Auth.asking(SIGNIN);
+  const store = term_keys(SIGNIN);
   const host = new URL(url).host;
   const made = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
   if (registered) {
-    console.log("Confirming with this Legion's sign-in secret: the Keychain asks you (Allow, never Always Allow).");
+    console.log("Confirming with this Legion's sign-in secret: legion-key asks for Touch ID (or your password).");
   } else {
-    await store.set(host, made).catch(() => login_fail("the Keychain didn't keep a sign-in secret, so none is registered."));
-    console.log("This Legion's sign-in secret is made and kept in the Keychain; each sign-in reads it (Allow, never Always Allow).");
+    await store.set(host, made).catch((err: Error) => login_fail("the Keychain didn't keep a sign-in secret (" + err.message + "), so none is registered."));
+    console.log("This Legion's sign-in secret is made and kept in the Keychain; each sign-in reads it by legion-key, after Touch ID (or your password).");
   }
-  const secret = registered ? await store.get(host).catch(() => null) : made;
+  const secret = registered ? await store.get(host).catch((err: Error) => login_fail("this Legion's sign-in secret wasn't read: " + err.message)) : made;
   if (secret === null) {
-    login_fail("this Legion's sign-in secret isn't in the Keychain, or reading it was refused. To start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
+    login_fail("this Legion's sign-in secret isn't in the Keychain. To start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
   }
   const body = new URLSearchParams({ t, code, secret, ...(registered ? {} : { register: "1" }) }).toString();
   const init = { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body };
@@ -1800,11 +1812,11 @@ function term_auth(): Record<string, string> {
 }
 
 // RED ZONE (K2, DRAFT awaiting the user's sign-off): the terminal key,
-// read once as the full-screen terminal starts (one Keychain prompt);
+// read once as the full-screen terminal starts (one Touch ID, RED ZONE T1: term_keys);
 // null: none kept (signed in before it), the read refused, or a session
 // the server refuses (one it can't reach is kept: the chat waits for it)
 async function term_key(url: string): Promise<string | null> {
-  const key = await Auth.asking(KEYCHAIN).get(new URL(url).host).catch(() => null);
+  const key = await term_keys(KEYCHAIN).get(new URL(url).host).catch(() => null);
   if (key === null || key === "") {
     return null;
   }
@@ -1851,11 +1863,11 @@ async function web_run(url: string): Promise<void> {
   if (!await term_signed(url)) {
     await login_run(url);
   }
-  // the terminal's own key (one Keychain prompt): a device key can't
+  // the terminal's own key (one Touch ID: term_keys): a device key can't
   // open the web as the user (Cloud.web_link)
   const key = await term_key(url);
   if (key === null) {
-    login_fail("legion web needs the terminal's own key: run legion login once, then Allow its Keychain prompt.");
+    login_fail("legion web needs the terminal's own key: run legion login once (it needs legion-key: xcode-select --install if local/legion said so), then give Touch ID or your password.");
   }
   const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }).catch(() => null);
   const body = (await res?.json().catch(() => ({})) ?? {}) as { url?: string; error?: string };

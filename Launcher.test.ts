@@ -158,3 +158,70 @@ test("legion serve hands the server the gateway's key on fd 3, none in its envir
   expect(none.exitCode).not.toBe(0);
   expect(none.stdout.toString()).not.toContain("ARGS=");
 });
+
+// RED ZONE (T1, DRAFT awaiting the user's sign-off): before the terminal,
+// `legion login` or `legion web` need it, the launcher builds legion-key
+// (local/legion-key/main.swift: swiftc -O, then ad hoc signed with the
+// hardened runtime) into <UNII_DIR>/bin, 0700, only when its source
+// changed (its sha256 kept beside it) or it is gone. No swiftc (or a
+// failed build): no helper, said loudly with how to get one, and the
+// terminal still starts (keyless: Term.ts fails closed). swiftc and
+// codesign are fakes here, logging their arguments
+function builders(swiftc_ok = true): { bin: string; dir: string; log: string; env: Record<string, string> } {
+  const f = fakes();
+  const log = f.bin + "/build.log";
+  fs.writeFileSync(f.bin + "/swiftc", "#!/bin/sh\necho \"swiftc $*\" >>" + JSON.stringify(log) + "\n" + (swiftc_ok ? "while [ $# -gt 0 ]; do if [ \"$1\" = -o ]; then printf '#!/bin/sh\\n' >\"$2\"; fi; shift; done\n" : "echo 'xcrun: error: invalid active developer path' >&2; exit 1\n"));
+  fs.writeFileSync(f.bin + "/codesign", "#!/bin/sh\necho \"codesign $*\" >>" + JSON.stringify(log) + "\n");
+  fs.writeFileSync(f.bin + "/curl", "#!/bin/sh\nexit 0\n");
+  for (const n of ["swiftc", "codesign", "curl"]) {
+    fs.chmodSync(f.bin + "/" + n, 0o755);
+  }
+  return { bin: f.bin, dir: f.dir, log, env: { PATH: f.bin + ":/usr/bin:/bin", HOME: f.home, UNII_DIR: f.dir } };
+}
+const builds = (log: string) => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter((l) => l.startsWith("swiftc ")) : []);
+
+test("the launcher builds legion-key, signs it, 0700, before login, web and the terminal; again only when its source changed", () => {
+  const b = builders();
+  const key = b.dir + "/bin/legion-key";
+  const src = import.meta.dir + "/local/legion-key/main.swift";
+  const first = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(first.exitCode).toBe(0);
+  expect(first.stdout.toString().split("\n")).toContain("UNII_IMPORT_DIRS");
+  expect(builds(b.log)).toHaveLength(1);
+  expect(builds(b.log)[0]).toContain("-O");
+  expect(builds(b.log)[0]).toContain(src);
+  const signed = fs.readFileSync(b.log, "utf8").split("\n").find((l) => l.startsWith("codesign "))!;
+  expect(signed).toContain("-s - ");
+  expect(signed).toContain("-o runtime");
+  expect(signed).toContain("--force");
+  expect(fs.statSync(key).mode & 0o777).toBe(0o700);
+  expect(fs.statSync(b.dir + "/bin").mode & 0o777).toBe(0o700);
+  expect(fs.readFileSync(key + ".sha256", "utf8").trim()).toBe(new Bun.CryptoHasher("sha256").update(fs.readFileSync(src)).digest("hex"));
+  // the same source: not built again, by login, web or the terminal
+  for (const args of [["login"], ["web"], []]) {
+    expect(Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", ...args], { env: b.env }).exitCode).toBe(0);
+  }
+  expect(builds(b.log)).toHaveLength(1);
+  // another source (its hash not the kept one), or the helper gone: built again
+  fs.writeFileSync(key + ".sha256", "0".repeat(64) + "\n");
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(2);
+  fs.rmSync(key);
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "web"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(3);
+  // commands that read no key build nothing
+  Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "version"], { env: b.env });
+  expect(builds(b.log)).toHaveLength(3);
+});
+
+test("no swiftc: no legion-key, said loudly with xcode-select --install; the terminal still starts (keyless)", () => {
+  const b = builders(false);
+  const out = Bun.spawnSync(["/bin/bash", import.meta.dir + "/local/legion", "login"], { env: b.env });
+  expect(out.exitCode).toBe(0);
+  expect(out.stdout.toString().split("\n")).toContain("UNII_IMPORT_DIRS");
+  const err = out.stderr.toString();
+  expect(err).toContain("xcode-select --install");
+  expect(err).toContain("legion-key");
+  expect(fs.existsSync(b.dir + "/bin/legion-key")).toBe(false);
+  expect(fs.existsSync(b.dir + "/bin/legion-key.sha256")).toBe(false);
+});
