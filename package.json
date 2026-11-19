@@ -2,7 +2,7 @@
   "name": "uniichat",
   "private": true,
   "scripts": {
-    "test": "bun test --isolate",
+    "test": "bash test/run.sh",
     "web": "bun build web/src/main.ts --outfile web/app.js --target browser"
   }
 }

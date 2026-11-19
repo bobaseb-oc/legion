@@ -1199,8 +1199,8 @@ User's call 2026-11-18: one PR, all findings; keep super as the default mode.
 Why: on 2026-11-18 a full `bun test` replaced the user's real ~/.unii/cloud.db with Cloud.test.ts fixtures (all sessions and the email → account 10 row lost; restored by hand 2026-11-19), and left test dirs in ~/.unii/work and lines in ~/.unii/okf-gaps.jsonl. Bun runs every test file in one process with one module cache, so Config.DIR is fixed by whichever file imports Config first; Cloud.test.ts sets UNII_DIR then deletes config.DIR/cloud.db. Other paths use os.homedir() + "/.unii" directly (Server work default, lock, okf-wiki, Computer, Term).
 Promise: `bun test` (whole suite or one file) runs with HOME and UNII_DIR in a fresh temp dir set before any test file loads, and fails loudly if not; Cloud.test.ts refuses to delete a cloud.db outside that dir.
 Edit scope: bunfig.toml (new), test/setup.ts (new), Isolation.test.ts (new), Cloud.test.ts, any test that breaks under a temp HOME (minimal), tasks/lessons.md.
-- [ ] Red: Isolation.test.ts asserts os.homedir(), config.DIR and UNII_DIR sit under the preload's temp root → fails without the preload
-- [ ] bunfig.toml [test] preload test/setup.ts: temp root, HOME and UNII_DIR inside it → Isolation green
-- [ ] Cloud.test.ts guard: refuse unless config.DIR is under the temp root → mutation: guard removed is caught
-- [ ] Full suite under the preload: same pass count as main, real ~/.unii untouched (mtime check before/after)
-- [ ] Lesson in tasks/lessons.md
+- [x] Red: Isolation.test.ts asserts os.homedir(), config.DIR and UNII_DIR sit under the preload's temp root → fails without the preload
+- [x] test/run.sh (`bun run test`) sets a temp HOME, UNII_DIR and git identity before bun starts (bun reads HOME once, so a preload can't move it), --isolate; the preload (bunfig.toml, test/setup.ts) refuses a bare `bun test` → Isolation green; mutants (no HOME in run.sh, no refusal) caught
+- [x] Cloud.test.ts guard dropped: with the wrapper and the refusal it could never fire (untestable), so not added
+- [x] Full suite via bun run test: 603 pass, 2 known logs fails (link_ask no longer fails: it was this bug); real ~/.unii untouched (cloud.db inode, work dirs, okf-gaps size, users same before and after)
+- [x] Lesson in tasks/lessons.md
