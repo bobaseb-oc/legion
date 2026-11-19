@@ -1205,3 +1205,14 @@ Edit scope: bunfig.toml (new), test/setup.ts (new), Isolation.test.ts (new), Clo
 - [x] Cloud.test.ts guard dropped: with the wrapper and the refusal it could never fire (untestable), so not added
 - [x] Full suite via bun run test: 603 pass, 2 known logs fails (link_ask no longer fails: it was this bug); real ~/.unii untouched (cloud.db inode, work dirs, okf-gaps size, users same before and after)
 - [x] Lesson in tasks/lessons.md
+
+## Terminal's own key; gateway key out of env; device text; plugin hook crash (feat/terminal-key, RED ZONE)
+User's ask 2026-11-19 (follow-ups of security review 3); design approved 2026-11-19 (two keys; ~/.zshrc left as is; GChat webhook stays silent-read so the bridge runs unattended).
+Why two keys: unattended devices (launchd, `legion device`) must read theirs with no prompt, and anything an agent reads without a prompt can't speak for the user; so jobs keep the file key, and only a Keychain key (prompt on every read) carries the user's say.
+Constraints: red test first per item, mutation check, RED ZONE markers as DRAFT for sign-off, tests via `bun run test` only.
+- [ ] K1 (RED) sign-in makes a device key (file, as now) and a terminal key (Keychain, Auth.asking, -T ""), both approved by the one code; terminal-key sessions are marked; a socket on one counts as the user: SAYS, routine, timer close, todo, decision, pin, explain, look save allowed; device-key sockets still refused; logout/logout-all end both → verify: Secure/Server/Term tests
+- [ ] K2 the terminal reads its key once at start; without one it works as today and says `legion login` turns approvals on → verify: Term/Device test
+- [ ] K3 (RED) typed text clears the timer no-view flag only from a view or a terminal-key socket → verify: Timer.test.ts
+- [ ] G1 (RED) the server gets the gateway key on fd 3 from the launcher, not ANTHROPIC_API_KEY in its env (launchd path too) → verify: Launcher.test.ts, Config.test.ts
+- [ ] H1 (RED) an allowlisted plugin's hook that crashes or times out refuses, as a managed one → verify: Hooks.test.ts
+- [ ] Clean out work-tasks/ at the end (user's ask)
