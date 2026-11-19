@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { ENV, Machine } from "./Machine.ts";
+import { ENV, Machine, USER_SHELL } from "./Machine.ts";
 
 const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-machine-");
 
@@ -162,6 +162,23 @@ test("glob and grep run as device tools, in the agent's dir", async () => {
   const run = (name: string, input: object) => Machine.run({ name, input, cwd: "Ann" }, root, live, undefined, undefined, []);
   expect(await run("glob", { pattern: "**/*.ts" })).toEqual({ text: "deep/b.ts\na.ts", fail: false });
   expect(await run("grep", { pattern: "gamma" })).toEqual({ text: "deep/b.ts", fail: false });
+});
+
+// RED ZONE (DRAFT awaiting the user's sign-off): the user's own !command
+// (a user_shell job, made only by Chat.bang) runs as they would in their
+// own shell: no hook asked, though one refuses every agent's shell
+test("the user's !command runs ungated, in Unii's dir; an agent's shell is still refused by the hook", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+  const hook = DIR + "/deny.sh";
+  fs.writeFileSync(hook, "#!/bin/sh\necho no >&2\nexit 2\n");
+  fs.chmodSync(hook, 0o755);
+  const file = DIR + "/deny.json";
+  fs.writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: hook }] }] } }));
+  const src = [{ file, managed: true }];
+  const run = (name: string) => Machine.run({ name, input: { command: "pwd -P" }, cwd: "main" }, DIR + "/work", new AbortController().signal, undefined, home, src);
+  expect((await run("shell")).text).toBe("Refused by a hook: no");
+  const mine = await run(USER_SHELL);
+  expect([mine.fail, mine.text.split("\n")[0]]).toEqual([false, fs.realpathSync(home)]);
 });
 
 // Security review (M2, M3, M4): what a job may reach on this device

@@ -70,7 +70,18 @@ How it works
   PostToolUse hooks in your managed, user and project settings and of
   oc-coding-assistant (so the OnCorps guard blocks here too; a managed
   or oc-coding-assistant hook that crashes or times out refuses the
-  call). `!cmd` runs a shell command yourself.
+  call). `!cmd` runs a shell command yourself,
+  as Claude Code's `!`: a `!` typed first puts the box in shell mode (a
+  `! shell` badge, another color; Backspace over the `!` leaves it), and
+  the command runs as you, in Unii's folder on your device (`!@name`: that
+  one), past the hooks, the reviewer and Legion's gating, stopped after
+  10 minutes; its command and output (30,000 characters at most) join the
+  chat as a note Legion reads. Only what speaks for you may send it (the
+  web, or `legion` signed in with the terminal's own key), never a
+  device's socket, an agent, a routine or the GChat bridge (a Red Zone
+  draft). Legion gives a command for you to run in a code block of its
+  own: the web's Copy, or the terminal's `/copy` (Ctrl+Y, through your
+  terminal's OSC 52), copies it.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
   checks each change; anything it can't decide comes to you), super
   auto (the default: as auto, and a question of a kind you answered with

@@ -37,9 +37,10 @@ import { Agent, READING } from "./Agent.ts";
 import { gateway_budget, type Budget } from "./Gateway.ts";
 import { AskAI, type Bill, type Grant, type Call, type End, type Event, type Kind, type Say, type Sink } from "./AskAI.ts";
 import type { Wallet } from "./Billing.ts";
-import { clip_pages } from "./Clip.ts";
+import { clip, clip_pages } from "./Clip.ts";
 import { Cloud, type Account, type User } from "./Cloud.ts";
 import { Disk } from "./Disk.ts";
+import { USER_SHELL } from "./Machine.ts";
 import { Mail } from "./Mail.ts";
 import * as Import from "./Import.ts";
 import { Mcp } from "./Mcp.ts";
@@ -2096,6 +2097,8 @@ const LOOKS = 50;
 const LOOK_TEXT = 1000;
 const LOOK_SHOWN = 512 * 1024;
 const LOOK_Q = 200; // a find's or a search's text, at most
+// the user's !command, stopped after (Chat.bang_ms): 10 minutes
+const BANG_MS = 10 * 60_000;
 const SUMMARIES_KEPT = 50; // not SUMMARIES: View's wait (Chat.waits)
 // what the user chose over Legion's picks, kept at most (Chat.like)
 const LIKES = 30;
@@ -2644,13 +2647,40 @@ const LIKES = 30;
     return {};
   }
 
-  // the person's !command: a shell job, as Unii's own (in the home repo,
-  // gated by Claude Code's hooks there: Hooks.ts), on the device it came
-  // from (or the one named: !@name), else the only one open; in a folder
-  // if given (the Files page's box: cd there first); its command and output
-  // a note the AI reads, starting no turn. Answered at once; the note comes
-  // when it ends
+  // RED ZONE (DRAFT awaiting the user's sign-off): whether an act's
+  // origin speaks for the user, so may do what only they may (their own
+  // !command, run past every gate: Chat.bang). THE one place this is
+  // decided. Today a view only: a browser's socket or act posted with a
+  // browser's session (device "": R1). Never a device's socket (a
+  // terminal's too: its token is within an agent shell's reach), an act
+  // posted with no browser's session (POSTED), an agent's tool call (it
+  // never reaches Chat.act), a routine or timer (they post words, not
+  // acts). The GChat bridge acts as a view too, but makes only answers,
+  // assignments and decisions (Gchat.gchat_act). The terminal's own key
+  // (a socket proven the user's, not an agent's) is to be accepted here
+  // too, once it lands
+  export function user_says(device: string): boolean {
+    return device === "";
+  }
+
+  // how long the user's !command may run before it is stopped (ms); a
+  // test's shorter
+  export let bang_ms = BANG_MS;
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's own
+  // !command, from what speaks for them only (Chat.user_says), run as
+  // they would in their own shell: a user_shell job, past the hooks, the
+  // reviewer and Legion's gating (Machine.ts), never through an agent's
+  // tool path; in the chat's dir (Unii's: the home repo, else its work
+  // dir) on the device named (!@name), else the one it came from, else
+  // the only one open; in a folder if given (the Files page's box: cd
+  // there first). Told to the views as it starts; stopped after bang_ms;
+  // its command and output (CAP, head and tail) a note the AI reads,
+  // starting no turn. Answered at once; the note comes when it ends
   export function bang(chat: Chat, id: string, command: string, from: string, named?: unknown, dir?: unknown): Answer {
+    if (!Chat.user_says(from)) {
+      return { error: "Only you run a !command, from a view (the web): a terminal's or device's socket is within an agent's reach, so it can't speak for you." };
+    }
     if (command === "") {
       return { error: "No command." };
     }
@@ -2663,13 +2693,17 @@ const LIKES = 30;
     }
     const device = named !== undefined ? String(named) : open.includes(from) ? from : open.length === 1 ? open[0]! : null;
     if (device === null) {
-      return { error: open.length === 0 ? "No device is open: run legion (or legion device) on one." : "Several devices are open (" + open.join(", ") + "): name one, as !@" + open[0] + " <command>, or type it in that device's terminal." };
+      return { error: open.length === 0 ? "No device is open: run legion (or legion device) on one." : "Several devices are open (" + open.join(", ") + "): name one, as !@" + open[0] + " <command>." };
     }
     Chat.mark(chat, id, {});
     const quoted = dir === undefined ? null : "'" + dir.replace(/'/g, "'\\''") + "'";
-    const job = { name: "shell", input: { command: quoted === null ? command : "cd " + quoted + " && " + command }, cwd: "main" };
-    Tools.job(chat.tools, device, job, new AbortController().signal, "bang-" + id).then((out) => {
-      Chat.note(chat, "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail ? "error: " : "") + out.text);
+    const job = { name: USER_SHELL, input: { command: quoted === null ? command : "cd " + quoted + " && " + command }, cwd: "main" };
+    const late = AbortSignal.timeout(Chat.bang_ms);
+    Chat.all(chat, { $: "note", text: "Running on " + device + ": $ " + command });
+    Tools.job(chat.tools, device, job, late, "bang-" + id).then((out) => {
+      const said = clip();
+      said.add(late.aborted ? "timed out after " + Chat.bang_ms / 1000 + " s: stopped." : out.text);
+      Chat.note(chat, "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail || late.aborted ? "error: " : "") + said.text());
     });
     return {};
   }

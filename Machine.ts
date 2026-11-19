@@ -86,6 +86,12 @@ const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 // off), tallies (what super auto decides for the user) and timers
 const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
 
+// RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
+// own !command (Chat.bang makes it, only from what the user sent: Chat.
+// user_says), run as they would in their own shell: no hook, no gate.
+// No agent's tool has this name (TOOLS), and Tools.dispatch refuses it
+export const USER_SHELL = "user_shell";
+
 // the shells started here, kept until their process groups are empty, so
 // end() kills a backgrounded job whose shell already exited
 const SHELLS = new Set<Bun.Subprocess>();
@@ -174,13 +180,17 @@ export namespace Machine {
 
   // in <work>/<its caller>, Unii's (main) in the home repo if there is one
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
-  // by default Claude Code's own for the dir's project)
+  // by default Claude Code's own for the dir's project); the user's own
+  // !command (USER_SHELL) asks none
   export async function run(job: Job, work: string, signal: AbortSignal, away?: AbortSignal, home?: string, hooks?: Source[]): Promise<Out> {
     const cwd = Machine.dir(job, work, home);
     const input = job.input;
     const file = path.resolve(cwd, String(input.path));
     try {
       fs.mkdirSync(cwd, { recursive: true });
+      if (job.name === USER_SHELL) {
+        return await Machine.shell(cwd, String(input.command), signal, away);
+      }
       const calls = Hooks.calls(job, cwd);
       const why   = calls.map(Machine.guard).find((w) => w !== null);
       if (why) {

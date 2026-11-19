@@ -254,6 +254,9 @@ function chat(): void {
     }
     BOX.style.height = "auto";
     BOX.style.height = Math.min(BOX.scrollHeight, innerHeight * 0.4) + "px";
+    // shell mode (as Claude Code's !): a ! typed first, until a
+    // Backspace takes it; a guest's box is an email, never a command
+    $(".composer").classList.toggle("shell", !P.guest && View.view_shell(BOX.value));
     draw(true);
   };
   // a guest's answer, an email, is one line: Enter sends it everywhere;

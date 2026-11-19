@@ -120,6 +120,27 @@ test("a pasted box in the history keeps each key fast", () => {
   expect(performance.now() - t0).toBeLessThan(500);
 });
 
+// shell mode (as Claude Code's !): a ! typed first turns the input's mark
+// into a ! in the shell's color, the text after it in that color too, the
+// hint saying so; a Backspace over the ! leaves it
+test("a ! typed first shows the input in shell mode; Backspace over it leaves", () => {
+  const { scr } = screen();
+  const shown = () => {
+    const { lines, at } = Screen.screen_input(scr, 80, 5, "hint", false);
+    return { runs: lines[0]!.map((r) => [r.x, r.s === Paint.SHELL]), col: at.col };
+  };
+  Screen.screen_feed(scr, "!");
+  expect(shown()).toEqual({ runs: [["! ", true], [View.SHELL_HINT, false]], col: 2 });
+  Screen.screen_feed(scr, "ls");
+  expect(shown()).toEqual({ runs: [["! ", true], ["ls", true]], col: 4 });
+  Screen.ed_key(scr.ed, "Backspace");
+  Screen.ed_key(scr.ed, "Backspace");
+  expect(shown()).toEqual({ runs: [["! ", true], [View.SHELL_HINT, false]], col: 2 });
+  Screen.ed_key(scr.ed, "Backspace");
+  expect(shown()).toEqual({ runs: [["> ", false], ["hint", false]], col: 2 });
+  expect(scr.ed.text).toBe("");
+});
+
 test("words: Ctrl+W, Alt+B, Alt+F", () => {
   const { scr } = screen();
   const ed = scr.ed;

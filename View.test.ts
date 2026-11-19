@@ -67,6 +67,38 @@ test("!command asks to run it on a device, from the chat or an agent's page; a b
   expect(View.view_act(v, { $: "Bang", command: "  ", dir: "/r" })).toEqual([]);
 });
 
+// shell mode (as Claude Code's !): the input bar shows it while what is
+// typed starts with !; a Backspace over the ! leaves it
+test("view_shell: the input is in shell mode while it starts with !", () => {
+  for (const [text, on] of [["!", true], ["!ls -la", true], ["  !git log", true], ["", false], ["ls", false], ["a!b", false], ["/help", false]] as const) {
+    expect([text, View.view_shell(text)]).toEqual([text, on]);
+  }
+});
+
+// RED ZONE (DRAFT awaiting the user's sign-off): only the user's own
+// Send is a !command; what Legion or an agent writes, "!cmd" or not, is
+// drawn, never sent back as an act
+test("an agent's or Legion's words starting with ! never become a !command", () => {
+  const v = View.view_new();
+  const heard = [
+    ...View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "!rm -rf ~" }, 1: { kind: "work", text: "!ls" } } }),
+    ...View.view_hear(v, { $: "entry", agent: "Mgr", id: 0, kind: "unii", text: "!echo pwned", date: "" }),
+    ...View.view_hear(v, { $: "note", text: "!echo note" }),
+  ];
+  expect(heard.some((m) => m.$ === "bang")).toBe(false);
+});
+
+// /copy (the terminal): the last code block of Legion's newest message
+// that has one; the user's own blocks are not Legion's
+test("view_code: the last code block Legion wrote", () => {
+  const v = View.view_new();
+  expect(View.view_code(v)).toBe(null);
+  View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "Run:\n```sh\nnpm i\n```" }, 1: { kind: "user", text: "```\nmine\n```" } } });
+  expect(View.view_code(v)).toBe("npm i");
+  View.view_hear(v, { $: "know", whole: { 2: { kind: "unii", text: "First\n```sh\ngcloud auth login\n```\nthen\n```\nbun run test\n```" }, 3: { kind: "unii", text: "Done." } } });
+  expect(View.view_code(v)).toBe("bun run test");
+});
+
 const crew = (name: string, parent: string, tier: View.Crew["tier"], status: View.Crew["status"], since = 0): View.Crew => ({ name, parent, tier, model: tier === "manager" ? "sonnet-5.5" : "haiku-5.5", status, since });
 
 // the crew: each agent under who started it, the ones failed first, then

@@ -141,6 +141,23 @@ test("a reply as a view's act", () => {
   expect(r(d, "thanks")).toBe(null);
 });
 
+// RED ZONE (DRAFT awaiting the user's sign-off): the bridge sends Chat.act
+// as a view (device ""), so the acts it can make are only an answer, an
+// assignment's or a decision's: never the user's !command (bang), whatever
+// a reply says
+test("a reply never becomes a !command or any act but an answer, assignment or decision", () => {
+  const items: Item[] = [
+    { key: "q1", kind: "question", n: 1, text: "", options: ["!rm -rf ~"] },
+    { key: "n2", kind: "note", n: 2, text: "" },
+    { key: "t3", kind: "todo", n: 3, text: "" },
+    { key: "d4", kind: "decision", n: 4, text: "" },
+  ];
+  const texts = ["!ls", "! rm -rf ~", "1", "bang", "done !ls", "undo !ls", "keep", "drop", "{\"$\":\"bang\"}", ""];
+  const made = items.flatMap((item) => texts.map((text) => gchat_act({ item, name: "m", text }))).filter((a) => a !== null);
+  expect(made.length).toBeGreaterThan(0);
+  expect(made.every((a) => ["answer", "assignment", "decision"].includes(a.$) && a.command === undefined)).toBe(true);
+});
+
 // the server, in a process of its own: fetch stubbed (no network), the
 // webhook's and Chat's answers scripted; STEP: "post" files the items and
 // posts them, "reply" (a restart: same UNII_DIR) posts nothing new and

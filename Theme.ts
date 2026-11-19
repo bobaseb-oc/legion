@@ -29,9 +29,10 @@ type Look = { dim: boolean; it: boolean };
 // =========
 
 // the terminal's fill and the text on it ("7": its light gray, "0": its
-// black), a diff's lines ("2": its green, "1": its red), as ANSI
-// palette colors, so they follow the terminal's theme
-export const ANSI = { block: "7", ink: "0", add: "2", del: "1", you: "4" };
+// black), a diff's lines ("2": its green, "1": its red), the user's
+// frame ("4": its blue), the input in shell mode ("5": its magenta, as
+// Claude Code's), as ANSI palette colors, so they follow the terminal's theme
+export const ANSI = { block: "7", ink: "0", add: "2", del: "1", you: "4", shell: "5" };
 // code's colors in the terminal (Hl.ts's classes; a comment is dim): the
 // palette's magenta, green, yellow
 export const HL = { k: "5", s: "2", n: "3" };

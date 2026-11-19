@@ -12,6 +12,7 @@
 
 import * as Paint from "./Paint.ts";
 import * as Theme from "./Theme.ts";
+import * as View from "./View.ts";
 
 // Types
 // =====
@@ -355,20 +356,27 @@ function seq_text(params: string, end: string): string | null {
 
 // the input's rows in w columns, at most max of them (the cursor's and
 // those before it), a hint when empty, grey when off; and where the
-// cursor shows
+// cursor shows. In shell mode (View.view_shell: it starts with !, as
+// Claude Code's), the mark is a ! in the shell's color, and so is the
+// text, its leading ! left out (the mark is it); a Backspace over it
+// leaves the mode
 export function screen_input(scr: Screen, w: number, max: number, hint: string, off: boolean): { lines: Paint.Line[]; at: Spot } {
-  const mark = Paint.Run(Theme.GLYPH.input, Paint.DIM);
-  const ink  = off ? Paint.DIM : Paint.INK;
-  const ed   = scr.ed;
+  const ed    = scr.ed;
+  const shell = !off && View.view_shell(ed.text);
+  const cut   = shell ? ed.text.indexOf("!") + 1 : 0;
+  const mark  = shell ? Paint.Run("! ", Paint.SHELL) : Paint.Run(Theme.GLYPH.input, Paint.DIM);
+  const ink   = off ? Paint.DIM : shell ? Paint.SHELL : Paint.INK;
   ed.w = w - 2;
   const { rows, places, at } = ed_layout(ed);
   const spot = places[at];
   const top  = Math.max(0, spot.row - Math.max(1, max) + 1);
-  const seen = rows.slice(top, top + Math.max(1, max));
-  const text = ed.text === "" ? [[mark, Paint.Run(hint, Paint.DIM)]] : seen.map((x) => [mark, Paint.Run(x, ink)]);
+  const seen = rows.slice(top, top + Math.max(1, max)).map((x, k) => (k + top === 0 ? x.slice(cut) : x));
+  const none = ed.text.slice(cut) === "";
+  const text = none ? [[mark, Paint.Run(shell ? View.SHELL_HINT : hint, Paint.DIM)]] : seen.map((x) => [mark, Paint.Run(x, ink)]);
   ed.tall    = Math.min(Math.max(ed.tall, text.length), Math.max(1, max));
   text.push(...Array.from({ length: ed.tall - text.length }, () => [Paint.Run("")]));
-  return { lines: text, at: { row: spot.row - top, col: spot.col + 2 } };
+  const left = spot.row === 0 ? Math.min(cut, spot.col) : 0;
+  return { lines: text, at: { row: spot.row - top, col: spot.col + 2 - left } };
 }
 
 // Ed
