@@ -451,6 +451,9 @@ export const FRAME = 2 ** 22;
 
 export const HINT = "Message Legion (!command runs it on your device; !@name on that one)";
 
+// the input's hint in shell mode (view_shell)
+export const SHELL_HINT = "shell mode: a command run on your device, as you · Backspace leaves";
+
 // the disclosure both views show (EU AI Act art. 50, California SB 243,
 // New York GBL art. 47, Anthropic's usage policy)
 export const AI = "Unii is an AI, not a person, and can make mistakes.";
@@ -1126,6 +1129,25 @@ export function view_named(v: View, arg: string): string {
 // typing goes to Legion, or on an agent's page to that agent
 export function view_typing(_v: View): boolean {
   return true;
+}
+
+// shell mode (as Claude Code's !): what is typed starts with ! (sent, a
+// !command: view_act); a Backspace over the ! leaves it
+export function view_shell(text: string): boolean {
+  return text.trimStart().startsWith("!");
+}
+
+// the last code block of Legion's newest message that has one (/copy);
+// null: none
+export function view_code(v: View): string | null {
+  const said = [...v.whole].filter(([, e]) => e.kind === "unii").sort(([a], [b]) => b - a);
+  for (const [, e] of said) {
+    const code = Md.md_parse(e.text).filter((b): b is Extract<Md.Block, { $: "Code" }> => b.$ === "Code").at(-1);
+    if (code !== undefined) {
+      return code.x;
+    }
+  }
+  return null;
 }
 
 // the crew in rows: each agent under who started it, siblings failed

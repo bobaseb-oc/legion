@@ -68,7 +68,18 @@ How it works
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings (so the
-  OnCorps guard blocks here too). `!cmd` runs a shell command yourself.
+  OnCorps guard blocks here too). `!cmd` runs a shell command yourself,
+  as Claude Code's `!`: a `!` typed first puts the box in shell mode (a
+  `! shell` badge, another color; Backspace over the `!` leaves it), and
+  the command runs as you, in Unii's folder on your device (`!@name`: that
+  one), past the hooks, the reviewer and Legion's gating, stopped after
+  10 minutes; its command and output (30,000 characters at most) join the
+  chat as a note Legion reads. Only a view (the web) may send it, never a
+  device's or terminal's socket, an agent, a routine or the GChat bridge
+  (a Red Zone draft); the terminal's own key, once it lands, will let
+  `legion` send it too. Legion gives a command for you to run in a code
+  block of its own: the web's Copy, or the terminal's `/copy` (Ctrl+Y,
+  through your terminal's OSC 52), copies it.
   Permission modes are plan (read-only), auto (a cheap-model reviewer
   checks each change; anything it can't decide comes to you), super
   auto (the default: as auto, and a question of a kind you answered with

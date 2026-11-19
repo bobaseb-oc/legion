@@ -343,3 +343,14 @@ test("the top bar's Explain tab: after Crew, marked when shown", () => {
   expect(bar.indexOf("#crew")).toBeLessThan(bar.indexOf("#explain"));
   expect(Html.mode_html("explain", "").join("")).toContain('<a href="#explain" class="here">Explain</a>');
 });
+
+// a code block Legion wrote (a command for the user to run) has a Copy
+// button copying it whole (main.ts: navigator.clipboard); its text,
+// whatever it holds, escaped in the button's data-copy and the block
+test("a code block has a Copy button with its whole text, escaped", () => {
+  const x = 'gcloud auth login\necho "<img src=x onerror=alert(1)>" & done';
+  const html = Html.block_html({ $: "Code", k: "sh", x });
+  const esc = x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  expect(html).toContain(`<button class="copy" data-copy="${esc}" title="Copy">`);
+  expect(html).not.toContain("<img");
+});

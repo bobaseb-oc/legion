@@ -157,3 +157,14 @@ test("a line's text can't carry its own escapes: Run and line_ansi clean it, wid
     expect(Paint.text_width(Paint.line_ansi(l).replace(OWN, ""))).toBeLessThanOrEqual(12);
   }
 });
+
+// /copy (the terminal): the painter's own OSC 52 to the terminal's
+// clipboard, the text base64 (UTF-8), so no text, escapes and all, writes
+// a sequence of its own
+test("copy_osc: the text as OSC 52, base64, whatever it holds", () => {
+  expect(Paint.copy_osc("gcloud auth login")).toBe("\x1b]52;c;" + Buffer.from("gcloud auth login").toString("base64") + "\x07");
+  const odd = "olá \x1b]52;c;x\x07 \x1b[2J😀\n";
+  const out = Paint.copy_osc(odd);
+  expect(out).toBe("\x1b]52;c;" + Buffer.from(odd).toString("base64") + "\x07");
+  expect(/^\x1b\]52;c;[A-Za-z0-9+/=]*\x07$/.test(out)).toBe(true);
+});

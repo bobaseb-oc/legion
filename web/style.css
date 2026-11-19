@@ -144,6 +144,11 @@ body.account footer > :not(#toast) { display: none; }
 .composer.rec textarea { display: none; }
 .voice canvas { flex: 1; height: 28px; min-width: 0; }
 .voice span { font: 14px var(--mono); color: var(--mid); font-variant-numeric: tabular-nums; }
+/* shell mode (as Claude Code's !): what is typed starts with ! (View.view_shell) */
+.composer .bang { display: none; align-self: center; flex: none; font: 600 12.5px var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.composer.shell { border-color: var(--accent); }
+.composer.shell .bang { display: inline-block; }
+.composer.shell textarea { color: var(--accent); font-family: var(--mono); }
 .composer.off { border-color: var(--hair); }
 .composer.off textarea { color: var(--soft); }
 .composer.off .send { background: var(--hair); cursor: default; }

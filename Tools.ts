@@ -34,7 +34,7 @@ import type { Out } from "./Agent.ts";
 import { report_text } from "./Call.ts";
 import { clip_page } from "./Clip.ts";
 import * as config from "./Config.ts";
-import { COMPUTER, INT, Machine, STR, TOOLS, spec, type Job, type Spec } from "./Machine.ts";
+import { COMPUTER, INT, Machine, STR, TOOLS, USER_SHELL, spec, type Job, type Spec } from "./Machine.ts";
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
 import { Memory, type Seen } from "./Memory.ts";
@@ -752,6 +752,12 @@ export namespace Tools {
 
   // a call made (Tools.call)
   export async function dispatch(tools: Tools, who: string, name: string, args: any, signal: AbortSignal, id: string): Promise<Out> {
+    // RED ZONE (DRAFT awaiting the user's sign-off): the user's own
+    // !command's job, ungated on the device (Machine.ts), is never an
+    // agent's call, whatever its tools list says
+    if (name === USER_SHELL) {
+      return { text: "Only the user runs a command as themselves (!command): ask them, or use shell.", fail: true };
+    }
     // the chat's mode first (Modes.ts): plan mode lets only reading reach
     // a device, an MCP server or a Claude Code worker
     const refused = Tools.moded(tools, name, args, who);

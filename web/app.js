@@ -2125,6 +2125,9 @@ function view_fold(v) {
 function view_typing(_v) {
   return true;
 }
+function view_shell(text) {
+  return text.trimStart().startsWith("!");
+}
 function view_crew(v, now) {
   const known = new Set(v.crew.map((c) => c.name));
   const kids = (parent) => v.crew.filter((c) => c.parent === parent || parent === "main" && !known.has(c.parent)).filter((c) => c.name !== parent).sort((a, b) => STATUSES2.indexOf(a.status) - STATUSES2.indexOf(b.status) || b.since - a.since);
@@ -3989,6 +3992,7 @@ function chat() {
     }
     BOX.style.height = "auto";
     BOX.style.height = Math.min(BOX.scrollHeight, innerHeight * 0.4) + "px";
+    $(".composer").classList.toggle("shell", !P.guest && view_shell(BOX.value));
     draw(true);
   };
   BOX.onkeydown = (ev) => {

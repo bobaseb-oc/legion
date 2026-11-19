@@ -209,6 +209,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/goal <message>",   "",                        "send a message as the goal: at each turn's end, Legion asks itself if it is met, and goes on till it is", (t, a) => term_act(t, { $: "Send", text: "/goal " + a })],
       ["/halt",             "",                        "drop the goal; the turn running ends as it would", (t) => term_act(t, { $: "Send", text: "/halt" })],
       ["/attach <path>",    "",                        "attach files: an image goes with the next message, a text file goes in the box (or drop an image here)", term_attach],
+      ["/copy",             "Ctrl+Y",                  "copy the last code block Legion wrote (a command to run: ! then paste it) to your clipboard", term_copy],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
       ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x explain, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
@@ -720,6 +721,20 @@ function term_toast(t: Term, text: string): void {
   t.toast = { text, until: Date.now() + TOAST };
   setTimeout(() => term_draw(t), TOAST + 50);
   term_draw(t);
+}
+
+// /copy, Ctrl+Y: the last code block Legion wrote, to the terminal's
+// clipboard by the painter's own OSC 52 (Paint.copy_osc: never written
+// from content); a terminal without OSC 52 (or tmux without
+// set-clipboard) copies nothing, so the toast says so
+function term_copy(t: Term): void {
+  const code = View.view_code(t.v);
+  if (code === null) {
+    return term_toast(t, "No code block from Legion to copy yet.");
+  }
+  const n = code.split("\n").length;
+  process.stdout.write(Paint.copy_osc(code));
+  term_toast(t, "Copied the last code block (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
 }
 
 // a page's command: the deck at it on a terminal, else its text printed
