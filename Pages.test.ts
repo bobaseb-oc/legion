@@ -589,3 +589,21 @@ test("AC25 (pinned): the Tracks page escapes a pin's edited-from text, the card'
   expect(html).not.toContain("<b id=");
   expect(html).not.toContain("<u>");
 });
+
+// Tracks (PLP-2895): a track's box is kept by its track's name, not its
+// place, so text typed for Bravo stays Bravo's when a track before it goes
+// (the web keeps the focused box by its data-keep: main.ts typing)
+test("the Tracks page keys each track's box by the track's name, the same whatever tracks come before it", async () => {
+  const View = await import("./View.ts");
+  const track = (name: string) => ({ name, tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] });
+  const keys = (names: string[], of: string) => {
+    const v = View.view_new();
+    View.view_hear(v, { $: "state", ...v, tracks: names.map(track) } as any);
+    const html = Pages.tracks_html(v, NOW).join("");
+    const form = new RegExp(`<form class="tadd" data-track="${of}">([\\s\\S]*?)</form>`).exec(html)?.[1] ?? "";
+    return [...form.matchAll(/data-keep="([^"]*)"/g)].map((m) => m[1]);
+  };
+  expect(keys(["Bravo"], "Bravo")).toHaveLength(2);
+  expect(keys(["Alpha", "Bravo"], "Bravo")).toEqual(keys(["Bravo"], "Bravo"));
+  expect(keys(["Alpha", "Bravo"], "Alpha")).not.toEqual(keys(["Alpha", "Bravo"], "Bravo"));
+});
