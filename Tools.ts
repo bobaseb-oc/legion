@@ -49,6 +49,7 @@ import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import * as Notes from "./Notes.ts";
 import { Directives } from "./Directives.ts";
+import * as Pending from "./Pending.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
 import type { Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
@@ -176,6 +177,7 @@ type Hooks = {
   shells?: () => void; // the shell commands running changed (B2: Tools.shells)
   boss?  : (text: string) => void; // Unii hears a refused call of one it started (Tools.appeal): a turn of its own
   pinned?: (who: string, marks: Array<{ n: number; status: Todo["status"] }>, texts: string[]) => Mine[];
+  pended?: () => void; // the approvals kept (Memory.pending) changed: saved (Server.ts)
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -195,6 +197,8 @@ export type Tools = {
   bgs?    : Bg[];    // the commands sent to the background (Tools.background), oldest first; ended ones kept till BG_KEPT
   bgn?    : number;  // the last background number given
   seen?   : Map<string, Set<string>>; // the repo instruction files each caller has had, by hash (Tools.instructions)
+  grants? : Map<string, Pending.Grant>; // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's live yes to a re-shown call, by its fp (Tools.regrant)
+  ending? : boolean; // the chat ends (Chat.end): a wait cut stays open on disk
 };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
@@ -643,6 +647,11 @@ export namespace Tools {
   // label, decides it (Modes.decide): a low one runs, a sub-agent's medium
   // one in super mode waits for its boss (Tools.appeal)
   export async function review(tools: Tools, who: string, name: string, args: any, signal: AbortSignal): Promise<string | null> {
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): a grant skips
+    // the reviewer alone, once (P9): the mode ran before, the device's guards run after
+    if (Pending.take((tools.grants ??= new Map()), who, name, args, Date.now())) {
+      return null;
+    }
     const verdict = await Tools.reviewed(tools, who, name, args, signal);
     if (verdict !== null) {
       const refused = verdict.allow ? null : "Refused by auto mode's reviewer: " + verdict.reason;
@@ -749,14 +758,22 @@ export namespace Tools {
       return Promise.resolve(false);
     }
     const list = (tools.appeals ??= new Map());
-    const id = Math.max(0, ...list.keys()) + 1;
+    const id = Tools.numbered(tools);
     const what = Tools.shown(name, args);
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): kept on disk to be
+    // shown as cut after a restart (Pending.restart); never answered from there
+    const now = Date.now();
+    const key = Pending.canon(args);
+    if (key.length <= Pending.ARGS) {
+      Tools.pend(tools, { id, kind: "appeal", who, boss, tool: name, args: key, reason, fp: Pending.fp(who, name, args), made: now, until: now + Tools.APPEAL.ms, state: "open" });
+    }
     const text = "Auto mode's reviewer refused call " + id + " of " + who + ", as against the limits of the task you gave it: " + reason + "\nIf the user's wishes or your task's purpose plainly cover it, overrule it (overrule, n " + id + ", yes true, and why); else let the refusal stand (yes false). It waits " + Math.round(Tools.APPEAL.ms / 60_000) + " minutes for you.\n" + Google.fence("call " + id + " of " + who, what, "The refused call, as the agent wrote it");
     return new Promise<boolean>((done) => {
       const answer = (yes: boolean, why?: string) => {
         if (list.delete(id)) {
           clearTimeout(timer);
           signal.removeEventListener("abort", no);
+          Tools.closed(tools, id, yes ? "yes" : "no");
           if (yes) {
             tools.hooks.note?.((boss === "main" ? "Unii" : boss) + " overruled auto mode's reviewer on " + who + "'s call (" + reason + "): " + why + "\n" + what);
           }
@@ -800,20 +817,41 @@ export namespace Tools {
 
   // a call put to the user (auto mode's reviewer couldn't check it): it
   // waits in Tools.consents for their yes or no; a stop is a no
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): the wait is kept as
+  // an open record (Pending.ts) a restart shows again; the identical call
+  // re-issued while one is shown takes its number. A yes runs this call
+  // and grants nothing; CONSENT_MS gone by is a no; a stop as the chat
+  // ends (Chat.end) leaves the record open
   export function ask_user(tools: Tools, who: string, name: string, args: any, signal: AbortSignal): Promise<boolean> {
     const list = (tools.consents ??= new Map());
-    const id = Math.max(0, ...list.keys()) + 1;
+    const mem = tools.mem;
+    const now = Date.now();
+    const key = Pending.canon(args);
+    const fp = Pending.fp(who, name, args);
+    const shown = mem?.pending?.find((p) => p.kind === "consent" && p.state === "open" && p.who === who && p.fp === fp && p.until > now && !list.has(p.id));
+    const id = shown?.id ?? Tools.numbered(tools);
+    const kept = shown !== undefined || (mem !== undefined && key.length <= Pending.ARGS);
+    if (shown === undefined && kept) {
+      Tools.pend(tools, { id, kind: "consent", who, tool: name, args: key, fp, made: now, until: now + Pending.CONSENT_MS, state: "open" });
+    }
     const what = Tools.shown(name, args);
     return new Promise<boolean>((done) => {
-      const answer = (yes: boolean) => {
+      // state: the record's on closing; null: it stays open
+      const answer = (yes: boolean, state: Pending.State | null) => {
         if (list.delete(id)) {
+          clearTimeout(timer);
           signal.removeEventListener("abort", no);
+          if (kept && state !== null) {
+            Tools.closed(tools, id, state);
+          }
           tools.hooks.change();
           done(yes);
         }
       };
-      const no = () => answer(false);
-      list.set(id, { id, who, tool: name, what, answer });
+      const no = () => answer(false, tools.ending === true ? null : "no");
+      const timer = setTimeout(() => answer(false, "expired"), Math.max(0, (shown?.until ?? now + Pending.CONSENT_MS) - now));
+      timer.unref?.();
+      list.set(id, { id, who, tool: name, what, answer: (yes: boolean) => answer(yes, yes ? "yes" : "no") });
       signal.addEventListener("abort", no, { once: true });
       tools.hooks.change();
       if (signal.aborted) {
@@ -822,9 +860,13 @@ export namespace Tools {
     });
   }
 
-  // the calls waiting for the user's yes, oldest first
+  // the calls waiting for the user's yes, oldest first: those live, and
+  // the open records a restart cut (shown from their hashed args, P8)
   export function consents(tools: Tools): Waiting[] {
-    return [...(tools.consents?.values() ?? [])].map(({ answer, ...c }) => c);
+    const live: Waiting[] = [...(tools.consents?.values() ?? [])].map(({ answer, ...c }) => c);
+    const now = Date.now();
+    const cut = (tools.mem?.pending ?? []).filter((p) => p.kind === "consent" && p.state === "open" && p.until > now && tools.consents?.has(p.id) !== true);
+    return [...live, ...cut.map((p) => ({ id: p.id, who: p.who, tool: p.tool, what: Tools.shown(p.tool, JSON.parse(p.args)) }))].sort((a, b) => a.id - b.id);
   }
 
   // the user's yes or no to a waiting call; false: none waits by that number
@@ -832,6 +874,53 @@ export namespace Tools {
     const c = tools.consents?.get(id);
     c?.answer(yes);
     return c !== undefined;
+  }
+
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's live
+  // answer to a record a restart cut, the one way a grant is made (P2):
+  // only Chat.consented calls this, behind SAYS. Yes grants one identical
+  // re-issue within GRANT_MS; null: no such record open
+  export function regrant(tools: Tools, id: number, yes: boolean): Pending.Pending | null {
+    const now = Date.now();
+    const p = tools.mem?.pending?.find((r) => r.id === id && r.kind === "consent" && r.state === "open" && r.until > now);
+    if (p === undefined || tools.consents?.has(id) === true) {
+      return null;
+    }
+    p.state = yes ? "yes" : "no";
+    if (yes) {
+      Pending.grant((tools.grants ??= new Map()), p, now);
+    }
+    tools.hooks.pended?.();
+    tools.hooks.change();
+    return p;
+  }
+
+  // the next approval's number, consents and appeals alike, never reused
+  export function numbered(tools: Tools): number {
+    const used = [...(tools.consents?.keys() ?? []), ...(tools.appeals?.keys() ?? [])];
+    const mem = tools.mem;
+    if (mem === undefined) {
+      return Math.max(0, ...used) + 1;
+    }
+    return (mem.pended = Math.max(mem.pended ?? 0, ...used, ...(mem.pending ?? []).map((p) => p.id)) + 1);
+  }
+
+  // an approval record kept (Memory.pending, capped by Pending.keep)
+  export function pend(tools: Tools, p: Pending.Pending): void {
+    if (tools.mem === undefined) {
+      return;
+    }
+    tools.mem.pending = Pending.keep([...(tools.mem.pending ?? []), p]);
+    tools.hooks.pended?.();
+  }
+
+  // an open record closed as answered
+  export function closed(tools: Tools, id: number, state: Pending.State): void {
+    const p = tools.mem?.pending?.find((r) => r.id === id && r.state === "open");
+    if (p !== undefined) {
+      p.state = state;
+      tools.hooks.pended?.();
+    }
   }
 
   // RED ZONE (security review H4, DRAFT awaiting the user's sign-off):
