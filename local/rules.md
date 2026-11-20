@@ -3,6 +3,7 @@
 These are the user's own instructions, the same ones their Claude Code loads; re-read at every turn, so an edit to them applies from the next one. They were written for Claude Code: where they name a tool or a step this chat has not (plan mode, a question tool, a file to keep), follow their intent with the tools you have.
 
 @~/.claude/CLAUDE.md
+@~/.claude/rules/
 
 # Repo instructions
 

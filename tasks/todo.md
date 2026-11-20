@@ -1253,3 +1253,12 @@ Review (2026-11-20):
 - tsc (pinned local/tools): no new errors on changed lines but `unref` on a timer, the same Bun-types noise as 6 existing lines.
 - Not verified: Haiku's real labelling. No live run yet; the prompt was not replayed against the 404 logged refusals.
 - Residual risks: (1) the floor only knows listed words, so a high-risk call it misses depends on Haiku's label; (2) a boss reads the refused call (fenced as data) and may be talked into an overrule, capped at medium risk; (3) Server's `boss` wiring has no Server.test.ts test: if it broke, appeals fail closed (refused).
+
+## Native agents load CLAUDE.md and AGENTS.md as Claude Code does (feat/rules-imports, then feat/repo-rules)
+User's ask 2026-11-20: one less reason to spawn Claude Code subagents. Design approved 2026-11-20: repo files load on touch; user-level fixes as the bottom layer of a 2-PR stack. Plan: ~/.claude/plans/modular-dreaming-rose.md.
+- [x] L1 red: Local.test.ts: a symlinked rules file imports from its target's folder; a loop through a symlink stops; `@dir/` expands its .md files by name; `@dir` and a missing `@dir/` stay as text (today: EISDIR crashes the whole read) → 4 fail before, for those reasons
+- [x] L1 Rules.ts takes rules_read from Tools.ts: real paths for resolving and loops, `@dir/`, non-files kept; local/rules.md imports `@~/.claude/rules/` → Local.test.ts 16/16; full `bun run test` 656 pass, 1 skip, 2 known logs fails
+- Finding: the old resolution already loaded AGENTS.local.md and SOUL.md by accident (~/.claude/AGENTS.md links to the company file, whose @AGENTS.local.md then resolved in ~/.claude). Live rules: 69,358 chars before, 69,723 after (+ personal.md's loader text).
+- [ ] L2 red: Rules.repo / Rules.touched, device_run rules + FRAME guard, server attach once per agent and hash
+- [ ] L2 implement, mutation check (roots, secret, seen, FRAME), README Gaps, rules.md "Repo instructions" shortened
+- [ ] Jira Task under PLP-2884; stack via gh stack
