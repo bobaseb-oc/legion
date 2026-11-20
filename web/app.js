@@ -533,6 +533,27 @@ var OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpu
 var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
 var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
+var RISKS = ["low", "medium", "high"];
+var PUSH = String.raw`\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*`;
+var HIGH = [
+  new RegExp(PUSH + String.raw`(\s--force(-with-lease)?\b|\s-[a-zA-Z]*f\b|\s\+\S)`),
+  new RegExp(PUSH + String.raw`\s(\S+:)?(main|master|release)\b`),
+  /\bdeploy\b/,
+  /(^|[\s=_\/-])prod([\s_\/-]|$)/i,
+  /\b(npm|pnpm|bun|yarn|cargo)\s+publish\b|\btwine\s+upload\b/,
+  /\bgh\s+pr\s+merge\b/,
+  /\|\s*(sudo\s+)?(ba|z|da)?sh\b/
+];
+var MEDIUM = [
+  new RegExp(PUSH),
+  /\brm\b/,
+  /\bbranch\s+(-[a-zA-Z]*D\b|--delete\s+--force\b)/,
+  /\bworktree\s+remove\b/,
+  /\b(kill|pkill|killall)\b/,
+  /\breset\s+--hard\b|\bclean\s+-[a-zA-Z]*f/,
+  /\bgh\s+(pr|issue|release|repo)\s+(create|comment|edit|close|reopen|review|ready|delete)\b/,
+  /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/
+];
 var DOTS = String.raw`\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.claude\.json`;
 var DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(gh|gcloud)|Library\/Keychains`;
 var SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
@@ -674,6 +695,32 @@ var Modes;
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
   }
   Modes2.reviews = reviews;
+  function floor(tool, input) {
+    if (tool === "write" || tool === "edit") {
+      return SECRETS.test(String(input?.path ?? input?.file_path ?? "")) ? "high" : "low";
+    }
+    if (tool !== "shell") {
+      return "medium";
+    }
+    const c = typeof input?.command === "string" ? input.command : "";
+    if (/[^\x00-\x7f]/.test(c) || SECRETS.test(c) || HIGH.some((r) => r.test(c))) {
+      return "high";
+    }
+    return MEDIUM.some((r) => r.test(c)) ? "medium" : "low";
+  }
+  Modes2.floor = floor;
+  function risk(floor, label) {
+    const at = RISKS.indexOf(label);
+    return at < 0 ? "high" : RISKS[Math.max(at, RISKS.indexOf(floor))];
+  }
+  Modes2.risk = risk;
+  function decide(mode, risk, allow, sub) {
+    if (allow || risk === "low") {
+      return "run";
+    }
+    return mode === "super" && sub && risk === "medium" ? "appeal" : "refuse";
+  }
+  Modes2.decide = decide;
   Modes2.FLOOR = ["access", "redzone", "money", "outward"];
   function unlocked(kind, t) {
     if (!ASK_KINDS.includes(kind) || Modes2.FLOOR.includes(kind) || t === undefined) {
@@ -1959,6 +2006,9 @@ function view_act(v, act) {
     }
     case "Pin": {
       return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
+    }
+    case "Note": {
+      return [act.drop === true ? { $: "note", name: act.name, drop: true } : { $: "note", name: act.name, text: act.text ?? "" }];
     }
     case "Assignment": {
       return (v.assigned ?? []).some((a) => a.n === act.n) ? [{ $: "assignment", n: act.n, done: act.done }] : [];
@@ -3849,7 +3899,7 @@ function timesheet_html(v) {
 function memory_html(v) {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc2(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
-  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
+  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), notes_html(v.notebook ?? []), map_html(v)];
 }
 function marked(text, q) {
   const at = q === "" ? -1 : text.toLowerCase().indexOf(q.toLowerCase());
@@ -3876,6 +3926,11 @@ function pins_html(pins) {
   const head = `<h3>Pinned <span class="meta">${pins.length} of ${PINS} · ${kb} of ${PINNED / 1000} KB</span></h3>`;
   const rows = pins.map((p) => `<div class="mpin">${recall_html(p, "")}<button class="x" title="unpin"${act_html2({ $: "Pin", i: p.i })}>×</button></div>`).join("");
   return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's \uD83D\uDCCC in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
+}
+function notes_html(notes) {
+  const head = `<h3>Notes</h3><p class="meta">What Unii keeps across runs and reads at each call: edit or drop any.</p>`;
+  const rows = notes.map((n) => `<form class="mnote" data-note="${esc2(n.name)}"><b>${esc2(n.name)}</b> <span class="meta">${esc2(n.line)}</span>` + `<textarea data-keep="note-${esc2(n.name)}" rows="3" aria-label="the note's text">${esc2(n.text)}</textarea>` + `<div class="acts"><button type="submit" class="pbtn">Edit</button><button type="button" class="pbtn"${act_html2({ $: "Note", name: n.name, drop: true })}>Drop</button></div></form>`).join("");
+  return `<section class="mnotes">${head}${rows || `<p class="meta">No notes yet.</p>`}</section>`;
 }
 function map_html(v) {
   const lines = v.roots === null ? `<p class="meta">Loading…</p>` : v.roots.map((part) => line_html2(v, part, 0)).join("") || `<p class="meta">No messages yet.</p>`;
@@ -4104,6 +4159,7 @@ function chat() {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
@@ -5206,6 +5262,14 @@ function memory_find(ev) {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input").value });
+}
+function note_edit(ev) {
+  const form = ev.target.closest("form.mnote");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Note", name: form.dataset.note, text: form.querySelector("textarea").value });
 }
 function explain_ask(ev) {
   const form = ev.target.closest("form.xask");

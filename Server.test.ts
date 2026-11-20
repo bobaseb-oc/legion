@@ -1454,3 +1454,129 @@ test("the GChat bridge opens on and posts from the chat of the user gchat_user n
   expect(await run(null)).toEqual([none, none]);
   expect(await run("")).toEqual([none, none]);
 });
+
+// Notes: Unii's notes index reaches its turn fenced, in one
+// block of its own; a view edits or drops a note (the `note` act), a
+// device's socket can't; a note planted by hand is in the state. One
+// spawned process, its parts read by the tests below
+const NOTES = `
+const fs = await import("node:fs");
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+const asks = [];
+AskAI.ask = (ask, on) => {
+  const [call, sink] = AskAI.tie(on, ask.bill, () => {}, () => {});
+  asks.push({ ask, sink });
+  return call;
+};
+const until = async (f) => {
+  for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10);
+  return f();
+};
+const within = (p) => Promise.race([Promise.resolve(p).catch((e) => ({ thrown: String(e) })), Bun.sleep(3000).then(() => ({ timeout: true }))]);
+const main = () => asks.filter((a) => String(a.ask.server ?? "").endsWith("/main"));
+const go = new AbortController().signal;
+const note = (args, id) => within(Tools.call(chat.tools, "main", "notes", args, go, id));
+const file = chat.mem.dir + "/notes/plan.md";
+const disk = () => (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null);
+const names = () => (Chat.state(chat).notebook ?? null)?.map((n) => n.name) ?? null;
+// a turn of Unii's: its blocks' texts, then it ends
+const turn = async (text) => {
+  const n = main().length;
+  Chat.take(chat, Chat.push(chat, null, "user", text));
+  const asked = await until(() => main().length === n + 1);
+  const blocks = asked ? main()[n].ask.blocks.map((b) => b.text) : [];
+  if (asked) main()[n].sink.end({ ok: true, text: "done", left: [] });
+  await until(() => !chat.busy);
+  return blocks;
+};
+const wrote = [
+  await note({ write: "a", line: "first note line", text: "A" }, "n1"),
+  await note({ write: "b", line: "second note line", text: "B" }, "n2"),
+  await note({ write: "plan", line: "the old plan", text: "old" }, "n3"),
+];
+const first = await turn("hi");
+const before = disk();
+const device = await within(Chat.act(chat, "d1", { $: "note", name: "plan", text: "x" }, "mac"));
+const after = disk();
+const edited = await within(Chat.act(chat, "e1", { $: "note", name: "plan", text: "new" }, ""));
+const edit = disk();
+const relined = await within(Chat.act(chat, "e2", { $: "note", name: "plan", line: "the new plan", text: "new" }, ""));
+const fresh = await within(Chat.act(chat, "f1", { $: "note", name: "brand-new", text: "x" }, ""));
+const freshed = fs.existsSync(chat.mem.dir + "/notes/brand-new.md");
+const second = await turn("again");
+fs.mkdirSync(chat.mem.dir + "/notes", { recursive: true });
+fs.writeFileSync(chat.mem.dir + "/notes/hand-made.md", '---\\nname: hand-made\\ndescription: "planted by the user"\\nmetadata:\\n  type: note\\n---\\n\\nbody\\n');
+await Bun.sleep(20);
+const planted = names();
+const kept = names();
+const dropped = await within(Chat.act(chat, "x1", { $: "note", name: "plan", drop: true }, ""));
+const left = names();
+console.log(JSON.stringify({ wrote, first, before, device, after, edited, edit, relined, fresh, freshed, second, planted, kept, dropped, left }));
+process.exit(0);
+`;
+
+let noting: Promise<any> | null = null;
+const notes_run = (): Promise<any> => (noting ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/notes.ts", NOTES);
+  const proc = Bun.spawn([process.execPath, dir + "/notes.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+})());
+
+const FENCE = '<untrusted source="notes">';
+
+test("L2-AC1: Unii's blocks hold one block starting <untrusted source=\"notes\"> with both notes' index lines", async () => {
+  const out = await notes_run();
+  expect(out.wrote.map((w: any) => w.fail)).toEqual([false, false, false]);
+  const fenced = out.first.filter((t: string) => t.startsWith(FENCE));
+  expect(fenced.length).toBe(1);
+  expect(fenced[0]).toContain("[a](a.md)");
+  expect(fenced[0]).toContain("first note line");
+  expect(fenced[0]).toContain("[b](b.md)");
+  expect(fenced[0]).toContain("second note line");
+}, 30_000);
+
+test("L2-AC11: a device socket's note edit is refused with an error; the file is unchanged", async () => {
+  const out = await notes_run();
+  expect(out.before).toContain("old");
+  expect(typeof out.device.error).toBe("string");
+  expect(out.after).toBe(out.before);
+}, 30_000);
+
+test("L2-AC12: a view's edit is written to the file, and Unii's next blocks show the new line", async () => {
+  const out = await notes_run();
+  expect(out.edited.error).toBeUndefined();
+  expect(out.edit).toMatch(/\n---\n\nnew\n$/); // the body is the new text, the old one gone
+  expect(out.edit).not.toMatch(/\n\nold\n/);
+  expect(out.relined.error).toBeUndefined();
+  const fenced = out.second.filter((t: string) => t.startsWith(FENCE));
+  expect(fenced.length).toBe(1);
+  expect(fenced[0]).toContain("the new plan");
+  expect(fenced[0]).not.toContain("the old plan");
+}, 30_000);
+
+test("L2-AC15: a note file planted by hand with a valid name is listed in Chat.state", async () => {
+  const out = await notes_run();
+  expect(out.planted).toContain("hand-made");
+}, 30_000);
+
+test("L2-AC10: a view's drop of plan: Chat.state(chat).notebook no longer lists plan", async () => {
+  const out = await notes_run();
+  expect(out.kept).toContain("plan");
+  expect(out.dropped.error).toBeUndefined();
+  expect(out.left).not.toContain("plan");
+  expect(out.left).toEqual(expect.arrayContaining(["a", "b", "hand-made"]));
+}, 30_000);
+
+test("L2: a view cannot make a note: a note act with a new name is refused, no file made (only Unii writes notes)", async () => {
+  const out = await notes_run();
+  expect(typeof out.fresh.error).toBe("string");
+  expect(out.freshed).toBe(false);
+}, 30_000);

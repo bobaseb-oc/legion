@@ -316,6 +316,7 @@ function chat(): void {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
@@ -1675,6 +1676,16 @@ function memory_find(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input")!.value });
+}
+
+// a note's box sent (the Memory page): its text saved as edited
+function note_edit(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.mnote");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Note", name: form.dataset.note!, text: form.querySelector("textarea")!.value });
 }
 
 // the Explain page's box sent: a question for the observer, answered on

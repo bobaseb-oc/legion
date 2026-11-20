@@ -669,3 +669,17 @@ test("shell commands in sight: their lines, the keys, the acts on them", () => {
   expect(View.view_shell_lines(v, 14_000)).toEqual(["$ npm test · Ada on pc · 12s", View.RUN_HINT]);
   expect(View.view_bg_lines(v, 20_000)).toEqual(["1 · running 19s · Legion on mac · $ tail -f log", "2 · done (exit 0 in 9.0 s) · Ada on pc · $ sleep 9"]);
 });
+
+// Notes: Unii's notes come in the state as `notebook`; the
+// view's own `notes` (its toast queue, strings) is left as it is
+test("L2: a state message with a notebook keeps the view's toasts and lists the note", () => {
+  const v = View.view_new();
+  View.view_act(v, { $: "Shell", op: "bg" }); // a toast: nothing runs here
+  expect(v.notes).toEqual(["No command is running here."]);
+  const note = { name: "plan", line: "the plan", text: "step one", at: 1 };
+  const { notes: _toasts, ...state } = v; // the server's state carries no toasts
+  View.view_hear(v, { $: "state", ...state, notebook: [note] } as any);
+  expect(v.notes.every((t: unknown) => typeof t === "string")).toBe(true);
+  expect(v.notes).toContain("No command is running here.");
+  expect((v as any).notebook).toEqual([note]);
+});

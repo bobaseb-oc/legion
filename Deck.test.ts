@@ -467,3 +467,17 @@ test("a PR body, an event title, a routine's why: drawn without their escapes", 
   const menu = Deck.menu_lines([{ label: "PR " + EVIL, hint: "h" + EVIL, go: { run: "/x" } }], 0, W);
   expect(drawn(menu, W).replace(OWN, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
 });
+
+// Notes: the terminal's Memory page lists Unii's notes,
+// read-only (edited on the web)
+test("L2-AC14: the terminal Memory page lists both notes' names", () => {
+  const v = team();
+  (v as any).notebook = [
+    { name: "alpha-plan", line: "the alpha line", text: "alpha body", at: 0 },
+    { name: "beta-notes", line: "the beta line", text: "beta body", at: 0 },
+  ];
+  const lines = Deck.deck_lines(v, Deck.deck_new("memory"), W, 60, 0).map(text).join("\n");
+  expect(lines).toContain("Notes");
+  expect(lines).toContain("alpha-plan");
+  expect(lines).toContain("beta-notes");
+});

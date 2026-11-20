@@ -10,6 +10,7 @@
 import * as Cockpit from "../../Cockpit.ts";
 import * as Explain from "../../Explain.ts";
 import type { Inbox } from "../../Inbox.ts";
+import type { Note } from "../../Notes.ts";
 import * as Routines from "../../Routines.ts";
 import type * as View from "../../View.ts";
 import { FIND, FOUND, minute, PINNED, PINS, SHOWN } from "../../View.ts";
@@ -574,7 +575,7 @@ export function timesheet_html(v: View.View): string[] {
 export function memory_html(v: View.View): string[] {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
-  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
+  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), notes_html(v.notebook ?? []), map_html(v)];
 }
 
 // a text escaped, the first match of q in it marked
@@ -606,6 +607,16 @@ function pins_html(pins: View.Pin[]): string {
   const head = `<h3>Pinned <span class="meta">${pins.length} of ${PINS} · ${kb} of ${PINNED / 1000} KB</span></h3>`;
   const rows = pins.map((p) => `<div class="mpin">${recall_html(p, "")}<button class="x" title="unpin"${act_html({ $: "Pin", i: p.i })}>×</button></div>`).join("");
   return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's 📌 in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
+}
+
+// Unii's notes (Notes.ts), each an edit box: Edit saves its text (main.ts
+// note_edit), Drop drops it; untrusted text, so all of it escaped
+function notes_html(notes: Note[]): string {
+  const head = `<h3>Notes</h3><p class="meta">What Unii keeps across runs and reads at each call: edit or drop any.</p>`;
+  const rows = notes.map((n) => `<form class="mnote" data-note="${esc(n.name)}"><b>${esc(n.name)}</b> <span class="meta">${esc(n.line)}</span>`
+    + `<textarea data-keep="note-${esc(n.name)}" rows="3" aria-label="the note's text">${esc(n.text)}</textarea>`
+    + `<div class="acts"><button type="submit" class="pbtn">Edit</button><button type="button" class="pbtn"${act_html({ $: "Note", name: n.name, drop: true })}>Drop</button></div></form>`).join("");
+  return `<section class="mnotes">${head}${rows || `<p class="meta">No notes yet.</p>`}</section>`;
 }
 
 function map_html(v: View.View): string {

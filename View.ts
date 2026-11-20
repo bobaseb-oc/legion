@@ -14,6 +14,7 @@ import { Modes, ASK_KINDS, type AskKind, type Mode as Perm, type Tally } from ".
 import { topup } from "./Import.ts";
 import * as Call from "./Call.ts";
 import type { Inbox } from "./Inbox.ts";
+import type { Note } from "./Notes.ts";
 import { pending, routine_parse, when_text, type Given, type Routine, type Timer } from "./Routines.ts";
 import * as Md from "./Md.ts";
 import { LABELS, type Move, Pick } from "./Pick.ts";
@@ -83,6 +84,7 @@ export type State = {
   timers?   : Timer[];       // the agents' pending timers (Routines.ts)
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
   pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
+  notebook? : Note[];        // Unii's notes (Notes.ts), newest first
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
   decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
   tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
@@ -333,6 +335,7 @@ export type Client =
   | { $: "consent"; n: number; yes: boolean } // a waiting call (auto's reviewer couldn't check it): run it, or not
   | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
+  | { $: "note"; name: string; text?: string; drop?: boolean } // a view: one of Unii's notes edited, or dropped (the user's only: Chat.noted)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "explain"; q: string } // a view: a question about the Explain page (the user's only: Chat.explain), answered there
@@ -400,6 +403,7 @@ export type Act =
   | { $: "Bang"; command: string; dir: string }  // a command run in a folder (the Files page's box)
   | { $: "Timesheet"; op: "submit" | "drop"; ns: number[] } // timesheet drafts submitted to Harvest, or dropped (K5)
   | { $: "Pin"; i: number }                     // a chat message pinned, or unpinned if it is (its pin button, the Memory page)
+  | { $: "Note"; name: string; text?: string; drop?: boolean } // one of Unii's notes edited, or dropped (the Memory page)
   | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
   | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
   | { $: "Roots" }                              // the tree's roots asked (the Memory page's map)
@@ -937,6 +941,9 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Pin": {
       return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
+    }
+    case "Note": {
+      return [act.drop === true ? { $: "note", name: act.name, drop: true } : { $: "note", name: act.name, text: act.text ?? "" }];
     }
     case "Assignment": {
       return (v.assigned ?? []).some((a) => a.n === act.n) ? [{ $: "assignment", n: act.n, done: act.done }] : [];

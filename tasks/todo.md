@@ -1244,7 +1244,7 @@ Decisions (mine, for review): the direct boss (who wrote the task) overrules, no
 - [x] Tools.ts: REVIEW prompt (risk field, allow-examples from the logs), `reviewed` parses risk, `review` uses decide, appeals map, `overrule` tool for bosses
 - [x] Proof: `bun run test` green; mutation check (each rule reverted fails a test)
 - [x] Server.ts: `boss` hook wakes Unii with the appeal; `Chat.work` shared with `Chat.report` (no duplicated turn logic)
-- [ ] User: sign off the Red Zone draft
+- [x] User: sign off the Red Zone draft (Sebastian, 2026-11-20, in session: unblocks L1 PLP-2901 per always-on spec amendment 1)
 - [ ] User: restart the server to load it; watch the first overrules in the chat notes
 
 Review (2026-11-20):
