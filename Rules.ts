@@ -13,7 +13,7 @@ import * as path from "node:path";
 // =========
 
 // how deep a rules file's @imports go (Claude Code's limit)
-export const RULES_DEPTH = 5;
+const RULES_DEPTH = 5;
 
 // the most characters of one repo file an agent gets (Claude Code warns
 // at a CLAUDE.md this long); past it, cut, saying where
@@ -21,7 +21,7 @@ export const RULES_CAP = 40000;
 
 // a repo folder's instruction files, in the order they load: Claude
 // Code's, then AGENTS.md (Codex's, which the user's repos keep too)
-export const RULES_NAMES = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
+const RULES_NAMES = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
 
 // a repo file as an agent gets it: its path, a hash of path and text (an
 // agent gets each once, again if it changes: Tools.seen), its text
