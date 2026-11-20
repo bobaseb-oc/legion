@@ -2245,7 +2245,7 @@ const LIKES = 30;
 
   // Explain
   // -------
-  // The Explain page (Explain.ts): the observer (config.OBSERVER) writes
+  // The Tracks page's cards (Explain.ts): the observer (config.OBSERVER) writes
   // it from the chat's snapshot on the routines' tick, again only once
   // that changed and at most once an Explain.EVERY; the user's questions
   // are answered on the page. Neither ever reaches the chat: no message,
@@ -2339,14 +2339,14 @@ const LIKES = 30;
   }
 
   // RED ZONE (access control, DRAFT awaiting the user's sign-off): the
-  // user's question about the Explain page, a view's act only (a device's
+  // user's question about the Tracks page, a view's act only (a device's
   // socket is within an agent's reach: an agent must not spend the
   // user's credit on it nor write in their thread). One at a time, the
   // credit checked; its answer goes on the page only (Explain.explain_asked):
   // no chat message, no turn, no agent told
   export async function explain(chat: Chat, device: string, msg: any): Promise<Answer> {
     if (device !== "") {
-      return { error: "Ask about the Explain page in a view (the web, or the terminal's /explain)." };
+      return { error: "Ask about the Tracks page in a view (the web, or the terminal's /tracks)." };
     }
     const q = typeof msg.q === "string" ? msg.q.replace(/\s+/g, " ").trim().slice(0, Explain.Q) : "";
     if (q === "") {

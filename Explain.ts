@@ -1,14 +1,16 @@
 // Explain
 // =======
-// The Explain page (the web's #explain, the terminal's deck page and
-// /explain): what the crew is building right now and why, for a manager.
-// An observer (Config.ts OBSERVER, a call with no tools) writes it from a
-// snapshot of the moving parts (the goal and plan, the agents, open
-// questions, todos, routines, the user's open PRs): one card per
-// workstream. It is written again only once the snapshot changed, at most
-// once an EVERY; the user's questions about it are answered on the page
-// only, never in the chat. Pure: the server (Server.ts Chat.observe,
-// Chat.explain) calls the observer and keeps the page in view.json.
+// The Tracks page (the web's #tracks, the terminal's deck page and
+// /tracks; #explain and /explain its old names): what the crew is building
+// right now and why, for a manager, and each track's checklist and pins.
+// An observer (Config.ts OBSERVER, a call with no tools) writes its cards
+// from a snapshot of the moving parts (the goal and plan, the agents, the
+// tracks' counts, open questions, todos, routines, the user's open PRs):
+// one card per track. It is written again only once the snapshot
+// changed, at most once an EVERY; the user's questions about it are
+// answered on the page only, never in the chat. Pure: the server
+// (Server.ts Chat.observe, Chat.explain) calls the observer and keeps the
+// page in view.json.
 
 import type { Pr } from "./Inbox.ts";
 import type { Crew, Mine, Todo, Track } from "./View.ts";
