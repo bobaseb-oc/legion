@@ -1,0 +1,19 @@
+docs/superpowers/plans/2026-11-20-tracks.md
+  s_b9bdd18c332c5d::t_04557acb2e044b 1-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "939a98a008717e2528340fff0bc601145b3c64a9",
+  "prompts": {},
+  "sessions": {
+    "s_b9bdd18c332c5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2aa34825-ff62-4fff-97b9-15653a55022a",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
