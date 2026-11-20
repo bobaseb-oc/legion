@@ -40,7 +40,8 @@ test("a new log is staged redacted, dated as its source; others skipped", () => 
   const staged = out + "/-Volumes-dev-git-app/a.jsonl";
   expect(fs.readFileSync(staged, "utf8")).toContain("use [REDACTED:anthropic]");
   expect(fs.readFileSync(staged, "utf8")).not.toContain(KEY);
-  expect(fs.statSync(staged).mtimeMs).toBe(fs.statSync(src + "/-Volumes-dev-git-app/a.jsonl").mtimeMs);
+  // to the ms: a Date (utimesSync) holds no finer time
+  expect(fs.statSync(staged).mtimeMs).toBe(Math.floor(fs.statSync(src + "/-Volumes-dev-git-app/a.jsonl").mtimeMs));
   expect(fs.readdirSync(out)).toEqual(["-Volumes-dev-git-app"]);
   expect(fs.readdirSync(out + "/-Volumes-dev-git-app")).toEqual(["a.jsonl"]);
 });
