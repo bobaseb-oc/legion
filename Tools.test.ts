@@ -1034,6 +1034,33 @@ test("L1-AC16, P8: a re-shown record and its agent's re-issued identical call ar
   });
 });
 
+test("L1-AC16, P4: another agent's identical call does not take a re-shown record; it waits under a number of its own", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("Wkr", "shell", DEPLOY);
+    working(tools, "Other");
+    const waiting = Tools.call(tools, "Other", "shell", DEPLOY, go(), "o");
+    await Bun.sleep(20);
+    const listed = Tools.consents(tools);
+    expect(listed.map((c: any) => [c.id === 7, c.who])).toEqual([[true, "Wkr"], [false, "Other"]]);
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("open");
+    expect(Tools.consent(tools, listed[1]!.id, false)).toBe(true);
+    expect((await waiting).text).toContain("The user refused");
+  });
+});
+
+test("P6: a live wait on a re-shown record ends at the record's until: refused, the record expired", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("main", "shell", DEPLOY, 7, "auto", { until: Date.now() + 100 });
+    const waiting = Tools.call(tools, "main", "shell", DEPLOY, go(), "t");
+    const out = await Promise.race([waiting, Bun.sleep(2000).then(() => null)]);
+    expect(out?.text).toContain("The user refused");
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("expired");
+    expect(Tools.consents(tools)).toEqual([]);
+  });
+});
+
 // P2, read as text: a grant is made in one place, Tools.regrant, and only
 // the user's consent act (Server.ts Chat.consented, behind SAYS) calls it
 test("P2: Pending.grant( only inside Tools.regrant; Tools.regrant( called only from Chat.consented in Server.ts", () => {
