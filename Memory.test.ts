@@ -159,6 +159,7 @@ test("AC11b (pinned): a saved pin with an unknown status is dropped; known statu
 test("AC11b (pinned): a saved pin's unknown fields (by, evil) are not kept; its own fields are", () => {
   const mem = loaded({ tracks: { X: { pins: [pin(1, { evil: "x", by: "agent", since: 4, reminded: true, from: "orig" })], next: 1, dropped: [] } } }) as any;
   expect(mem.tracks.X.pins).toEqual([{ n: 1, text: "pin 1", status: "pending", at: 1, since: 4, reminded: true, from: "orig" }]);
+});
 
 // RED ZONE (R4, ADR 1; DRAFT awaiting the user's sign-off): the approvals
 // waiting for the user or a boss (Pending.ts), kept in view.json; a record
