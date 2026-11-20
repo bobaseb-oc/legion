@@ -1871,3 +1871,25 @@ test("P10: the process exit handler stops chats only through Chat.quit", () => {
   expect(handler).toContain("Chat.quit()");
   expect(handler).not.toContain("Chat.stop(");
 });
+
+// P6 at the tick: a re-shown consent no live wait holds expires once its
+// until passes, saved to view.json (no timer of its own holds it)
+const APPROVE_TICK = APPROVE_HEAD + `
+const chat = opened();
+const now = Date.now();
+chat.mem.pending = [{ id: 1, kind: "consent", who: "main", tool: "shell", args: JSON.stringify(DEPLOY), fp: "x", made: now, until: now + 1000, state: "open" }];
+const before = Chat.state(chat).calls.map((c) => c.id);
+Chat.ticked(chat, now + 2000);
+console.log(JSON.stringify({ before, state: chat.mem.pending[0].state, disk: disk(chat) }));
+process.exit(0);
+`;
+
+test("P6: the tick expires a re-shown consent past its until, and saves it", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/tick.ts", APPROVE_TICK);
+  const proc = Bun.spawn([process.execPath, dir + "/tick.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.before).toEqual([1]);
+  expect(out.state).toBe("expired");
+  expect((out.disk ?? []).map((p: any) => p.state)).toEqual(["expired"]);
+}, 30_000);

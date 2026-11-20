@@ -1090,3 +1090,65 @@ test("P2: Pending.grant( only inside Tools.regrant; Tools.regrant( called only f
   expect(count(server, "Tools.regrant(")).toBe(1);
   expect(body(server, "consented")).toContain("Tools.regrant(");
 });
+
+test("P1, P2: the user's no to a re-shown record closes it no and grants nothing; it can't be answered again; the identical call waits", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("main", "shell", DEPLOY);
+    expect((Tools as any).regrant(tools, 7, false)).toMatchObject({ id: 7, state: "no" });
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("no");
+    expect((Tools as any).regrant(tools, 7, true)).toBeNull();
+    const n = told.length;
+    await waits(tools, "main", "shell", DEPLOY, "after-no");
+    expect(told.length).toBe(n + 1);
+  });
+});
+
+test("a new wait never takes a kept record's number, even when pended lags behind it", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("Wkr", "shell", DEPLOY, 7);
+    mem.pended = 0;
+    working(tools, "Other");
+    const waiting = Tools.call(tools, "Other", "shell", DEPLOY, go(), "n");
+    await Bun.sleep(20);
+    expect(Tools.consents(tools).map((c: any) => [c.id, c.who])).toEqual([[7, "Wkr"], [8, "Other"]]);
+    expect(Tools.consent(tools, 8, false)).toBe(true);
+    expect((await waiting).text).toContain("The user refused");
+  });
+});
+
+test("a call whose args pass Pending.ARGS still waits for the user, but keeps no record", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const Pending = await import("./Pending.ts");
+    const mem: any = { mode: "auto", count: 0 };
+    const tools = Tools.serve(mem, { change: () => {}, pended: () => {} } as any);
+    await waits(tools, "main", "write", { device: "mac", path: "a", content: "x".repeat(Pending.ARGS) }, "big");
+    expect(mem.pending ?? []).toEqual([]);
+  });
+});
+
+test("an appeal is kept as an open record; its boss's yes closes it yes, a no closes it no", async () => {
+  await reviewer(async (_told, set) => {
+    set(refuse("medium"));
+    const { tools } = risky("super", { pended: () => {} });
+    const mem: any = (tools as any).mem;
+    const record = (id: number) => (mem.pending ?? []).find((p: any) => p.id === id);
+    working(tools, "Wkr");
+    const first = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Bun.sleep(20);
+    const [a] = Tools.appeals(tools);
+    expect(record(a!.id)).toMatchObject({ kind: "appeal", who: "Wkr", boss: "main", tool: "shell", reason: "r", state: "open" });
+    expect((await Tools.call(tools, "main", "overrule", { n: a!.id, yes: true, why: "the user asked for it" }, go(), "o1")).fail).toBe(false);
+    await first;
+    expect(record(a!.id).state).toBe("yes");
+    const second = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    await Bun.sleep(20);
+    const [b] = Tools.appeals(tools);
+    expect(b!.id).not.toBe(a!.id);
+    expect((await Tools.call(tools, "main", "overrule", { n: b!.id, yes: false }, go(), "o2")).fail).toBe(false);
+    expect((await second).text).toBe("Refused by auto mode's reviewer: r");
+    expect(record(b!.id).state).toBe("no");
+  });
+});
