@@ -181,6 +181,10 @@ export function notes_write(dir: string, name: string, line: string | null, text
   }
   const given = line ?? (st === undefined ? null : load(dir, name)?.line) ?? "";
   const kept = { line: line_of(redact(given, []).text), text: redact(text, []).text };
+  // a redaction mark can be longer than what it hides: the cap holds on disk
+  if (Buffer.byteLength(kept.text, "utf8") > NOTE_TEXT) {
+    return "A note's text is at most " + NOTE_TEXT + " bytes once its secrets are redacted: keep less.";
+  }
   put(file, body_of(name, kept.line, kept.text));
   export_write(dir);
   return { name, ...kept, at: fs.statSync(file).mtimeMs };

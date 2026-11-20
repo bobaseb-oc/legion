@@ -207,3 +207,12 @@ test("notes_list reads at most LISTED files, newest first", () => {
   expect(list.length).toBe(Notes.LISTED);
   expect(list[0]!.name).toBe("n0");
 });
+
+test("a note whose redacted text passes NOTE_TEXT is refused, not stored past NOTE_FILE", () => {
+  const { dir } = fresh();
+  // under the cap as given; each 8-char value becomes [REDACTED:assigned]
+  const text = "pwd=12345678\n".repeat(315);
+  expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(Notes.NOTE_TEXT);
+  expect(typeof Notes.notes_write(dir, "logins", "the logins", text)).toBe("string");
+  expect(fs.existsSync(Notes.notes_dir(dir) + "/logins.md")).toBe(false);
+});
