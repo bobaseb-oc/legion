@@ -1580,3 +1580,70 @@ test("L2: a view cannot make a note: a note act with a new name is refused, no f
   expect(typeof out.fresh.error).toBe("string");
   expect(out.freshed).toBe(false);
 }, 30_000);
+
+// the turn-end directives check (Directives.ts): a reply asking the user
+// with no ask filed is nudged once; with a directives note, the checker
+// judges each reply, its "skipped" nudged once, its failure a note; the
+// nudged turn is never checked. Each case its own chat, as ROLL's
+const DIRECT = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Directives } = await import(${JSON.stringify(import.meta.dir + "/Directives.ts")});
+const Notes = await import(${JSON.stringify(import.meta.dir + "/Notes.ts")});
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const asks = [];
+AskAI.ask = (ask, on) => {
+  const [call, sink] = AskAI.tie(on, ask.bill, () => {}, () => {});
+  asks.push({ ask, sink });
+  return call;
+};
+const until = async (f) => {
+  for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10);
+  return f();
+};
+const run = async (id, directives, replies, judge) => {
+  asks.length = 0;
+  const chat = Chat.open({ id, name: id + "@b.c" });
+  Chat.chats.set(id, chat);
+  chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+  if (directives !== null) Notes.notes_write(chat.mem.dir, "directives", "standing orders", directives);
+  const main = () => asks.filter((a) => String(a.ask.server ?? "").endsWith("/main"));
+  const checks = () => asks.filter((a) => a.ask.system === Directives.SYSTEM);
+  Chat.take(chat, Chat.push(chat, null, "user", "the user's ask"));
+  for (let k = 0; k < replies.length; k++) {
+    if (!(await until(() => main().length === k + 1))) break;
+    Chat.push(chat, null, "unii", replies[k]);
+    main()[k].sink.end({ ok: true, text: "", left: [], });
+    if (directives !== null && (await until(() => checks().length === k + 1))) checks()[k].sink.end(judge[k] ?? { ok: true, text: "ok", left: [] });
+  }
+  await until(() => !chat.busy);
+  await Bun.sleep(50);
+  const noted = Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i)).some((m) => m?.kind === "note" && m.text.includes("No directives check"));
+  const blocks = main().map((m) => m.ask.blocks.map((b) => b.text).join(""));
+  return { mains: main().length, checks: checks().length, nudged: blocks.slice(1).some((b) => b.includes(Directives.TAG)), fenced: (blocks[0] ?? "").includes(directives ?? "\\u0000"), noted, busy: chat.busy };
+};
+const out = {
+  guard: await run("g1", null, ["Shall I merge PR 5?", "Filed it."], []),
+  quiet: await run("g2", null, ["Merged PR 5."], []),
+  judge: await run("j1", "Always name the branch.", ["Done.", "Done, on branch PLP-1-x."], [{ ok: true, text: "skipped: name the branch", left: [] }]),
+  ok: await run("j2", "Always name the branch.", ["Done on PLP-1-x."], [{ ok: true, text: "ok", left: [] }]),
+  failed: await run("j3", "Always name the branch.", ["Done."], [{ ok: false, text: "down", left: [] }]),
+};
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+test("directives check: the ask-guard and the checker nudge a turn once, never the nudged turn; a failed check only notes", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/direct.ts", DIRECT);
+  const proc = Bun.spawn([process.execPath, dir + "/direct.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.guard).toMatchObject({ mains: 2, checks: 0, nudged: true, busy: false });
+  expect(out.quiet).toMatchObject({ mains: 1, checks: 0, busy: false });
+  expect(out.judge).toMatchObject({ mains: 2, checks: 1, nudged: true, fenced: true, busy: false });
+  expect(out.ok).toMatchObject({ mains: 1, checks: 1, fenced: true, busy: false });
+  expect(out.failed).toMatchObject({ mains: 1, checks: 1, noted: true, busy: false });
+  expect(out.ok.noted).toBe(false);
+}, 60_000);

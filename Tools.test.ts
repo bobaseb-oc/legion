@@ -883,3 +883,13 @@ test("unkeyed: an agent's shell call opening a PR without a ticket key is refuse
     Tools.close(tools);
   }
 });
+
+test("directives: the notes tool tells Unii to keep the user's standing orders in its note named directives", () => {
+  const { tools } = risky("auto");
+  try {
+    const notes = Tools.list(tools, "main").find((t: any) => t.name === "notes");
+    expect(JSON.stringify(notes)).toMatch(/named directives/);
+  } finally {
+    Tools.close(tools);
+  }
+});

@@ -49,6 +49,8 @@ export const PICK       = config_run("pick", config_get("pick", "claude-api:sonn
 export const COMPACTOR  = config_run("compactor", config_get("compactor", "claude-api:haiku-5.5:high:slow"));
 // what writes the Tracks page's cards and answers questions about them (Explain.ts)
 export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku-5.5:high:slow"));
+// what checks each reply against Unii's standing directives (Directives.ts)
+export const CHECKER    = config_run("checker", config_get("checker", "claude-api:haiku-5.5:high:slow"));
 // what agents run on by tier, below the chat's pick (Tools.ts): a
 // manager splits its task among workers; `agents` sets both (older)
 export const MANAGER    = config_run("manager", config_get("manager", config_get("agents", "claude-api:sonnet-5.5:medium:slow")));

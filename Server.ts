@@ -54,6 +54,7 @@ import * as Routines from "./Routines.ts";
 import * as Explain from "./Explain.ts";
 import * as Gchat from "./Gchat.ts";
 import * as Notes from "./Notes.ts";
+import { Directives } from "./Directives.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
@@ -237,6 +238,8 @@ const ROLLED     = "\n\nYour call for this message rolled over, its context too 
 const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. Answer yes if the chat shows the goal fully satisfied now, else no. Write that one word, nothing else.";
 const GOAL_ASK   = "\nThe goal:\n\n";
 const GOAL_NO    = "The goal isn't satisfied yet: keep working.";
+// the most messages back the directives check reads for a turn (Chat.directed)
+const SCAN       = 200;
 const FULL       = "Legion's disk is full; try again soon.";
 // an import running: its batch's file in the chat's dir (Chat.keep)
 const BATCH      = "/import.json";
@@ -650,7 +653,7 @@ export namespace Chat {
     chat.eye = Chat.eye(mem, from);
     chat.socks.forEach((sock) => Chat.show(chat, sock));
     const bill = mem.pay?.("chat", String(msgs[0].id));
-    const blocks = [...view, Tools.devices(chat.tools), ...Tools.likes(chat.tools), ...Tools.notes_block(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
+    const blocks = [...view, Tools.devices(chat.tools), ...Tools.likes(chat.tools), ...Tools.notes_block(chat.tools), ...Tools.directives_block(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
     const ask = { ...Chat.share(chat), searches: SEARCHES, server, blocks, imgs, bill };
     chat.model = chat.pick.model;
     chat.asked = true;
@@ -677,11 +680,64 @@ export namespace Chat {
     if (end.note) {
       Chat.all(chat, { $: "note", text: end.note });
     }
+    if (end.ok && !halt.signal.aborted && chat.wait.length === 0 && (await Chat.directed(chat, halt))) {
+      return !halt.signal.aborted;
+    }
     const goal = chat.mem.goal;
     if (end.ok && !halt.signal.aborted && chat.wait.length === 0 && goal !== null) {
       return Chat.checked(chat, Chat.check(chat, goal), halt);
     }
     return !halt.signal.aborted;
+  }
+
+  // the turn-end directives check (Directives.ts): the ask-guard, then,
+  // with a directives note, the checker (config.CHECKER, no tools) on the
+  // turn's reply; a nudge goes to the turn as the checker's message
+  // (true); a turn answering one is never checked; a check that fails, a
+  // stop or a message meanwhile: no nudge (a failure noted: fail loud)
+  export async function directed(chat: Chat, halt: AbortController): Promise<boolean> {
+    const mem = chat.mem;
+    const msgs: Array<{ kind: string; text: string }> = [];
+    for (let i = mem.count - 1; i >= 0 && msgs.length < SCAN; i--) {
+      const m = Memory.message(mem, i);
+      if (m === null) {
+        break;
+      }
+      msgs.unshift(m);
+      if (m.kind === "user") {
+        break;
+      }
+    }
+    const turn = Directives.turn(msgs);
+    if (turn.nudged || turn.reply === null) {
+      return false;
+    }
+    const guard = Directives.guard(turn);
+    if (guard !== null) {
+      return Chat.nudge(chat, guard);
+    }
+    const note = Notes.notes_read(mem.dir, Directives.NAME);
+    if (typeof note === "string" || note.big === true) {
+      return false;
+    }
+    const call = AskAI.ask({ ...Pick.ask(config.CHECKER), system: Directives.SYSTEM, blocks: [{ text: Directives.judge_text(note.text, turn), mark: false }], searches: 0, server: "", bill: mem.pay?.("chat", "check") }, () => {});
+    halt.signal.addEventListener("abort", () => call.stop(), { once: true });
+    const end = await call.done;
+    if (halt.signal.aborted || chat.wait.length > 0) {
+      return false;
+    }
+    if (!end.ok) {
+      Chat.note(chat, "No directives check: " + end.text.replace(/\.$/, "") + ".");
+      return false;
+    }
+    const why = Directives.judged(end.text);
+    return why !== null && (await Chat.nudge(chat, Directives.nudge(why)));
+  }
+
+  // a nudge to the turn, as the goal check's (GOAL_NO): true
+  export async function nudge(chat: Chat, text: string): Promise<boolean> {
+    await Chat.writing(chat, async () => Chat.take(chat, Chat.push(chat, null, "user", text)));
+    return true;
   }
 
   // the user's goal (/goal), asked of the chat's model, without tools, on

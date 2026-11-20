@@ -1265,3 +1265,29 @@ User's ask 2026-11-20: one less reason to spawn Claude Code subagents. Design ap
 - [x] README (rules config, Gaps: repo files steer agents), rules.md "Repo instructions" shortened
 - Live: a read in the main checkout brings CLAUDE.local.md (129 chars) once; a cd shell brings it; outside the roots none. Its `@~/.claude-mem/...` import stays text: imports were kept inside the repo → user's call 2026-11-20: anywhere but secrets (test changed first, red, then green)
 - [ ] Jira Task under PLP-2884; stack via gh stack
+
+## Turn-end directives check: Unii's self-monitor (feat/directives-check)
+User's ask 2026-11-20: the orchestrator forgets context and standing orders (e.g. asks in the chat, not with `ask`). User's calls 2026-11-20: Unii writes the directives itself; one PR; plan here, no Jira ticket first.
+Intent: after each turn that ends with a reply to the user, check it against Unii's standing directives and nudge once if it skipped one.
+Constraints: one nudge per user message at most (no loops); the nudge only names what was skipped, never orders or grants; it is labelled as the checker, not the user; a check that fails shows a note (fail loud), as the goal check does; no new store (directives are a note); no new dependency.
+Design:
+- Directives = Unii's note named `directives` (Notes.ts, written with the `notes` tool). Its full text is fenced into every turn (Tools.directives_block, beside notes_block), so compaction never squashes it. The user edits or drops it on the Memory page, as for any note.
+- Ask-guard (no LLM): the turn's last `unii` message ends in a question and the turn filed no `ask` → nudge "file it with ask".
+- Judge: if a directives note exists and the guard did not fire, config.CHECKER (default claude-api:haiku-5.5:high:slow, as OBSERVER) answers `ok` or one line naming the skipped directive; anything else → nudge. Runs in Chat.ended before the goal check.
+- [x] Red tests: guard fires / stays quiet (no `?`, or `ask` called); a nudged turn is never checked again; judge `ok` → no nudge, other → one labelled nudge; judge call fails → note, no nudge; no directives note → no judge call; directives text reaches the turn fenced
+- [x] Green: Config.CHECKER, Tools.directives_block, Chat.directed (guard + judge) wired in Chat.ended
+- [x] Mutation check: cap removed, guard removed, label removed → each fails a test
+- [x] README: the directives note, the checker, the key gate; Gaps: advice from a model, gh stack submit unchecked
+- [ ] Jira ticket, branch renamed to its key, PR via gh stack (user to confirm)
+
+Review (2026-11-20):
+- Red first: Modes.unkeyed / Directives.ts missing (not a function, module not found); the notes-spec test failed before its line was added.
+- Proof: Directives 5/5, Modes + Tools 71/71, directives Server test 1/1. Full `bun run test`: 783 pass, 1 skip, 1 fail. The failure ("one server per user", port 9501) fails the same on origin/main (detached worktree run), so it is baseline.
+- Mutation check, 8 mutants (nudge cap, guard call, directives block, failure note, nudge label, nudged detection, ask detection, key gate in dispatch): all killed. Server mutants re-run with `-t "directives check"`, as the baseline failure would have hidden survivors.
+- tsc (local/tools pinned): Directives.ts clean; on changed lines it found `Memory.message` returns null, not undefined (the scan never stopped on a gap); fixed.
+- Changed one existing test: Tools.test.ts FORCED pushes PLP-1-x, not feat/x (the key gate now refuses feat/x before the reviewer; the test is about the risk floor).
+- Also added: the notes tool's spec tells Unii to keep standing orders in the note named directives (without it the checker never runs).
+- Decided (overrulable): no agent-settable "ticket-less" marker; ticket-less work is the user's !command.
+- Not verified: the checker on the real gateway (Haiku's judgement), false-nudge rate of the "?" guard on real replies.
+- Prefix gate (user's call 2026-11-20: deterministic, in Legion, this PR): today no gate enforces it (oc-coding-assistant gates gh pr create only on polish; pr-body.md:68 allows no prefix without a ticket). Refuse an agent's `gh pr create` whose title has no ticket key, and a `git push` / `gh stack submit` of a branch with no ticket key, unless marked ticket-less.
+- [x] Red tests for the prefix gate (refused without key, allowed with key, allowed when marked ticket-less); then green
