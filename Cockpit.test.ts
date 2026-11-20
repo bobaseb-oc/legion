@@ -412,8 +412,8 @@ test("todos: g o, the palette's Todo; /todos lists them; done and drop n are the
   expect(Cockpit.todo_cmd(v, "finish 1")).toMatch(/done <n>/);
 });
 
-// the Explain page's chord and palette item; /explain (the terminal): the
-// cards as text, when written, the thread; /explain <q> asks
+// the Tracks page's chord and palette item; /tracks (the terminal): the
+// cards as text, when written, the thread; /tracks <q> asks
 test("tracks: g x, the palette's Tracks; /tracks shows each track's card and the thread; /tracks <q> asks", () => {
   expect(Cockpit.CHORDS.x).toBe("tracks");
   const v = View.view_new();

@@ -47,7 +47,7 @@ export const PICK       = config_run("pick", config_get("pick", "claude-api:sonn
 // what every compaction runs on, a chat's and an import's alike, whatever
 // the chat's pick
 export const COMPACTOR  = config_run("compactor", config_get("compactor", "claude-api:haiku-5.5:high:slow"));
-// what writes the Explain page and answers questions about it (Explain.ts)
+// what writes the Tracks page's cards and answers questions about them (Explain.ts)
 export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku-5.5:high:slow"));
 // what agents run on by tier, below the chat's pick (Tools.ts): a
 // manager splits its task among workers; `agents` sets both (older)

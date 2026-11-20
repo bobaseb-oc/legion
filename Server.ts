@@ -2486,7 +2486,7 @@ const LIKES = 30;
   // Tools.remind starts an idle agent's turn. The agent's items go by
   // place, the user's pins by n
   export function stalls(chat: Chat, now: number): number {
-    const nudged = chat.nudged ??= new Map();
+    const nudged = chat.nudged ??= new Map<string, number[]>();
     let sent = 0;
     let pinned = false;
     for (const agent of chat.tools.agents.values()) {

@@ -1,6 +1,6 @@
 // Explain test
 // ============
-// `bun test Explain.test.ts`. The Explain page (Explain.ts; Server.ts
+// `bun test Explain.test.ts`. The Tracks page (Explain.ts; Server.ts
 // Chat.observe, Chat.explain): an observer (Config.ts OBSERVER, no tools)
 // writes one card per workstream from a snapshot of the crew, the plan and
 // the user's PRs, again only once that changed and at most once an

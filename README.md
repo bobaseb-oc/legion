@@ -399,6 +399,9 @@ What is known not to work, or not checked yet:
   unchanged since shown, never a secret's or Claude Code's or Legion's
   settings. The status line shows the gateway's daily budget for your
   key and "AI service busy" after a busy answer in the last 5 minutes.
+- **Tracks edit notes wait up to 10 s in server memory.** If the server
+  restarts or the chat moves process in that window, the pin is kept but
+  the agent gets no note (it still sees the pin in its `todo` result).
 - **Not checked live yet:** recall over the imported history, a turn
   with the gateway down (the 60 s go-ahead and the shown reason), the
   auto-mode reviewer on the real gateway, sub-agents getting their own

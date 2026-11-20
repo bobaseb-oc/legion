@@ -219,7 +219,7 @@ export type View = State & {
   inbox : Inbox | null; // the cockpit's inbox, as a device last read it (Inbox.ts)
   themes : Record<string, string[]> | null; // the digest's themes by author (Chat.themes)
   summaries : Map<string, Summary>; // meeting transcripts' summaries, by Doc id
-  explain   : Explain | null; // the Explain page, as the server last told it (Explain.ts)
+  explain   : Explain | null; // the Tracks page's cards, as the server last told them (Explain.ts)
   looked    : Looked | null; // what a device showed last (the files pane, K4)
   source    : boolean; // the file shown drawn as its lines, not rendered (Markdown, HTML)
   dirs      : Map<string, Listing>; // the explorer's folders asked of a device, by path (@roots: the roots)
@@ -266,7 +266,7 @@ export type Server =
   | { $: "themes"; themes: { key: string; by: Record<string, string[]> } } // the digest's themes (Chat.themes)
   | { $: "read"; id: string }             // to devices: read that transcript Doc (Device.device_transcript)
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
-  | { $: "explain"; explain: Explain } // the Explain page (Chat.observe, Chat.explain)
+  | { $: "explain"; explain: Explain } // the Tracks page's cards (Chat.observe, Chat.explain)
   | { $: "look"; id: string; what: Look }  // to devices: show a file or a repo's git (Device.device_look)
   | ({ $: "gateway" } & Gateway)            // to views: the gateway's budget (Gateway.ts) and when the AI service was last busy
   | { $: "harvest"; id: string; entries: unknown[] } // to one device: post the user's submitted timesheet entries (Device.device_harvest)

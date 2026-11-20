@@ -627,7 +627,7 @@ test("a note's rows: a Cap per line, as written", () => {
   expect(View.note_rows("one line")).toEqual([View.Cap("one line")]);
 });
 
-// the Explain page (Explain.ts): the server's "explain" message kept; a
+// the Tracks page (Explain.ts): the server's "explain" message kept; a
 // question asked goes to the server as typed, trimmed (none: nothing)
 test("explain: the page as the server tells it; a question asked, trimmed; #explain", () => {
   const v = View.view_new();
