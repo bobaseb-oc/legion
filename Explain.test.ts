@@ -250,3 +250,37 @@ test("AC17: track_stalls fires at STALL, not at STALL - 1, not when reminded, no
   expect(Explain.track_stalls([{ ...items[0]!, status: "pending" as const }], T0 + STALL)).toEqual([]);
   expect(Explain.track_remind(7)).toBe("[Tracks] Item #7 has been doing for 20 min with no change: mark it done, or say what blocks it.");
 });
+
+// review (2026-11-20, RED ZONE DRAFT): the user rewording a pin restarts
+// its stall clock: since now if doing (else none), reminded cleared
+const reworded = (t: any, n: number, text: string, now: number) => {
+  const out = Explain.track_edit(t, n, text, now);
+  if (typeof out === "string") throw new Error("refused: " + out);
+  return out;
+};
+
+test("AC17 (review): a doing pin reworded at minute 19 is not reminded at minute 20, and is 20 min after the reword", () => {
+  const t = { pins: [{ n: 1, text: "Ship it", status: "doing" as const, at: T0, since: T0 }], next: 1, dropped: [] as string[] };
+  const after = reworded(t, 1, "Ship it today", T0 + 19 * MIN);
+  expect(after.pins[0]).toEqual({ n: 1, text: "Ship it today", status: "doing", at: T0, since: T0 + 19 * MIN });
+  expect(Explain.track_stalls(after.pins, T0 + 20 * MIN)).toEqual([]);
+  expect(Explain.track_stalls(after.pins, T0 + 39 * MIN - 1)).toEqual([]);
+  expect(Explain.track_stalls(after.pins, T0 + 39 * MIN)).toEqual([1]);
+});
+
+test("AC17 (review): rewording a reminded pin clears reminded; a pending or done pin reworded has no since", () => {
+  const t = { pins: [
+    { n: 1, text: "a", status: "doing" as const, at: T0, since: T0, reminded: true },
+    { n: 2, text: "b", status: "pending" as const, at: T0, since: T0, reminded: true },
+    { n: 3, text: "c", status: "done" as const, at: T0, since: T0 },
+  ], next: 3, dropped: [] as string[] };
+  let after: any = reworded(t, 1, "a2", T0 + 30 * MIN);
+  after = reworded(after, 2, "b2", T0 + 30 * MIN);
+  after = reworded(after, 3, "c2", T0 + 30 * MIN);
+  expect(after.pins).toEqual([
+    { n: 1, text: "a2", status: "doing", at: T0, since: T0 + 30 * MIN },
+    { n: 2, text: "b2", status: "pending", at: T0 },
+    { n: 3, text: "c2", status: "done", at: T0 },
+  ]);
+  expect(Explain.track_stalls(after.pins, T0 + 50 * MIN)).toEqual([1]);
+});

@@ -240,12 +240,19 @@ export function track_copy(t: Track, from: string, text: string, now: number): T
   return pinned(t, text, now, from);
 }
 
-export function track_edit(t: Track, n: number, text: string, _now: number): Track | string {
+// a pin reworded by the user. Invariant (review 2026-11-20): its stall
+// clock restarts, so a reminder never fires on the old wording's time:
+// since now if it is doing, else none; reminded cleared either way
+export function track_edit(t: Track, n: number, text: string, now: number): Track | string {
   const kept = pin_text(text);
   if (kept === "") {
     return "Give the item's text.";
   }
-  return t.pins.some((p) => p.n === n) ? { ...t, pins: t.pins.map((p) => p.n === n ? { ...p, text: kept } : p) } : "No pinned item #" + n + ".";
+  const reworded = (p: Mine): Mine => {
+    const { since: _s, reminded: _r, ...rest } = p;
+    return { ...rest, text: kept, ...(p.status === "doing" ? { since: now } : {}) };
+  };
+  return t.pins.some((p) => p.n === n) ? { ...t, pins: t.pins.map((p) => p.n === n ? reworded(p) : p) } : "No pinned item #" + n + ".";
 }
 
 // pin n moved to place `to` (1-based, kept within the list)
