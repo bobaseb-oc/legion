@@ -21,6 +21,13 @@ export function logs_skip(manifest: string): (dir: string) => boolean {
   return (dir) => mem_logs(dir) || off.has(dir);
 }
 
+// a file's time to the whole ms: stage_log dates a copy through a Date,
+// which holds ms only, while the source's time (APFS) has ns; compared
+// finer, every unchanged log would look newer than its copy
+function ms(file: string): number {
+  return Math.floor(fs.statSync(file).mtimeMs);
+}
+
 // stages each log of `src` (a projects folder) in `out` whose copy is
 // missing or older; what it copied, kept, and redacted
 export function logs_sync(src: string, out: string, skip: (dir: string) => boolean, secrets: string[]): { updated: number; kept: number; hits: Hits } {
@@ -29,7 +36,7 @@ export function logs_sync(src: string, out: string, skip: (dir: string) => boole
     for (const f of fs.readdirSync(src + "/" + dir).filter((f) => f.endsWith(".jsonl"))) {
       const from = src + "/" + dir + "/" + f;
       const to = out + "/" + dir + "/" + f;
-      if (fs.existsSync(to) && fs.statSync(to).mtimeMs >= fs.statSync(from).mtimeMs) {
+      if (fs.existsSync(to) && ms(to) >= ms(from)) {
         run.kept += 1;
         continue;
       }
