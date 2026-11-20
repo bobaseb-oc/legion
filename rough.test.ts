@@ -203,3 +203,56 @@ test("other failures make no rough line: an outage delays a summary, a refusal c
   refuse = -1;
   Memory.stop(mem);
 }));
+
+// a build that fails at once (a bug, no I/O: an EISDIR) waits RETRY
+// before its node is asked again: freed at once, it was asked again in
+// the same tick, a loop that held the event loop (no timer, no signal)
+test("a build that fails at once waits before its node is asked again; it is still asked again", () => fast(async () => {
+  const ask = Memory.ask;
+  const mem = Memory.load(DIR + "/throws", () => SHARE);
+  let asks = 0;
+  Memory.ask = (() => {
+    if (++asks === 1000) {
+      Memory.stop(mem); // the loop stopped, so the test fails, not hangs
+    }
+    throw new Error("EISDIR: illegal operation on a directory, read");
+  }) as typeof Memory.ask;
+  try {
+    Memory.push(mem, MSGS.slice(0, 2));
+    await sleep(20); // 20 s on these timers: RETRY (5 s) passes about 4 times
+    expect(asks).toBeLessThanOrEqual(2 * 6);
+    expect(asks).toBeGreaterThan(2); // asked again
+    expect(mem.rough.size).toBe(0);
+  } finally {
+    Memory.ask = ask;
+    Memory.stop(mem);
+  }
+}));
+
+// a node cut (its side held) waits for no RETRY: asked again as soon as
+// its side goes on. Real timers: RETRY here is 5 s
+test("a node cut by a held side is asked again at once when the side goes on", async () => {
+  const ask = Memory.ask;
+  const mem = Memory.load(DIR + "/held", () => SHARE);
+  let asks = 0;
+  Memory.ask = (() => {
+    asks++;
+    mem.hold[0] = "held"; // cut while it asks
+    throw new Error("cut");
+  }) as typeof Memory.ask;
+  console.error = () => {};
+  try {
+    Memory.push(mem, MSGS.slice(0, 2));
+    await sleep(20);
+    const before = asks;
+    expect(before).toBeGreaterThan(0);
+    mem.hold[0] = null;
+    Memory.pump(mem);
+    await sleep(50);
+    expect(asks).toBeGreaterThan(before);
+  } finally {
+    Memory.ask = ask;
+    console.error = real.error;
+    Memory.stop(mem);
+  }
+});

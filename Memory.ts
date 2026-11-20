@@ -216,6 +216,9 @@ export const JOBS = 64;
 // holds its indexes and a few day files
 export const OPEN = 16;
 const TRIES = 5;
+// a failed node's wait before it is asked again (a failure at once, a
+// bug: freed at once, it was asked again in the same tick, forever)
+const RETRY = 5e3;
 // a view past its `high` merges to half: the chat's 64-128 KB (96 KB on
 // average), the compactions' 16-32 KB (24 KB)
 const HIGH  = 128000;
@@ -887,11 +890,17 @@ export namespace Memory {
   }
 
   // a node cut (its side held, or the chat ended: Memory.stop) builds as
-  // it goes on; call: one running for it already (Memory.take)
+  // it goes on; call: one running for it already (Memory.take). One that
+  // fails keeps its slot RETRY, then is asked again
   export function job(mem: Memory, l: number, i: number, text: string, call: Call | null = null): void {
     const key = Memory.slot(l, i);
     mem.busy.set(key, Memory.side(mem, l, i));
-    Memory.build(mem, l, i, text, call).finally(() => {
+    Memory.build(mem, l, i, text, call).catch((err) => {
+      console.error("compactor: node " + l + "/" + i + ": " + (err?.message ?? err));
+      // cut (its side held, or stopped): not asked again till then, no wait
+      const cut = mem.done || mem.hold[Memory.side(mem, l, i)] !== null;
+      return cut ? undefined : new Promise<void>((ok) => void setTimeout(ok, RETRY).unref());
+    }).then(() => {
       mem.busy.delete(key);
       Memory.pump(mem);
       Memory.fit(mem);
