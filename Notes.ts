@@ -179,7 +179,8 @@ export function notes_write(dir: string, name: string, line: string | null, text
   if (st === undefined && notes_list(dir).length >= NOTES) {
     return "At most " + NOTES + " notes: drop or merge one first.";
   }
-  const given = line ?? (st === undefined ? null : load(dir, name)?.line) ?? "";
+  const old = st === undefined ? null : load(dir, name);
+  const given = line ?? (old?.big === true ? null : old?.line) ?? "";
   const kept = { line: line_of(redact(given, []).text), text: redact(text, []).text };
   // a redaction mark can be longer than what it hides: the cap holds on disk
   if (Buffer.byteLength(kept.text, "utf8") > NOTE_TEXT) {

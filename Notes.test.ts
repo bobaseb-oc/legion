@@ -216,3 +216,11 @@ test("a note whose redacted text passes NOTE_TEXT is refused, not stored past NO
   expect(typeof Notes.notes_write(dir, "logins", "the logins", text)).toBe("string");
   expect(fs.existsSync(Notes.notes_dir(dir) + "/logins.md")).toBe(false);
 });
+
+test("overwriting a too-large note with no line does not keep its 'too large' placeholder as the line", () => {
+  const { dir } = fresh();
+  plant(dir, "big.md", planted("big", "huge line", "x".repeat(Notes.NOTE_FILE)));
+  const out = Notes.notes_write(dir, "big", null, "small now");
+  expect(typeof out).not.toBe("string");
+  expect((Notes.notes_read(dir, "big") as any).line).not.toContain("too large");
+});
