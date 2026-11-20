@@ -353,6 +353,7 @@ export namespace Chat {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
       on     : (agent, ev) => Chat.on(chat, agent, ev),
       report : (agent, text, stopped) => Chat.report(chat, agent, text, stopped),
+      boss   : (text) => Chat.work(chat, text, true),
       change : () => Chat.change(chat),
       pick   : () => chat.pick,
       halt   : () => chat.halt.signal,
@@ -817,10 +818,18 @@ export namespace Chat {
   export function report(chat: Chat, agent: Agent, text: string, stopped: boolean): void {
     Chat.unanswered(chat, agent);
     Chat.live(chat, agent, []);
+    Chat.work(chat, text, !stopped && !agent.user);
+  }
+
+  // a work message to Unii, logged; taken as a turn of its own (take, and
+  // credit left), as a post is, so the chat never rests between the two.
+  // A report (Chat.report), or a refused call of an agent Unii started
+  // waiting for its overrule (Tools.appeal; RED ZONE, DRAFT)
+  export function work(chat: Chat, text: string, take: boolean): void {
     Chat.hold(chat, () => {
       chat.posts += 1;
       const msg = Chat.chats.get(chat.acct.user) !== chat ? null : Chat.push(chat, null, "work", text);
-      if (msg !== null && !stopped && !agent.user && Chat.cloud.billing.refuse(chat.acct.user, 0) === null) {
+      if (msg !== null && take && Chat.cloud.billing.refuse(chat.acct.user, 0) === null) {
         Chat.take(chat, msg);
       }
       chat.posts -= 1;
