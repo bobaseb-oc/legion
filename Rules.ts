@@ -41,8 +41,8 @@ const CD = /^\s*cd\s+(?:'([^']*)'|"([^"]*)"|([^\s;&|'"]+))\s*(?:&&|;|$)/;
 // so). One in a code fence, missing, not a file (or not a folder, with
 // the slash), already open (a loop, by real path) or past RULES_DEPTH
 // stays as it is
-// keep: whether an import's real path may be read (a repo's files import
-// only inside it, no secret: rules_repo)
+// keep: whether an import's real path may be read (a repo's files: no
+// secret's, rules_repo)
 export function rules_read(file: string, depth = 0, open: string[] = [], keep: (real: string) => boolean = () => true): string {
   const real  = fs.realpathSync(file);
   const stack = [...open, real];
@@ -121,8 +121,9 @@ export function rules_touched(job: { name: string; input: any; cwd: string }, cw
 // folder from top down to the touched one (a file's: its folder), the
 // top's .claude/rules/**/*.md after its own (one whose front matter
 // lists paths: only if the touched path matches one). Only files whose
-// real path is in the repo and not a secret (secret: Machine.secret), and
-// imports alike; each cut at RULES_CAP; none whose hash is seen
+// real path is in the repo and not a secret (secret: Machine.secret); an
+// import anywhere but a secret's (user's call 2026-11-20, as Claude Code
+// once approved); each cut at RULES_CAP; none whose hash is seen
 export function rules_repo(top: string, touched: string, seen: string[], secret: (p: string) => boolean): RuleFile[] {
   const root = fs.realpathSync(top);
   const inside = (p: string) => p === root || p.startsWith(root + path.sep);
@@ -135,12 +136,12 @@ export function rules_repo(top: string, touched: string, seen: string[], secret:
   const dirs = [root, ...parts.map((_, i) => path.join(root, ...parts.slice(0, i + 1)))];
   const named = (dir: string) => RULES_NAMES.map((n) => path.join(dir, n));
   const files = [...named(root), ...rules_scoped(root, path.relative(root, at)), ...dirs.slice(1).flatMap(named)];
-  const keep = (real: string) => inside(real) && !secret(real);
+  const keep = (real: string) => !secret(real);
   const out: RuleFile[] = [];
   const done = new Set<string>();
   for (const file of files) {
     const real = rules_real(file);
-    if (real === null || done.has(real) || !fs.statSync(real).isFile() || !keep(real) || secret(file)) {
+    if (real === null || done.has(real) || !fs.statSync(real).isFile() || !inside(real) || secret(real) || secret(file)) {
       continue;
     }
     done.add(real);

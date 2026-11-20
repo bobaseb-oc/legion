@@ -44,12 +44,14 @@ test(".claude/rules load at the root; one with paths: only when the touched file
   expect(got[2].text).toContain("ts only");
 });
 
-test("imports expand inside the repo; one outside it or a secret's stays as text", () => {
+// user's call 2026-11-20: as Claude Code once approved, an import may
+// point outside the repo; a secret's never loads
+test("imports expand inside the repo and out of it; a secret's stays as text", () => {
   const outside = fs.mkdtempSync(os.tmpdir() + "/unii-out-") + "/x.md";
   fs.writeFileSync(outside, "OUTSIDE");
   const top = repo({ "CLAUDE.md": "@docs/inc.md\n@" + outside + "\n@.env", "docs/inc.md": "inc", ".env": "SECRET" });
   const [r] = rules_repo(top, top + "/CLAUDE.md", [], (p) => p.endsWith(".env"));
-  expect(r.text).toBe("inc\n@" + outside + "\n@.env");
+  expect(r.text).toBe("inc\nOUTSIDE\n@.env");
 });
 
 test("a secret file is never loaded; a symlink out of the repo neither", () => {

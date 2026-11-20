@@ -334,10 +334,11 @@ What is known not to work, or not checked yet:
   a change to legion-key, Deny it and check `git diff local/legion-key`.
 - **A repo's instruction files steer agents, as they steer Claude
   Code.** Only repos under a device's work dir, home repo, spaces and
-  their worktrees count; secret files are never read, and their imports
-  stay inside the repo. A clone with a hostile CLAUDE.md in a space can
-  still tell agents what to do: keep untrusted clones out of your
-  spaces. A shell call that works in a repo without a leading `cd`
+  their worktrees count, and secret files are never read. Their
+  imports may point anywhere but a secret, as Claude Code's do once you
+  approve them, with no prompt here: a clone with a hostile CLAUDE.md in
+  a space can tell agents what to do and pull your non-secret files into
+  their chat. Keep untrusted clones out of your spaces. A shell call that works in a repo without a leading `cd`
   brings no files (the agent reads them as local/rules.md says).
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
