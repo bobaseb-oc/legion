@@ -1,0 +1,19 @@
+Rules.ts
+  s_f25dc952aff0fa::t_9411a4a0ec2f0c 16,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a77e594c1fa34461b79559754a591005eeb15440",
+  "prompts": {},
+  "sessions": {
+    "s_f25dc952aff0fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a82d42-a6e5-4f18-ad5d-d573ea879eac",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
