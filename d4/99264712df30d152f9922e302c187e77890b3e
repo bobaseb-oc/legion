@@ -1,0 +1,54 @@
+web/app.js
+  s_b9bdd18c332c5d::t_bf09e212a3255a 1598,2049-2053,2418,2422-2424,3004,3405,3448,3456,3601,3630,3870-3871,3874,3876-3884,3890-3892,3983,4093,4118,4120,4122-4124,4127,4138,4211-4216,4268,4270,4278-4279,4285-4287,4312-4313,4316-4318,4479-4482,4910,4919,5089,5093,5139-5141,5580
+Tracks.test.ts
+  s_b9bdd18c332c5d::t_c33d8cc7a58e85 1-87
+  s_b9bdd18c332c5d::t_7fcd71bc490466 88-423
+web/src/main.ts
+  s_b9bdd18c332c5d::t_c0f64ebab0651e 1461,1465,1691
+Cockpit.test.ts
+  s_b9bdd18c332c5d::t_647fa8e74d0ba4 214,417-418,420,422-425,428-441
+Cockpit.ts
+  s_b9bdd18c332c5d::t_ee70894b87e04e 498-513,515-529,531-535,539-541,543-565,663,672
+Deck.test.ts
+  s_b9bdd18c332c5d::t_7e225eea566f7f 295,434,436-438,440,442-444
+Deck.ts
+  s_b9bdd18c332c5d::t_24d0c1e31c3d2f 20,57,170,298-301,604
+Explain.test.ts
+  s_b9bdd18c332c5d::t_d866f3f2290944 43,46-47,52,54-58,94-95,99,112,117,135,187-252
+Explain.ts
+  s_b9bdd18c332c5d::t_f1839c1eb659d3 14,19-28,45,69,100,123-127,138-168
+Html.test.ts
+  s_b9bdd18c332c5d::t_b0517b1d6cec56 340,342-344
+Pages.test.ts
+  s_b9bdd18c332c5d::t_d5d0fcdeadae56 509-511,514-517,525-538
+Paint.test.ts
+  s_b9bdd18c332c5d::t_f54c6ef8fa9d05 191-205
+Server.ts
+  s_b9bdd18c332c5d::t_3018054c445096 2247-2248,2251-2252,2254-2255,2294-2295,2308-2309,2322
+Term.ts
+  s_b9bdd18c332c5d::t_4ec585baffd558 243,291-292,684,1013-1014,1016,1018,1020
+View.test.ts
+  s_b9bdd18c332c5d::t_1dc6d88f33e107 640,672,687-691
+View.ts
+  s_b9bdd18c332c5d::t_9a9bc470ea0638 23,92,154-164,191,351-352,424-425,999-1005,1887,1891-1894
+web/src/Html.ts
+  s_b9bdd18c332c5d::t_8ecbe39190f8fb 287,299
+web/src/Pages.ts
+  s_b9bdd18c332c5d::t_237bcb05f1b2f6 168,208,519-522,524-528,531,533-542,549-552
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d499264712df30d152f9922e302c187e77890b3e",
+  "prompts": {},
+  "sessions": {
+    "s_b9bdd18c332c5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2aa34825-ff62-4fff-97b9-15653a55022a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}

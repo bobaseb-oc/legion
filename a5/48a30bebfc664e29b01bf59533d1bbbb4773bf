@@ -1,0 +1,41 @@
+Cockpit.test.ts
+  s_b9bdd18c332c5d::t_d9de1e6091cb3e 415-416
+Config.ts
+  s_b9bdd18c332c5d::t_ff5b80de723cf7 50
+Explain.test.ts
+  s_b9bdd18c332c5d::t_71a74dbf65f608 3
+README.md
+  s_b9bdd18c332c5d::t_be59d15c1c4c2e 402-404
+Server.ts
+  s_b9bdd18c332c5d::t_1a09a2fcec7527 2489
+View.test.ts
+  s_b9bdd18c332c5d::t_9b30b7de6b5305 630
+View.ts
+  s_b9bdd18c332c5d::t_f637b6de0a4e86 222,269
+web/app.js
+  s_868d95331b06cc::t_7a5d605a8b06f0 536-556,698-723
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a548a30bebfc664e29b01bf59533d1bbbb4773bf",
+  "prompts": {},
+  "sessions": {
+    "s_868d95331b06cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eeac8f45-7e1c-40d2-96b4-abd9a2ecf629",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_b9bdd18c332c5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2aa34825-ff62-4fff-97b9-15653a55022a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
