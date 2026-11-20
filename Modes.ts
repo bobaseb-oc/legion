@@ -75,6 +75,32 @@ const READS = ["read", "glob", "grep", "google", "harvest"];
 // off the computer, so plan mode, with no reviewer, refuses it as curl)
 const REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
 
+// RED ZONE (risk-adjusted reviewer, DRAFT awaiting the user's sign-off):
+// a reviewed call's risk, least first (Modes.floor, Modes.risk); a shell
+// command's words that make it high (no boss may overrule) or medium
+export type Risk = "low" | "medium" | "high";
+const RISKS: Risk[] = ["low", "medium", "high"];
+const PUSH = String.raw`\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*`;
+const HIGH = [
+  new RegExp(PUSH + String.raw`(\s--force(-with-lease)?\b|\s-[a-zA-Z]*f\b|\s\+\S)`),
+  new RegExp(PUSH + String.raw`\s(\S+:)?(main|master|release)\b`),
+  /\bdeploy\b/,
+  /(^|[\s=_\/-])prod([\s_\/-]|$)/i,
+  /\b(npm|pnpm|bun|yarn|cargo)\s+publish\b|\btwine\s+upload\b/,
+  /\bgh\s+pr\s+merge\b/,
+  /\|\s*(sudo\s+)?(ba|z|da)?sh\b/,
+];
+const MEDIUM = [
+  new RegExp(PUSH),
+  /\brm\b/,
+  /\bbranch\s+(-[a-zA-Z]*D\b|--delete\s+--force\b)/,
+  /\bworktree\s+remove\b/,
+  /\b(kill|pkill|killall)\b/,
+  /\breset\s+--hard\b|\bclean\s+-[a-zA-Z]*f/,
+  /\bgh\s+(pr|issue|release|repo)\s+(create|comment|edit|close|reopen|review|ready|delete)\b/,
+  /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/,
+];
+
 // RED ZONE (security review follow-up, DRAFT awaiting the user's
 // sign-off): the one list of where a secret may be, in any case (macOS's
 // disk is case-insensitive). A file's name (a key, credentials, a token,
@@ -209,6 +235,46 @@ export namespace Modes {
     }
     const lexed = lex(command);
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
+  }
+
+  // Risk
+  // ----
+  // RED ZONE (risk-adjusted reviewer, DRAFT awaiting the user's sign-off):
+  // the reviewer labels a call's risk, this code decides (Modes.decide);
+  // the floor, from the call's words alone, is the least risk it carries:
+  // the reviewer may raise it, never lower it (Modes.risk)
+
+  // the least risk a reviewed call carries: high, the floor no boss may
+  // overrule; medium, hard to undo here or a write off the computer
+  export function floor(tool: string, input?: any): Risk {
+    if (tool === "write" || tool === "edit") {
+      return SECRETS.test(String(input?.path ?? input?.file_path ?? "")) ? "high" : "low";
+    }
+    if (tool !== "shell") {
+      return "medium";
+    }
+    const c = typeof input?.command === "string" ? input.command : "";
+    if (/[^\x00-\x7f]/.test(c) || SECRETS.test(c) || HIGH.some((r) => r.test(c))) {
+      return "high";
+    }
+    return MEDIUM.some((r) => r.test(c)) ? "medium" : "low";
+  }
+
+  // a call's risk: the higher of its floor and the reviewer's label; no
+  // label or one not known is high (fail closed)
+  export function risk(floor: Risk, label: unknown): Risk {
+    const at = RISKS.indexOf(label as Risk);
+    return at < 0 ? "high" : RISKS[Math.max(at, RISKS.indexOf(floor))]!;
+  }
+
+  // what a reviewed call comes to: the reviewer's allow runs it; its
+  // refusal stands but of a low risk (runs), or of a sub-agent's medium
+  // one in super mode (waits for the boss that wrote its task: appeal)
+  export function decide(mode: Mode, risk: Risk, allow: boolean, sub: boolean): "run" | "refuse" | "appeal" {
+    if (allow || risk === "low") {
+      return "run";
+    }
+    return mode === "super" && sub && risk === "medium" ? "appeal" : "refuse";
   }
 
   // Super auto

@@ -671,3 +671,121 @@ test("a call with no device (fetch) is shown as on the server, never 'undefined'
   expect(Tools.where(undefined)).toBe("the server");
   expect(Tools.where("mac")).toBe("mac");
 });
+
+// RED ZONE (risk-adjusted reviewer, DRAFT awaiting the user's sign-off):
+// the reviewer labels a refusal's risk; code decides (Modes.decide). A low
+// one runs; the floor (Modes.floor) can't be lowered; in super mode a
+// sub-agent's medium refusal waits for the boss that wrote its task
+// (overrule); a high one, or main's own, is refused
+function risky(mode: string, hooks: any = {}) {
+  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-unii/" };
+  const seen = { boss: [] as string[], pushed: [] as Array<[string, string]>, notes: [] as string[] };
+  const tools = Tools.serve(mem, {
+    change: () => {},
+    push: (a: any, kind: string, text: string) => void seen.pushed.push([a.name, text]),
+    note: (t: string) => void seen.notes.push(t),
+    boss: (t: string) => void seen.boss.push(t),
+    ...hooks,
+  } as any);
+  return { tools, seen };
+}
+const refuse = (risk: string) => JSON.stringify({ allow: false, risk, reason: "r" });
+const FORCED = ["git", "push", "--" + "force", "origin", "feat/x"].join(" ");
+
+test("risk: a low refusal runs; the floor can't be lowered; medium in auto and high in super are refused", async () => {
+  await reviewer(async (_told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("low"));
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "bun run test" }, go(), "a")).text).not.toContain("Refused");
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: FORCED }, go(), "b")).text).toBe("Refused by auto mode's reviewer: r");
+    set(refuse("medium"));
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).toBe("Refused by auto mode's reviewer: r");
+    set(JSON.stringify({ allow: false, reason: "r" }));
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+    const s = risky("super");
+    working(s.tools, "Wkr");
+    set(refuse("high"));
+    expect((await Tools.call(s.tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "e")).text).toBe("Refused by auto mode's reviewer: r");
+    expect(s.seen.boss).toEqual([]);
+    // main's own medium refusal: no boss but the user
+    set(refuse("medium"));
+    expect((await Tools.call(s.tools, "main", "shell", { device: "mac", command: "make x" }, go(), "f")).text).toBe("Refused by auto mode's reviewer: r");
+    expect(Tools.appeals(s.tools)).toEqual([]);
+  });
+});
+
+test("risk: in super mode a sub-agent's medium refusal waits for its boss; only that boss overrules, with a reason, noted for the user", async () => {
+  await reviewer(async (_told, set) => {
+    set(refuse("medium"));
+    const { tools, seen } = risky("super");
+    working(tools, "Wkr");
+    working(tools, "Other");
+    const waiting = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Bun.sleep(20);
+    const [a] = Tools.appeals(tools);
+    expect(a).toMatchObject({ who: "Wkr", boss: "main", tool: "shell", reason: "r" });
+    expect(seen.boss).toHaveLength(1);
+    expect(seen.boss[0]).toContain("overrule");
+    expect(seen.boss[0]).toContain("make x");
+    expect((await Tools.call(tools, "Other", "overrule", { n: a!.id, yes: true, why: "x" }, go(), "o1")).fail).toBe(true);
+    expect((await Tools.call(tools, "main", "overrule", { n: a!.id, yes: true }, go(), "o2")).fail).toBe(true);
+    expect((await Tools.call(tools, "main", "overrule", { n: 999, yes: true, why: "x" }, go(), "o3")).fail).toBe(true);
+    expect((await Tools.call(tools, "main", "overrule", { n: a!.id, yes: true, why: "the user asked for it" }, go(), "o4")).fail).toBe(false);
+    expect((await waiting).text).not.toContain("Refused");
+    expect(seen.notes.join("\n")).toContain("the user asked for it");
+    expect(Tools.appeals(tools)).toEqual([]);
+    // the boss lets it stand
+    const again = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    await Bun.sleep(20);
+    expect((await Tools.call(tools, "main", "overrule", { n: Tools.appeals(tools)[0]!.id, yes: false }, go(), "o5")).fail).toBe(false);
+    expect((await again).text).toBe("Refused by auto mode's reviewer: r");
+  });
+});
+
+test("risk: a manager boss hears its worker's appeal; a stop, a timeout or no way to wake main refuses", async () => {
+  await reviewer(async (_told, set) => {
+    set(refuse("medium"));
+    const { tools, seen } = risky("super");
+    working(tools, "Mgr", "manager");
+    working(tools, "Wkr", "worker", "Mgr");
+    tools.agents.get("Mgr")!.call.send = () => {};
+    const waiting = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Bun.sleep(20);
+    expect(seen.pushed.some(([to, text]) => to === "Mgr" && text.includes("overrule"))).toBe(true);
+    expect((await Tools.call(tools, "main", "overrule", { n: Tools.appeals(tools)[0]!.id, yes: true, why: "x" }, go(), "o")).fail).toBe(true);
+    expect((await Tools.call(tools, "Mgr", "overrule", { n: Tools.appeals(tools)[0]!.id, yes: true, why: "mine" }, go(), "o")).fail).toBe(false);
+    expect((await waiting).text).not.toContain("Refused");
+    // a stop
+    const ac = new AbortController();
+    const stopped = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, ac.signal, "b");
+    await Bun.sleep(20);
+    ac.abort();
+    expect((await stopped).text).toBe("Refused by auto mode's reviewer: r");
+    expect(Tools.appeals(tools)).toEqual([]);
+    // a timeout
+    const ms = Tools.APPEAL.ms;
+    Tools.APPEAL.ms = 30;
+    try {
+      expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).toBe("Refused by auto mode's reviewer: r");
+      expect(Tools.appeals(tools)).toEqual([]);
+    } finally {
+      Tools.APPEAL.ms = ms;
+    }
+    // no hook to wake main: refused at once
+    const bare = risky("super", { boss: undefined });
+    working(bare.tools, "Wkr");
+    expect((await Tools.call(bare.tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+  });
+});
+
+test("risk: the reviewer is asked for a risk label and told what each level is", async () => {
+  await reviewer(async (told) => {
+    const { tools } = risky("auto");
+    await Tools.call(tools, "main", "shell", { device: "mac", command: "make x" }, go(), "a");
+    expect(told.at(-1)).toMatch(/"risk"/);
+    for (const level of ["low", "medium", "high"]) {
+      expect(told.at(-1)).toContain('"' + level + '"');
+    }
+  });
+});

@@ -1238,9 +1238,18 @@ Design (approved 2026-11-20): Haiku labels risk, deterministic code decides. The
 
 Decisions (mine, for review): the direct boss (who wrote the task) overrules, not always main; a call waits APPEAL_MS = 10 min, then the refusal stands; a stop is a refusal; each overrule is noted in the user's chat (hooks.note); the action shown to the boss is fenced as untrusted data; a reply with no or unknown risk counts as high.
 
-- [ ] Red tests, Modes.test.ts: `Modes.floor` (force-push, push to main/master, prod profiles, deploy, publish, merge, SECRETS → high; rm, `branch -D`, `worktree remove --force`, kill, `reset --hard`, any push → medium; else low); `Modes.decide` covers every cell of the table; unknown risk → high
-- [ ] Red tests, Tools.test.ts: low refusal runs; medium in auto refused; medium in super waits, boss `overrule` runs it, another agent can't answer it, timeout or stop refuses; high refused in super; main's medium refused; a floor-high call that Haiku labels low stays refused
-- [ ] Modes.ts: `floor`, `decide`
-- [ ] Tools.ts: REVIEW prompt (risk field, allow-examples from the logs), `reviewed` parses risk, `review` uses decide, appeals map, `overrule` tool for bosses
-- [ ] Proof: `bun run test` green; mutation check (each rule reverted fails a test)
+- [x] Red tests, Modes.test.ts: `Modes.floor` (force-push, push to main/master, prod profiles, deploy, publish, merge, SECRETS → high; rm, `branch -D`, `worktree remove --force`, kill, `reset --hard`, any push → medium; else low); `Modes.decide` covers every cell of the table; unknown risk → high
+- [x] Red tests, Tools.test.ts: low refusal runs; medium in auto refused; medium in super waits, boss `overrule` runs it, another agent can't answer it, timeout or stop refuses; high refused in super; main's medium refused; a floor-high call that Haiku labels low stays refused
+- [x] Modes.ts: `floor`, `decide`
+- [x] Tools.ts: REVIEW prompt (risk field, allow-examples from the logs), `reviewed` parses risk, `review` uses decide, appeals map, `overrule` tool for bosses
+- [x] Proof: `bun run test` green; mutation check (each rule reverted fails a test)
+- [x] Server.ts: `boss` hook wakes Unii with the appeal; `Chat.work` shared with `Chat.report` (no duplicated turn logic)
 - [ ] User: sign off the Red Zone draft
+- [ ] User: restart the server to load it; watch the first overrules in the chat notes
+
+Review (2026-11-20):
+- Proof: Modes + Tools tests 63/63 (red first: 3 + 4 new tests failed with "not a function"); full suite 659 pass, 1 skip, 2 fail (the known local/prime/logs.test.ts mtime tests).
+- Mutation check (work-tasks/risk/mutate.ts, untracked): 15/16 caught. Survivor "review: main is sub" is equivalent: Tools.appeal finds no agent "main" and refuses, so that guard is a second line.
+- tsc (pinned local/tools): no new errors on changed lines but `unref` on a timer, the same Bun-types noise as 6 existing lines.
+- Not verified: Haiku's real labelling. No live run yet; the prompt was not replayed against the 404 logged refusals.
+- Residual risks: (1) the floor only knows listed words, so a high-risk call it misses depends on Haiku's label; (2) a boss reads the refused call (fenced as data) and may be talked into an overrule, capped at medium risk; (3) Server's `boss` wiring has no Server.test.ts test: if it broke, appeals fail closed (refused).
