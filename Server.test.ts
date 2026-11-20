@@ -1508,6 +1508,8 @@ const after = disk();
 const edited = await within(Chat.act(chat, "e1", { $: "note", name: "plan", text: "new" }, ""));
 const edit = disk();
 const relined = await within(Chat.act(chat, "e2", { $: "note", name: "plan", line: "the new plan", text: "new" }, ""));
+const fresh = await within(Chat.act(chat, "f1", { $: "note", name: "brand-new", text: "x" }, ""));
+const freshed = fs.existsSync(chat.mem.dir + "/notes/brand-new.md");
 const second = await turn("again");
 fs.mkdirSync(chat.mem.dir + "/notes", { recursive: true });
 fs.writeFileSync(chat.mem.dir + "/notes/hand-made.md", '---\\nname: hand-made\\ndescription: "planted by the user"\\nmetadata:\\n  type: note\\n---\\n\\nbody\\n');
@@ -1516,7 +1518,7 @@ const planted = names();
 const kept = names();
 const dropped = await within(Chat.act(chat, "x1", { $: "note", name: "plan", drop: true }, ""));
 const left = names();
-console.log(JSON.stringify({ wrote, first, before, device, after, edited, edit, relined, second, planted, kept, dropped, left }));
+console.log(JSON.stringify({ wrote, first, before, device, after, edited, edit, relined, fresh, freshed, second, planted, kept, dropped, left }));
 process.exit(0);
 `;
 
@@ -1571,4 +1573,10 @@ test("L2-AC10: a view's drop of plan: Chat.state(chat).notebook no longer lists 
   expect(out.dropped.error).toBeUndefined();
   expect(out.left).not.toContain("plan");
   expect(out.left).toEqual(expect.arrayContaining(["a", "b", "hand-made"]));
+}, 30_000);
+
+test("L2: a view cannot make a note: a note act with a new name is refused, no file made (only Unii writes notes)", async () => {
+  const out = await notes_run();
+  expect(typeof out.fresh.error).toBe("string");
+  expect(out.freshed).toBe(false);
 }, 30_000);

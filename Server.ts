@@ -1703,6 +1703,11 @@ export namespace Chat {
       if (typeof msg.text !== "string") {
         return { error: "Give the note's text." };
       }
+      // only Unii makes notes (Tools.notes): a view edits one that is
+      const had = Notes.notes_read(dir, name);
+      if (typeof had === "string") {
+        return { error: had };
+      }
       const out = Notes.notes_write(dir, name, typeof msg.line === "string" ? msg.line : null, msg.text);
       if (typeof out === "string") {
         return { error: out };

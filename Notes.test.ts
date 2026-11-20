@@ -177,3 +177,33 @@ test("a note named memory is refused: on a case-insensitive disk its file is the
   expect(Notes.notes_list(dir).map((n) => n.name)).toEqual(["plan"]);
   expect(listed(Notes.notes_dir(dir)).filter((f) => f.toLowerCase() === "memory.md")).toEqual(["MEMORY.md"]);
 });
+
+test("a planted note file past NOTE_FILE bytes is listed as too large, never read: not its text, not in the index", () => {
+  const { dir } = fresh();
+  plant(dir, "big.md", planted("big", "huge line", "x".repeat(Notes.NOTE_FILE)));
+  plant(dir, "small.md", planted("small", "small line", "ok"));
+  const big = Notes.notes_list(dir).find((n) => n.name === "big");
+  expect(big?.text).toBe("");
+  expect(big?.line).toContain("too large");
+  expect(Notes.notes_index(dir)).not.toContain("[big](big.md)");
+  expect(Notes.notes_index(dir)).toContain("[small](small.md)");
+  expect(typeof Notes.notes_read(dir, "big")).toBe("string");
+});
+
+test("a note the store wrote at the NOTE_TEXT cap is under NOTE_FILE, so it is read whole", () => {
+  const { dir } = fresh();
+  expect(typeof Notes.notes_write(dir, "full", "l".repeat(150), "x".repeat(Notes.NOTE_TEXT))).not.toBe("string");
+  expect((Notes.notes_read(dir, "full") as any).text.length).toBe(Notes.NOTE_TEXT);
+});
+
+test("notes_list reads at most LISTED files, newest first", () => {
+  const { dir } = fresh();
+  for (let k = 0; k < Notes.LISTED + 5; k++) {
+    plant(dir, "n" + k + ".md", planted("n" + k, "line " + k, "t"));
+  }
+  const late = Date.now() / 1000 + 60;
+  fs.utimesSync(Notes.notes_dir(dir) + "/n0.md", late, late);
+  const list = Notes.notes_list(dir);
+  expect(list.length).toBe(Notes.LISTED);
+  expect(list[0]!.name).toBe("n0");
+});

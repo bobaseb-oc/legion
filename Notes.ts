@@ -5,7 +5,10 @@
 // writes them (Tools.notes); the user sees, edits and drops each (the
 // Memory page: Chat.noted). Untrusted text: a name from NAME only, text
 // redacted (redact.ts) and capped, files 0600 in a 0700 dir, a symlinked
-// dir or note refused, at most NOTES notes. The index reaches Unii fenced
+// dir or note refused, at most NOTES notes. A file is read only up to
+// NOTE_FILE bytes and LISTED files (an agent's shell can plant more: one
+// past it is listed as too large, its text never read, so the user sees
+// it and drops it). The index reaches Unii fenced
 // (Tools.notes_block), cut to NOTE_INDEX bytes. notes/MEMORY.md is an
 // export copy, rewritten after each change and never read back.
 
@@ -13,14 +16,16 @@ import * as fs from "node:fs";
 import { redact } from "./local/prime/redact.ts";
 
 // a note: its name (the file's, less .md), its index line, its text,
-// when last written (ms)
-export type Note = { name: string; line: string; text: string; at: number };
+// when last written (ms); big: a file past NOTE_FILE, not read
+export type Note = { name: string; line: string; text: string; at: number; big?: true };
 
 export const NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
-// the index's most bytes, a note text's, the most notes; an index line's
-// most chars
+// the index's most bytes, a note text's, the most notes; a note file's
+// most bytes read (a full note and its header fit), the most files read;
+// an index line's most chars
 export const NOTE_INDEX = 2048, NOTE_TEXT = 4096, NOTES = 32;
+export const NOTE_FILE = NOTE_TEXT + 1024, LISTED = 4 * NOTES;
 const LINE = 150;
 
 const EXPORT = "MEMORY.md";
@@ -83,6 +88,9 @@ function load(dir: string, name: string): Note | null {
   if (st === undefined || !st.isFile()) {
     return null;
   }
+  if (st.size > NOTE_FILE) {
+    return { name, line: "(too large to read: " + st.size + " bytes; drop it)", text: "", at: st.mtimeMs, big: true };
+  }
   const got = parse(fs.readFileSync(file, "utf8"));
   return got === null ? null : { name, ...got, at: st.mtimeMs };
 }
@@ -94,11 +102,15 @@ export function notes_list(dir: string): Note[] {
   if (st === undefined || !st.isDirectory()) {
     return [];
   }
+  // the newest LISTED by their stat (cheap), then only those read
+  const at = (f: string) => fs.lstatSync(notes_dir(dir) + "/" + f, { throwIfNoEntry: false })?.mtimeMs ?? 0;
   return fs.readdirSync(notes_dir(dir))
     .filter((f) => f.endsWith(".md") && NAME.test(f.slice(0, -3)))
-    .map((f) => load(dir, f.slice(0, -3)))
-    .filter((n): n is Note => n !== null)
-    .sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
+    .map((f) => ({ f, at: at(f) }))
+    .sort((a, b) => b.at - a.at || a.f.localeCompare(b.f))
+    .slice(0, LISTED)
+    .map(({ f }) => load(dir, f.slice(0, -3)))
+    .filter((n): n is Note => n !== null);
 }
 
 const index_line = (n: Note): string => "- [" + n.name + "](" + n.name + ".md) — " + n.line + "\n";
@@ -107,7 +119,7 @@ const more_line = (n: number): string => "… " + n + " more note" + (n === 1 ? 
 // the index Unii sees, at most NOTE_INDEX bytes: past it, the rest said
 // in a last line
 export function notes_index(dir: string): string {
-  const notes = notes_list(dir);
+  const notes = notes_list(dir).filter((n) => n.big !== true);
   const bytes = (s: string) => Buffer.byteLength(s, "utf8");
   let out = "";
   for (let k = 0; k < notes.length; k++) {
@@ -128,6 +140,9 @@ export function notes_read(dir: string, name: string): Note | string {
   }
   const st = fs.lstatSync(notes_dir(dir), { throwIfNoEntry: false });
   const note = st?.isDirectory() ? load(dir, name) : null;
+  if (note?.big === true) {
+    return "Note " + name + " is too large to read: drop it.";
+  }
   return note ?? "No note " + name + ".";
 }
 
