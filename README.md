@@ -151,6 +151,19 @@ How it works
   in ~/.unii/users/<id>/notes/). Their index reaches Unii fenced, as
   something Legion wrote, not as instructions, on every call; only Unii
   writes them, and you edit or drop each one on the web.
+- **Unii checks its own replies.** A reply that ends asking you something,
+  with no question filed in your questions pane, gets one nudge to file
+  it with `ask`. If Unii keeps a note named `directives` (its standing
+  orders, which Unii writes itself), that note reaches every call whole,
+  so a compaction never squashes it, and a checker (`checker` in config,
+  Haiku by default, no tools) judges each reply against it. If the
+  checker says a directive was skipped, Unii gets one nudge, labelled as
+  the checker's and not yours. A nudged turn is never checked again. A
+  failed check shows "No directives check" in the chat.
+- **PRs and branches carry a Jira key.** An agent's `gh pr create` or
+  `gh pr edit` title, and a branch it names in `git push`, must hold a
+  ticket key (as `PLP-123`), in every mode. A PR with no `--title` is
+  refused too. Ticket-less work is yours: run it as a `!command`.
 - **Undo an agent.** Before an agent's first change in a turn, the
   device snapshots each repo it changes under the roots as
   `refs/legion/undo/<agent>/<turn>` (a temporary index: your working
@@ -402,7 +415,15 @@ What is known not to work, or not checked yet:
 - **Tracks edit notes wait up to 10 s in server memory.** If the server
   restarts or the chat moves process in that window, the pin is kept but
   the agent gets no note (it still sees the pin in its `todo` result).
-- **Not checked live yet:** recall over the imported history, a turn
+- **The directives check is advice from a model.** Unii writes its own
+  directives, so text an agent read can end up in them, and the checker
+  can misjudge. Its nudge only names what was skipped and orders
+  nothing. A turn whose chat moves process while the checker runs gets
+  no check.
+- **`gh stack submit` is not key-checked.** It pushes branches and opens
+  PRs with titles from commits, which the key gate does not read.
+- **Not checked live yet:** the directives checker on the real gateway,
+  recall over the imported history, a turn
   with the gateway down (the 60 s go-ahead and the shown reason), the
   auto-mode reviewer on the real gateway, sub-agents getting their own
   worktrees when their edits could collide.

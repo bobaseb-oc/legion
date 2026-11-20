@@ -162,6 +162,8 @@ const GH_API = new Set(["--paginate", "--jq", "-q", "--template", "-t", "--inclu
 // shared or release branch (K10)
 const PROTECTED = /^(main|master|develop|trunk|HEAD|gh-pages|release(\/.*)?|\d+(\.\d+)*\.x)$/;
 const PUSH_FLAGS = new Set(["-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose"]);
+// a Jira ticket key, as PLP-123 (Modes.unkeyed)
+const KEY = /(^|[^A-Za-z0-9])[A-Z][A-Z0-9]+-\d+(?![0-9])/;
 
 // find's actions that write or run
 const FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
@@ -586,6 +588,39 @@ export namespace Modes {
     }
     const branch = /^(?:HEAD:)?([\w./-]+)$/.exec(places[1]!)?.[1];
     return branch !== undefined && !PROTECTED.test(branch) && !branch.startsWith("-") && !branch.includes("..");
+  }
+
+  // why an agent's command is refused for a missing ticket key (user's
+  // call 2026-11-20: oc-coding-assistant's pr-body.md asks for it, no gate
+  // made it so): a gh pr create or edit's title, a git push's named
+  // branch, each must hold a KEY (PLP-123); no --title on create is
+  // refused (its title would come from commits, unchecked). Ticket-less
+  // work: the user's call, asked for and run as their !command (ungated).
+  // null: nothing to refuse (a command not lexed: other gates judge it)
+  export function unkeyed(command: string): string | null {
+    const lexed = lex(command);
+    if (typeof lexed === "string") {
+      return null;
+    }
+    return lexed.map(unkeyed_one).find((why) => why !== null) ?? null;
+  }
+
+  function unkeyed_one([cmd, sub, verb, ...rest]: string[]): string | null {
+    const need = (what: string, text: string) => (KEY.test(text) ? null : what + " has no ticket key (" + text + "): name the Jira ticket, as PLP-123. No ticket: ask the user; ticket-less work is theirs to run.");
+    if (cmd === "gh" && sub === "pr" && (verb === "create" || verb === "edit")) {
+      const at = rest.findIndex((w) => w === "--title" || w === "-t");
+      const title = at >= 0 ? rest[at + 1] : rest.find((w) => w.startsWith("--title="))?.slice("--title=".length);
+      if (title === undefined) {
+        return verb === "create" ? "A PR needs --title with its ticket key (as PLP-123: …), not one from commits." : null;
+      }
+      return need("The PR title", title);
+    }
+    if (cmd === "git" && sub === "push") {
+      const places = [verb, ...rest].filter((w): w is string => w !== undefined && !w.startsWith("-"));
+      const branches = places.slice(1).map((ref) => ref.slice(ref.indexOf(":") + 1)).filter((b) => b !== "HEAD" && b !== "");
+      return branches.map((b) => need("The branch", b)).find((why) => why !== null) ?? null;
+    }
+    return null;
   }
 
   // why one command is not read-only; null: it is
