@@ -29,8 +29,10 @@ import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
 // a tool call to run here: its tool, its input, its agent's dir (a name,
 // under the device's work dir); snap: its agent's turn (when it began,
 // ms), set on a call that may change files, so the device snapshots the
-// repos it changes first, once a turn (Undo.ts, Device.device_snap)
-export type Job = { name: string; input: any; cwd: string; snap?: number };
+// repos it changes first, once a turn (Undo.ts, Device.device_snap);
+// seen: the hashes of the repo instruction files its agent has (Tools.seen;
+// the device answers the others: Device.device_rules)
+export type Job = { name: string; input: any; cwd: string; snap?: number; seen?: unknown };
 
 // told a shell command's output as it comes, a piece at a time
 export type Live = (text: string) => void;

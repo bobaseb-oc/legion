@@ -628,7 +628,7 @@ test("snap: a changing call carries its agent's turn; the device is kept; no und
       return tools.devices.get("mac")!.jobs.get(id)?.job;
     };
     if (mode === "full") {
-      expect(job("Owl", "write", { path: "a", content: "x" }, "1")).toEqual({ name: "write", input: { path: "a", content: "x" }, cwd: "Owl", snap: 123 });
+      expect(job("Owl", "write", { path: "a", content: "x" }, "1")).toEqual({ name: "write", input: { path: "a", content: "x" }, cwd: "Owl", seen: [], snap: 123 });
       expect(job("Owl", "edit", { edits: [] }, "2")!.snap).toBe(123);
       expect(job("Owl", "shell", { command: "rm -rf x" }, "3")!.snap).toBe(123);
       expect(job("Owl", "read", { path: "a" }, "4")!.snap).toBeUndefined();

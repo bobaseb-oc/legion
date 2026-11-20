@@ -1259,6 +1259,9 @@ User's ask 2026-11-20: one less reason to spawn Claude Code subagents. Design ap
 - [x] L1 red: Local.test.ts: a symlinked rules file imports from its target's folder; a loop through a symlink stops; `@dir/` expands its .md files by name; `@dir` and a missing `@dir/` stay as text (today: EISDIR crashes the whole read) → 4 fail before, for those reasons
 - [x] L1 Rules.ts takes rules_read from Tools.ts: real paths for resolving and loops, `@dir/`, non-files kept; local/rules.md imports `@~/.claude/rules/` → Local.test.ts 16/16; full `bun run test` 656 pass, 1 skip, 2 known logs fails
 - Finding: the old resolution already loaded AGENTS.local.md and SOUL.md by accident (~/.claude/AGENTS.md links to the company file, whose @AGENTS.local.md then resolved in ~/.claude). Live rules: 69,358 chars before, 69,723 after (+ personal.md's loader text).
-- [ ] L2 red: Rules.repo / Rules.touched, device_run rules + FRAME guard, server attach once per agent and hash
-- [ ] L2 implement, mutation check (roots, secret, seen, FRAME), README Gaps, rules.md "Repo instructions" shortened
+- [x] L2 red: Rules.test.ts (8: order, .claude/rules + paths:, imports kept inside the repo, secret and symlink-out skipped, seen, cap, touched paths), DeviceRules.test.ts (5), RepoRules.test.ts (4) → missing exports / no rules / no seen before implementation
+- [x] L2 Rules.rules_repo + rules_touched; Device.device_rules in device_run (not on failed calls; dropped if over FRAME, output kept); Job.seen; Tools.instructions fences unseen files after the result, per caller (Tools.seen), never in the system prompt → 17/17; full `bun run test` 673 pass, 1 skip, 2 known logs fails
+- [x] Mutation check, 9 mutants (roots, secret file, import keep, device seen, server seen, FRAME, shape check, failed call, paths gate): all caught
+- [x] README (rules config, Gaps: repo files steer agents), rules.md "Repo instructions" shortened
+- Live: a read in the main checkout brings CLAUDE.local.md (129 chars) once; a cd shell brings it; outside the roots none. Its `@~/.claude-mem/...` import stays text: imports are kept inside the repo (Claude Code asks once for an outside one) → user's call
 - [ ] Jira Task under PLP-2884; stack via gh stack
