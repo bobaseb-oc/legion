@@ -7,7 +7,7 @@ These are the user's own instructions, the same ones their Claude Code loads; re
 
 # Repo instructions
 
-Before you work in a git repo on a device, read its instruction files with the shell, as Claude Code would: CLAUDE.md, CLAUDE.local.md and AGENTS.md, and the files they @-import, in each directory from the repo's root down to the one you work in. Read them again when you move to another repo, or when one of them changes. Follow them; the user's latest message comes first.
+A repo's instruction files (CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md, AGENTS.md and .claude/rules/, root down to the folder you touch) come with the result of your first call that touches it, as `<instructions file="…">` blocks: a read, write, edit, glob or grep path in it, or a shell command starting `cd <dir> &&`. Follow them; the user's latest message comes first. If you work in a repo by shell without a leading `cd`, read them yourself first.
 
 # Parallel work in git repos
 

@@ -268,7 +268,14 @@ also be set as `UNII_<KEY>`. The ones that matter here:
 - `agents`: what sub-agents run on (default: the chat's pick).
 - `work`: the agents' working dirs (default ~/.unii/work).
 - `rules`: a file appended to every system prompt; local/rules.md
-  imports your ~/.claude/CLAUDE.md and the skills index.
+  imports your ~/.claude/CLAUDE.md, ~/.claude/rules/ (`@dir/` loads a
+  folder's .md files) and the skills index. Imports resolve from a
+  symlinked file's real folder, as Claude Code's do. A repo's own
+  CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md, AGENTS.md and
+  .claude/rules/ come with the result of the first call that touches it
+  (a read, write, edit, glob or grep path, or a shell's leading `cd`),
+  root down to the touched folder, once per agent and again when one
+  changes (Rules.ts, Device.device_rules, Tools.instructions).
 - `mcp`: a JSON file of MCP servers whose tools the agents get
   (local/mcp.ts makes one; `legion mcp-login atlassian` keeps the
   OAuth grant in the Keychain). It includes `okf-wiki`
@@ -325,6 +332,14 @@ What is known not to work, or not checked yet:
   whether this new build may use it. Always Allow there is safe only
   for a build you expect: if that prompt comes when you didn't just pull
   a change to legion-key, Deny it and check `git diff local/legion-key`.
+- **A repo's instruction files steer agents, as they steer Claude
+  Code.** Only repos under a device's work dir, home repo, spaces and
+  their worktrees count, and secret files are never read. Their
+  imports may point anywhere but a secret, as Claude Code's do once you
+  approve them, with no prompt here: a clone with a hostile CLAUDE.md in
+  a space can tell agents what to do and pull your non-secret files into
+  their chat. Keep untrusted clones out of your spaces. A shell call that works in a repo without a leading `cd`
+  brings no files (the agent reads them as local/rules.md says).
 - **Atlassian OAuth (commit 36e97d8) was merged as a draft.** It is a
   Red Zone change that no one has reviewed yet.
 - **Web fetch has a DNS-rebinding window.** Bun's fetch resolves the

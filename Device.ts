@@ -19,6 +19,7 @@ import * as Inbox from "./Inbox.ts";
 import { clip } from "./Clip.ts";
 import { Machine, USER_SHELL, type Job } from "./Machine.ts";
 import * as Undo from "./Undo.ts";
+import { rules_repo, rules_touched, type RuleFile } from "./Rules.ts";
 import * as View from "./View.ts";
 
 // a job running here: its stop, its send to the background (a shell's),
@@ -85,11 +86,39 @@ export async function device_run(jobs: Map<string, Run>, id: string, job: Job, r
   const tick = shell ? setInterval(tail, TAIL_EVERY) : undefined;
   const out  = job.name === "computer" && !rules.computer ? { text: NO_COMPUTER, fail: true } : await run(job, rules.work, abort.signal, away.signal, rules.home, undefined, shell ? live : undefined);
   clearInterval(tick);
-  const size = Buffer.byteLength(JSON.stringify(out));
   const most = View.FRAME - 1024;
+  const files = out.fail ? [] : device_rules(rules, job);
+  const more = { ...out, rules: files };
+  const fits = files.length > 0 && Buffer.byteLength(JSON.stringify(more)) <= most;
+  const size = Buffer.byteLength(JSON.stringify(out));
   const big  = { text: "The output, " + size + " bytes, is over the " + most + " a tool may send.", fail: true };
   jobs.delete(id);
-  send({ $: "out", job: id, out: size > most ? big : out });
+  send({ $: "out", job: id, out: fits ? more : size > most ? big : out });
+}
+
+// the instruction files of each repo a job touched (Rules.rules_touched),
+// as Claude Code loads them (Rules.rules_repo), but those the server says
+// its agent has seen (job.seen: their hashes): only repos under the
+// device's roots and not the home dir (device_place), never a secret's
+// (Machine.secret); never throws (none, then)
+export function device_rules(rules: Rules, job: Job): RuleFile[] {
+  try {
+    const cwd  = Machine.dir(job, rules.work, rules.home);
+    const seen = Array.isArray(job.seen) ? job.seen.filter((h): h is string => typeof h === "string") : [];
+    const out: RuleFile[] = [];
+    for (const p of rules_touched(job, cwd)) {
+      const top = Undo.undo_top(device_git, p);
+      if (top === null || typeof device_place(rules, top) !== "string") {
+        continue;
+      }
+      const have = [...seen, ...out.map((f) => f.hash)];
+      out.push(...rules_repo(top, p, have, Machine.secret));
+    }
+    return out;
+  } catch (err: any) {
+    console.error("instruction files for " + String(job.cwd) + ": " + String(err?.message ?? err));
+    return [];
+  }
 }
 
 // the shell commands running here (an agent's, the user's !command) sent

@@ -47,7 +47,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
-import { rules_read } from "./Rules.ts";
+import { rules_read, type RuleFile } from "./Rules.ts";
 import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
@@ -188,6 +188,7 @@ export type Tools = {
   rung?   : boolean; // a timer fired with no view open, since the user last spoke: no new timer till a view is (Tools.timer, R4)
   bgs?    : Bg[];    // the commands sent to the background (Tools.background), oldest first; ended ones kept till BG_KEPT
   bgn?    : number;  // the last background number given
+  seen?   : Map<string, Set<string>>; // the repo instruction files each caller has had, by hash (Tools.instructions)
 };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
@@ -205,6 +206,10 @@ type Appeal = { id: number; who: string; boss: string; tool: string; what: strin
 // =========
 
 export const MAIN = config.WORK + "/main";
+
+// what goes before the repo instruction files a device call brings
+// (Tools.instructions)
+const INSTRUCTIONS_HEAD = "This repo's instruction files, as Claude Code loads them for the files you touch: follow them; the user's latest message comes first.";
 
 // the most web searches a request of a turn or a subagent runs (Config.ts)
 export const SEARCHES = config.SEARCHES;
@@ -1009,9 +1014,31 @@ export namespace Tools {
         if (agent !== undefined) {
           agent.device = String(device);
         }
-        return Tools.job(tools, String(device), { name, input, cwd: who, ...Tools.snap(tools, who, name) }, signal, id);
+        const seen = [...(tools.seen?.get(who) ?? [])];
+        return Tools.instructions(tools, who, await Tools.job(tools, String(device), { name, input, cwd: who, seen, ...Tools.snap(tools, who, name) }, signal, id));
       }
     }
+  }
+
+  // a device call's output with the repo instruction files its device
+  // answered (Device.device_rules) that who has not had, after it, each
+  // fenced by its path, as Claude Code adds a nested CLAUDE.md to a read;
+  // in the call's result, never the system prompt, so its cached prefix
+  // holds. Only path, hash and text strings count; the device's list never
+  // reaches the agent as it is
+  export function instructions(tools: Tools, who: string, out: Out): Out {
+    const { rules, ...rest } = out as Out & { rules?: unknown };
+    const str = (v: unknown): v is string => typeof v === "string";
+    const all = Array.isArray(rules) ? rules.filter((f): f is RuleFile => str(f?.path) && str(f?.hash) && str(f?.text)) : [];
+    const had = (tools.seen ??= new Map()).get(who) ?? new Set<string>();
+    const fresh = all.filter((f) => !had.has(f.hash));
+    if (fresh.length === 0) {
+      return rest;
+    }
+    fresh.forEach((f) => had.add(f.hash));
+    tools.seen.set(who, had);
+    const blocks = fresh.map((f) => "<instructions file=\"" + f.path + "\">\n" + f.text + "\n</instructions>");
+    return { ...rest, text: rest.text + "\n\n" + INSTRUCTIONS_HEAD + "\n" + blocks.join("\n") };
   }
 
   // Devices
