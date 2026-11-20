@@ -501,11 +501,13 @@ function todo_parts(v: View.View): Part[] {
 function memory_parts(v: View.View): Part[] {
   const pins = v.pins ?? [];
   const hits = v.recall?.hits ?? [];
+  const notes = v.notebook ?? [];
   const first = (note: string) => note.split("\n")[0];
   return [
     { text: first(View.view_pins_note(v)), ink: BOLD },
     ...pins.map((p): Part => ({ key: "p" + p.i, text: View.hit_text(p) })),
     ...(v.recall === null ? [] : [{ text: "" }, { text: first(View.view_recall_note(v)), ink: BOLD }, ...hits.map((h): Part => ({ key: "h" + h.i, text: View.hit_text(h) }))]),
+    ...(notes.length === 0 ? [] : [{ text: "" }, { text: "Notes (edit on the web)", ink: BOLD }, ...notes.map((n): Part => ({ text: n.name + ": " + n.line }))]),
     { text: "" },
     { text: "↑↓ pick · Enter shows it in the chat · p pin or unpin · / recall words · Esc chat", ink: Paint.DIM },
   ];

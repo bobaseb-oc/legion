@@ -53,6 +53,7 @@ import * as Inbox from "./Inbox.ts";
 import * as Routines from "./Routines.ts";
 import * as Explain from "./Explain.ts";
 import * as Gchat from "./Gchat.ts";
+import * as Notes from "./Notes.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
@@ -645,7 +646,7 @@ export namespace Chat {
     chat.eye = Chat.eye(mem, from);
     chat.socks.forEach((sock) => Chat.show(chat, sock));
     const bill = mem.pay?.("chat", String(msgs[0].id));
-    const blocks = [...view, Tools.devices(chat.tools), ...Tools.likes(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
+    const blocks = [...view, Tools.devices(chat.tools), ...Tools.likes(chat.tools), ...Tools.notes_block(chat.tools), Tools.at_work(chat.tools), { text: HEAD + text, mark: true }];
     const ask = { ...Chat.share(chat), searches: SEARCHES, server, blocks, imgs, bill };
     chat.model = chat.pick.model;
     chat.asked = true;
@@ -1219,7 +1220,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, shells: Tools.shells(chat.tools) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1609,6 +1610,9 @@ export namespace Chat {
       case "pin": {
         return Chat.pin(chat, asker, msg);
       }
+      case "note": {
+        return Chat.noted(chat, asker, msg);
+      }
       case "assignment": {
         return Chat.assignment(chat, id, asker, msg);
       }
@@ -1677,6 +1681,32 @@ export namespace Chat {
     const why = Memory.pin(chat.mem, msg.i, msg.on);
     if (why !== null) {
       return { error: why };
+    }
+    Chat.change(chat);
+    return {};
+  }
+
+  // the user's edit or drop of one of Unii's notes (Notes.ts): a view's
+  // act only, as Chat.pin's (N6); an edit with no line keeps the old one
+  export function noted(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Notes are the user's to edit: edit them on the web." };
+    }
+    const dir = chat.mem.dir;
+    const name = String(msg.name ?? "");
+    if (msg.drop === true) {
+      const out = Notes.notes_drop(dir, name);
+      if (out !== true) {
+        return { error: out };
+      }
+    } else {
+      if (typeof msg.text !== "string") {
+        return { error: "Give the note's text." };
+      }
+      const out = Notes.notes_write(dir, name, typeof msg.line === "string" ? msg.line : null, msg.text);
+      if (typeof out === "string") {
+        return { error: out };
+      }
     }
     Chat.change(chat);
     return {};

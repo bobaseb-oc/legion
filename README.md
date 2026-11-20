@@ -131,7 +131,11 @@ How it works
   the 128 KB; only you can pin, from the web). The Memory page
   (#memory) walks the tree from its roots down to each message, and
   searches the whole chat word for word on the server (no model call,
-  50 hits, newest first).
+  50 hits, newest first). It also lists Unii's notes: facts about you and
+  your work that Unii keeps across runs (up to 32, 4 KB each, redacted,
+  in ~/.unii/users/<id>/notes/). Their index reaches Unii fenced, as
+  something Legion wrote, not as instructions, on every call; only Unii
+  writes them, and you edit or drop each one on the web.
 - **Undo an agent.** Before an agent's first change in a turn, the
   device snapshots each repo it changes under the roots as
   `refs/legion/undo/<agent>/<turn>` (a temporary index: your working
@@ -189,7 +193,7 @@ with the one code the browser asks for. The device key is a file
 (~/.unii/<host>/token): jobs, `legion device` and the launchd device run
 on it, and since an agent's shell can read it, its acts that are the
 user's say (mode, plan, approvals, answers, routines, timers, todos,
-pins, decisions) are refused. The terminal key is kept only in the
+pins, notes, decisions) are refused. The terminal key is kept only in the
 Keychain (service `legion-terminal-<host>`), read only by legion-key
 (below): the full-screen `legion` reads it once as it starts (Touch ID
 or your password), and with it those acts work from the terminal. A
@@ -353,7 +357,8 @@ What is known not to work, or not checked yet:
 - **Undo covers writes and edits.** A shell run in its own folder is
   snapshotted there; `cd /repo && sed -i …` from elsewhere is not,
   unless a write or edit in that repo came first in the turn. Claude
-  Code workers' changes aren't covered. Pins and search are web only.
+  Code workers' changes aren't covered. Pins, search and note edits are
+  web only.
 - **Cockpit limits.** Jira tickets need `acli jira auth login` on the
   device. Agent cost on Home is an estimate at list price, not the
   gateway's bill; the 7-day spend sums the daily cost caches present.

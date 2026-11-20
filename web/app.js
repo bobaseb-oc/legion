@@ -1960,6 +1960,9 @@ function view_act(v, act) {
     case "Pin": {
       return [{ $: "pin", i: act.i, on: !(v.pins ?? []).some((p) => p.i === act.i) }];
     }
+    case "Note": {
+      return [act.drop === true ? { $: "note", name: act.name, drop: true } : { $: "note", name: act.name, text: act.text ?? "" }];
+    }
     case "Assignment": {
       return (v.assigned ?? []).some((a) => a.n === act.n) ? [{ $: "assignment", n: act.n, done: act.done }] : [];
     }
@@ -3849,7 +3852,7 @@ function timesheet_html(v) {
 function memory_html(v) {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc2(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
-  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), map_html(v)];
+  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), notes_html(v.notebook ?? []), map_html(v)];
 }
 function marked(text, q) {
   const at = q === "" ? -1 : text.toLowerCase().indexOf(q.toLowerCase());
@@ -3876,6 +3879,11 @@ function pins_html(pins) {
   const head = `<h3>Pinned <span class="meta">${pins.length} of ${PINS} · ${kb} of ${PINNED / 1000} KB</span></h3>`;
   const rows = pins.map((p) => `<div class="mpin">${recall_html(p, "")}<button class="x" title="unpin"${act_html2({ $: "Pin", i: p.i })}>×</button></div>`).join("");
   return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's \uD83D\uDCCC in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
+}
+function notes_html(notes) {
+  const head = `<h3>Notes</h3><p class="meta">What Unii keeps across runs and reads at each call: edit or drop any.</p>`;
+  const rows = notes.map((n) => `<form class="mnote" data-note="${esc2(n.name)}"><b>${esc2(n.name)}</b> <span class="meta">${esc2(n.line)}</span>` + `<textarea data-keep="note-${esc2(n.name)}" rows="3" aria-label="the note's text">${esc2(n.text)}</textarea>` + `<div class="acts"><button type="submit" class="pbtn">Edit</button><button type="button" class="pbtn"${act_html2({ $: "Note", name: n.name, drop: true })}>Drop</button></div></form>`).join("");
+  return `<section class="mnotes">${head}${rows || `<p class="meta">No notes yet.</p>`}</section>`;
 }
 function map_html(v) {
   const lines = v.roots === null ? `<p class="meta">Loading…</p>` : v.roots.map((part) => line_html2(v, part, 0)).join("") || `<p class="meta">No messages yet.</p>`;
@@ -4104,6 +4112,7 @@ function chat() {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
@@ -5206,6 +5215,14 @@ function memory_find(ev) {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input").value });
+}
+function note_edit(ev) {
+  const form = ev.target.closest("form.mnote");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Note", name: form.dataset.note, text: form.querySelector("textarea").value });
 }
 function explain_ask(ev) {
   const form = ev.target.closest("form.xask");

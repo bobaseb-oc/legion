@@ -523,3 +523,34 @@ test("the Explain page: each card's what, why, status and watch, escaped; update
   expect(html).toContain('data-keep="explain"');
   expect(Pages.side_html(v, "explain", NOW).join("")).toContain('href="#explain" class="here">Explain');
 });
+
+// Notes (PLP-2899 L2): the Memory page lists Unii's notes, each with an
+// Edit and a Drop; every note's text escaped (a note is untrusted text)
+const two_notes = () => [
+  { name: "alpha-plan", line: "the alpha line", text: "alpha body", at: NOW },
+  { name: "beta-notes", line: "the beta line", text: "beta body", at: NOW },
+];
+
+test("L2-AC13: the Memory page holds a Notes section with an Edit and a Drop control per note", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  (v as any).notebook = two_notes();
+  const html = Pages.memory_html(v).join("");
+  expect(html).toMatch(/>Notes</);
+  expect(html).toContain("alpha-plan");
+  expect(html).toContain("beta-notes");
+  expect(html).toContain(act({ $: "Note", name: "alpha-plan", drop: true }));
+  expect(html).toContain(act({ $: "Note", name: "beta-notes", drop: true }));
+  expect(html.match(/>Edit<|value="Edit"/g)?.length ?? 0).toBe(2);
+  expect(html.match(/>Drop<|value="Drop"/g)?.length ?? 0).toBe(2);
+});
+
+test("L2-AC13: a note's text renders escaped, never as markup", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  (v as any).notebook = [{ name: "x", line: "<b>line</b>", text: "<img src=x onerror=alert(1)>", at: NOW }];
+  const html = Pages.memory_html(v).join("");
+  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+  expect(html).not.toContain("<img");
+  expect(html).not.toContain("<b>line</b>");
+});
