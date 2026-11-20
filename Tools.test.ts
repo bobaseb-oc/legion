@@ -790,7 +790,7 @@ test("risk: the reviewer is asked for a risk label and told what each level is",
   });
 });
 
-// notes (PLP-2899 L2): Unii's tool alone; a bad name refused before any
+// notes: Unii's tool alone; a bad name refused before any
 // file call; a read fenced as untrusted data, never instructions
 function noting(): { tools: any; base: string; dir: string } {
   const base = fs.mkdtempSync(os.tmpdir() + "/unii-notes-");
@@ -855,6 +855,18 @@ test("N5: a note read through the tool is fenced as untrusted notes", async () =
     expect(read.fail).toBe(false);
     expect(read.text.startsWith('<untrusted source="notes">')).toBe(true);
     expect(read.text).toContain("step one");
+  } finally {
+    Tools.close(tools);
+  }
+});
+
+test("notes: a write with no text is refused, and the note's text is kept", async () => {
+  const { tools, dir } = noting();
+  try {
+    expect((await Tools.call(tools, "main", "notes", { write: "plan", line: "the plan", text: "step one" }, go(), "n1")).fail).toBe(false);
+    const out = await Tools.call(tools, "main", "notes", { write: "plan", line: "a new line" }, go(), "n2");
+    expect(out.fail).toBe(true);
+    expect(fs.readFileSync(dir + "/notes/plan.md", "utf8")).toContain("step one");
   } finally {
     Tools.close(tools);
   }

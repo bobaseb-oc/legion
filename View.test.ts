@@ -670,7 +670,7 @@ test("shell commands in sight: their lines, the keys, the acts on them", () => {
   expect(View.view_bg_lines(v, 20_000)).toEqual(["1 · running 19s · Legion on mac · $ tail -f log", "2 · done (exit 0 in 9.0 s) · Ada on pc · $ sleep 9"]);
 });
 
-// Notes (PLP-2899 L2): Unii's notes come in the state as `notebook`; the
+// Notes: Unii's notes come in the state as `notebook`; the
 // view's own `notes` (its toast queue, strings) is left as it is
 test("L2: a state message with a notebook keeps the view's toasts and lists the note", () => {
   const v = View.view_new();

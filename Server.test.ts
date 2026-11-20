@@ -1455,7 +1455,7 @@ test("the GChat bridge opens on and posts from the chat of the user gchat_user n
   expect(await run("")).toEqual([none, none]);
 });
 
-// Notes (PLP-2899 L2): Unii's notes index reaches its turn fenced, in one
+// Notes: Unii's notes index reaches its turn fenced, in one
 // block of its own; a view edits or drops a note (the `note` act), a
 // device's socket can't; a note planted by hand is in the state. One
 // spawned process, its parts read by the tests below

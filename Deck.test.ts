@@ -468,7 +468,7 @@ test("a PR body, an event title, a routine's why: drawn without their escapes", 
   expect(drawn(menu, W).replace(OWN, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
 });
 
-// Notes (PLP-2899 L2): the terminal's Memory page lists Unii's notes,
+// Notes: the terminal's Memory page lists Unii's notes,
 // read-only (edited on the web)
 test("L2-AC14: the terminal Memory page lists both notes' names", () => {
   const v = team();

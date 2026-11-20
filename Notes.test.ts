@@ -1,6 +1,6 @@
 // Notes test
 // ==========
-// `bun run test Notes.test.ts`. The notes store (Notes.ts, PLP-2899 L2):
+// `bun run test Notes.test.ts`. The notes store (Notes.ts):
 // one file per note under <dir>/notes, names from a slug allowlist,
 // text redacted and capped, files 0600, a symlinked dir or note refused,
 // at most NOTES notes, an index cut to NOTE_INDEX bytes with a line that
@@ -168,4 +168,12 @@ test("a note's round trip: write, read, drop; MEMORY.md follows the files", () =
   expect(typeof Notes.notes_read(dir, "plan")).toBe("string");
   expect(Notes.notes_list(dir)).toEqual([]);
   expect(fs.readFileSync(Notes.notes_dir(dir) + "/MEMORY.md", "utf8")).not.toContain("[plan](plan.md)");
+});
+
+test("a note named memory is refused: on a case-insensitive disk its file is the export MEMORY.md", () => {
+  const { dir } = fresh();
+  expect(typeof Notes.notes_write(dir, "plan", "the plan", "step one")).toBe("object");
+  expect(typeof Notes.notes_write(dir, "memory", "how memory works", "keep this")).toBe("string");
+  expect(Notes.notes_list(dir).map((n) => n.name)).toEqual(["plan"]);
+  expect(listed(Notes.notes_dir(dir)).filter((f) => f.toLowerCase() === "memory.md")).toEqual(["MEMORY.md"]);
 });

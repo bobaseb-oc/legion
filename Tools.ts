@@ -447,7 +447,7 @@ const ASK = spec("ask", "File a question for the user in their backlog of questi
 // Harvest only by the user's Submit; at most DRAFTS kept
 const TIMESHEET = spec("timesheet", "File drafts of the user's Harvest time entries for their review on the Timesheet page; only the user submits them to Harvest. entries: each with project_id and task_id (from harvest's projects), project and task (their names), date (YYYY-MM-DD), hours (in hundredths, at most 24 a day), notes (what was done, as the user would write it) and why (your evidence: calendar events, PRs, commits, tickets). Read harvest's entries first and don't draft time already logged. clear: true drops your drafts not yet sent.", { entries: { type: "array", items: { type: "object" } }, clear: { type: "boolean" } }, []);
 const NOTIFY = spec("notify", "Put a short note in the user's pane beside their questions, to keep them in the loop without asking anything: a decision you made and why, a milestone done or an agent's result worth knowing, a risk or a change of plan, something they should look at when they can. One thing per note, said in full in a few lines (it is read apart from the chat). No answer is awaited; they may dismiss it or reply. Don't note routine progress the chat already shows.", { text: STR }, ["text"]);
-// Unii's notes across runs (PLP-2899 L2: Notes.ts), its tool alone
+// Unii's notes across runs (Notes.ts), its tool alone
 const NOTEBOOK = spec("notes", "Your notes, kept across runs: facts about the user and their work worth knowing next time (who they are, how they like things done, what a project is and where it stands), one note per topic. Their index is at the start of your messages; the user sees each note, and may edit or drop it. No args: the index. read: a note's name, its text. write: a name (lower case, digits, -) with line (its one-line index entry) and text (the whole note, replacing it). drop: a name, the note gone. A secret in a note is redacted.", { read: STR, write: STR, line: STR, text: STR, drop: STR }, []);
 // what an agent needs the user to do (any agent: Tools.assign), on their
 // Todo page till they tick it Done or drop it; at most ASSIGNS open
@@ -1759,8 +1759,11 @@ export namespace Tools {
       return said(Notes.notes_drop(dir, args.drop), "Dropped note " + args.drop + ".");
     }
     if (typeof args?.write === "string") {
+      if (typeof args.text !== "string") {
+        return { text: "Give the note's whole text: a write replaces it.", fail: true };
+      }
       const line = typeof args.line === "string" ? args.line : null;
-      return said(Notes.notes_write(dir, args.write, line, String(args.text ?? "")), "Wrote note " + args.write + ".");
+      return said(Notes.notes_write(dir, args.write, line, args.text), "Wrote note " + args.write + ".");
     }
     if (typeof args?.read === "string") {
       const note = Notes.notes_read(dir, args.read);

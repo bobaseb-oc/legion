@@ -524,7 +524,7 @@ test("the Explain page: each card's what, why, status and watch, escaped; update
   expect(Pages.side_html(v, "explain", NOW).join("")).toContain('href="#explain" class="here">Explain');
 });
 
-// Notes (PLP-2899 L2): the Memory page lists Unii's notes, each with an
+// Notes: the Memory page lists Unii's notes, each with an
 // Edit and a Drop; every note's text escaped (a note is untrusted text)
 const two_notes = () => [
   { name: "alpha-plan", line: "the alpha line", text: "alpha body", at: NOW },

@@ -1,6 +1,6 @@
 // Notes
 // =====
-// Unii's notes (PLP-2899 L2): what it keeps across runs, one file per
+// Unii's notes: what it keeps across runs, one file per
 // note under <dir>/notes, in Claude Code's MEMORY.md style. Only Unii
 // writes them (Tools.notes); the user sees, edits and drops each (the
 // Memory page: Chat.noted). Untrusted text: a name from NAME only, text
@@ -45,7 +45,11 @@ function dir_ready(dir: string): string | null {
   return null;
 }
 
+// "memory" too: on a case-insensitive disk (macOS) its file is EXPORT
 function name_bad(name: string): string | null {
+  if (name === EXPORT.slice(0, -3).toLowerCase()) {
+    return "No note named memory: the notes' index has that file. Pick another name.";
+  }
   return NAME.test(name) ? null : "No note name " + JSON.stringify(name.slice(0, 60)) + ": lower case letters, digits and -, at most 48.";
 }
 
