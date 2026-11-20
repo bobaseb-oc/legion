@@ -421,3 +421,231 @@ test("AC21: the reminder's turn bills its tokens: the usage its request tells gr
   expect(out.paid).toBe(true);
   expect(out.billed).toBeCloseTo(out.control, 10);
 }, WAIT);
+
+// pinned (PLP-2895, RED ZONE DRAFT): who may edit a track, by which
+// address, and when its notes go out; real time (one NOTE_GAP wait for all)
+const EDITS = PRE(false) + `
+const out = {};
+const live = await start("live work", false);
+const w = await start("idle work", true);
+const helper = await start("help idle work", true, w);
+const hid = await start("to dismiss", true);
+const gap = await start("dismissed in the gap", true);
+await Bun.sleep(200);
+const notes = (name) => log(name).filter((r) => r.text.includes("[Tracks]")).length;
+const pushed = (name) => spy.pushes.filter(([who, , text]) => who === name && text.includes("[Tracks]")).length;
+const sent = (name) => of(name).flatMap((a) => a.sent).filter((s) => s.includes("[Tracks]")).length;
+const seen = (name) => ({ log: notes(name), pushes: pushed(name), sent: sent(name) });
+// AC14: one edit, then no note till the gap is up
+const t0 = Date.now();
+out.add = await track("g1", { name: live, op: "add", text: "Check CI" });
+await Bun.sleep(300);
+out.soon = seen(live);
+// AC12a: a helper (its parent an agent) is no track: refused, no pins
+out.helper = { add: await track("h1", { name: helper, op: "add", text: "x" }), view: view(helper), kept: chat.mem.tracks?.[helper] ?? null };
+// a dismissed top agent's track: refused, nothing kept
+out.dismiss = await safe(() => Chat.act(chat, "d1", { $: "dismiss", name: hid }, ""));
+out.hidden = { add: await track("h2", { name: hid, op: "add", text: "x" }), view: view(hid), kept: chat.mem.tracks?.[hid] ?? null };
+// a note queued, then its agent dismissed within the gap
+out.gap = { add: await track("q1", { name: gap, op: "add", text: "never sent" }), dismiss: await safe(() => Chat.act(chat, "d2", { $: "dismiss", name: gap }, "")) };
+// AC12a/b: on an orphaned track only dropping a pin passes
+chat.mem.tracks = { ...(chat.mem.tracks ?? {}), Gone: { pins: [{ n: 1, text: "one", status: "pending", at: 1 }, { n: 2, text: "two", status: "pending", at: 2 }], next: 2, dropped: [] } };
+const orphan = () => JSON.parse(JSON.stringify(chat.mem.tracks.Gone));
+const was = orphan();
+out.orphan = {
+  edit: await track("o1", { name: "Gone", op: "edit", n: 1, text: "changed" }),
+  move: await track("o2", { name: "Gone", op: "move", n: 2, to: 1 }),
+  item: await track("o3", { name: "Gone", op: "drop", i: 1, was: "one" }),
+  before: was,
+  kept: orphan(),
+  pin: await track("o4", { name: "Gone", op: "drop", n: 1 }),
+  after: orphan(),
+};
+// look again: an agent item addressed by i whose text changed since seen
+await todo(w, { items: [{ text: "own a", status: "pending" }, { text: "own b", status: "doing" }] });
+const mine = () => JSON.parse(JSON.stringify({ todo: chat.tools.agents.get(w).todo ?? null, track: chat.mem.tracks?.[w] ?? null }));
+const first = mine();
+out.stale = {
+  edit: await track("s1", { name: w, op: "edit", i: 1, was: "old a", text: "new a" }),
+  drop: await track("s2", { name: w, op: "drop", i: 2, was: "old b" }),
+  first,
+  kept: mine(),
+  fresh: await track("s3", { name: w, op: "drop", i: 2, was: "own b" }),
+  after: mine(),
+};
+// AC3: todo's pinned marks touch the caller's own track only
+await track("m1", { name: w, op: "add", text: "w's pin" });
+await track("m2", { name: live, op: "add", text: "live's second" });
+const other = pins(live);
+await todo(w, { items: [{ text: "own a", status: "pending" }], pinned: [{ n: 1, status: "done", who: live, name: live, track: live }, { n: 2, status: "done", who: live, name: live, track: live }] });
+out.marks = { other, after: pins(live), own: pins(w) };
+// the gap: still nothing at 8.5 s, the note by 11 s
+await Bun.sleep(Math.max(0, t0 + 8_500 - Date.now()));
+out.mid = seen(live);
+await Bun.sleep(Math.max(0, t0 + 11_000 - Date.now()));
+out.late = seen(live);
+out.none = { helper: seen(helper), hid: seen(hid), gap: seen(gap) };
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let edits: Promise<any> | null = null;
+const editsOut = () => (edits ??= server("edits.ts", EDITS));
+const none = { log: 0, pushes: 0, sent: 0 };
+
+test("AC12a (pinned): a helper under another agent (role sub, parent not main) is no track: an add is refused, no pins, no note", async () => {
+  const out = await editsOut();
+  expect(out.helper).toEqual({ add: { error: expect.any(String) }, view: null, kept: null });
+  expect(out.none.helper).toEqual(none);
+}, WAIT);
+
+test("AC13 (pinned): a dismissed top agent's track is not editable: an add is refused, nothing kept, no note", async () => {
+  const out = await editsOut();
+  expect(out.dismiss).toEqual({});
+  expect(out.hidden).toEqual({ add: { error: expect.any(String) }, view: null, kept: null });
+  expect(out.none.hid).toEqual(none);
+}, WAIT);
+
+test("AC12b (pinned): on an orphaned track edit, move and dropping an agent item are refused, nothing changes; dropping a pin passes", async () => {
+  const out = await editsOut();
+  const { edit, move, item, before, kept, pin, after } = out.orphan;
+  for (const r of [edit, move, item]) expect(r).toEqual({ error: expect.any(String) });
+  expect(kept).toEqual(before);
+  expect(pin).toEqual({});
+  expect(after.pins.map((p: any) => p.n)).toEqual([2]);
+  expect(after.dropped).toEqual([]);
+}, WAIT);
+
+test("AC12a (pinned): an agent item edited or dropped by position whose text changed since seen is refused (look again), nothing changes", async () => {
+  const out = await editsOut();
+  const { edit, drop, first, kept, fresh, after } = out.stale;
+  expect(edit).toEqual({ error: "That item changed: look again." });
+  expect(drop).toEqual({ error: "That item changed: look again." });
+  expect(first.todo.map((t: any) => t.text)).toEqual(["own a", "own b"]);
+  expect(kept).toEqual(first);
+  // the control: the same drop with the text the user saw passes
+  expect(fresh).toEqual({});
+  expect(after.track.dropped).toEqual(["own b"]);
+}, WAIT);
+
+test("AC3 (pinned): todo's pinned marks change the calling agent's own pins only, never another track's of the same n", async () => {
+  const out = await editsOut();
+  expect(keyed(out.marks.other)).toEqual([{ n: 1, text: "Check CI", status: "pending" }, { n: 2, text: "live's second", status: "pending" }]);
+  expect(out.marks.after).toEqual(out.marks.other);
+  expect(keyed(out.marks.own)).toEqual([{ n: 1, text: "w's pin", status: "done" }]);
+}, WAIT);
+
+test("AC14 (pinned): an edit's note waits out the 10 s gap: none at 0.3 s or 8.5 s, then one by 11 s", async () => {
+  const out = await editsOut();
+  expect(out.add).toEqual({});
+  expect(out.soon).toEqual(none);
+  expect(out.mid).toEqual(none);
+  expect(out.late).toEqual({ log: 1, pushes: 1, sent: 1 });
+}, WAIT);
+
+test("AC14 (pinned): a note queued for an agent dismissed within the gap is not delivered", async () => {
+  const out = await editsOut();
+  expect(out.gap).toEqual({ add: {}, dismiss: {} });
+  expect(out.none.gap).toEqual(none);
+  expect(out.late.pushes).toBe(1);
+}, WAIT);
+
+// pinned (PLP-2895, RED ZONE DRAFT): stall bookkeeping across re-sent
+// checklists, a pin's stall, read-only tracks; the clock faked, now injected
+const STALLED = PRE(true) + `
+const out = {};
+const item = await start("item work", false);
+const pin = await start("pin work", false);
+const fresh = await start("fresh work", false);
+await Bun.sleep(200);
+const list = [{ text: "step one", status: "doing" }];
+const by = (name) => spy.reminds.filter(([who]) => who === name).map(([, text]) => text);
+const tick = async (now) => { clock = now; return safe(() => Chat.stalls(chat, now)); };
+// an agent item doing from T0; the identical list re-sent at 10 min
+await todo(item, { items: list });
+// a user pin the agent marks doing at T0, its own list not doing
+await track("p1", { name: pin, op: "add", text: "Write the migration" });
+await todo(pin, { items: [{ text: "own", status: "pending" }], pinned: [{ n: 1, status: "doing" }] });
+// the control: an item doing from 10 min, its list never re-sent
+clock = ${T0 + 10 * MIN};
+await todo(item, { items: list });
+await todo(fresh, { items: list });
+// read-only tracks with a live call and an item doing from T0
+const call = { send: () => {}, stop: () => {} };
+const agent = (name, role) => ({ name, parent: "main", role, call, runs: 1, live: [], calls: {}, stop: false, replies: [], user: false, device: "mac", todo: [{ text: "step one", status: "doing", since: ${T0} }] });
+chat.tools.agents.set("Hd", agent("Hd", { $: "hands", device: "mac" }));
+chat.tools.agents.set("Cc", agent("Cc", { $: "cli", device: "mac", dir: "~/r" }));
+// the control: the same hand-made agent as a sub is reminded
+chat.tools.agents.set("Sb", agent("Sb", SUB));
+out.t1 = await tick(${T0 + STALL});
+out.first = { item: by(item), pin: by(pin), fresh: by(fresh).length, hd: by("Hd").length, cc: by("Cc").length, sb: by("Sb") };
+// the identical list re-sent after the reminder: not reminded again
+clock = ${T0 + STALL + MIN};
+await todo(item, { items: list });
+out.t2 = await tick(${T0 + STALL + 2 * MIN});
+out.t3 = await tick(${T0 + STALL + 3 * MIN});
+out.t4 = await tick(${T0 + 30 * MIN});
+out.later = { item: by(item).length, pin: by(pin).length, fresh: by(fresh), hd: by("Hd").length, cc: by("Cc").length };
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let stalled: Promise<any> | null = null;
+const stalledOut = () => (stalled ??= server("stalled.ts", STALLED));
+
+test("AC18 (pinned): re-sending the identical checklist keeps since: the item is reminded at the first 20-min mark, not 20 min after the re-send", async () => {
+  const out = await stalledOut();
+  expect(out.first.item).toEqual([REMIND(1)]);
+  // the control: an item doing only from 10 min is not stalled at 20
+  expect(out.first.fresh).toBe(0);
+  expect(out.later.fresh).toEqual([REMIND(1)]);
+}, WAIT);
+
+test("AC18 (pinned): re-sending the identical checklist after its reminder keeps reminded: no second reminder", async () => {
+  const out = await stalledOut();
+  expect(out.first.item).toHaveLength(1);
+  expect(out.later.item).toBe(1);
+}, WAIT);
+
+test("AC18 (pinned): a user pin doing 20 min on a live agent gets exactly one reminder over four ticks", async () => {
+  const out = await stalledOut();
+  expect(out.first.pin).toEqual([REMIND(1)]);
+  expect(out.later.pin).toBe(1);
+}, WAIT);
+
+test("AC20 (pinned): a hands (computer) or cli top agent with a live call gets no stall reminder", async () => {
+  const out = await stalledOut();
+  expect([out.first.hd, out.first.cc, out.later.hd, out.later.cc]).toEqual([0, 0, 0, 0]);
+  expect(out.first.sb).toEqual([REMIND(1)]);
+}, WAIT);
+
+// pinned (PLP-2895): the crew's checklists and pins reach the observer as
+// counts only, through the real path (Chat.snapshot to the observer call)
+const COUNTS = PRE(false) + `
+const ITEM = "SENTINEL-ITEM-4c1d";
+const PIN = "SENTINEL-PIN-9e2b";
+const a = await start("build it", true);
+await Bun.sleep(200);
+await todo(a, { items: [{ text: ITEM + " one", status: "doing" }, { text: ITEM + " two", status: "pending" }] });
+const added = await track("c1", { name: a, op: "add", text: PIN });
+chat.mem.goal = "Ship tracks";
+await Bun.sleep(100);
+const observed = Chat.observe(chat, ${T0});
+const asked = await until(() => asks.some((x) => x.ask.system === Explain.OBSERVE));
+const obs = asks.find((x) => x.ask.system === Explain.OBSERVE);
+const text = obs ? obs.ask.blocks.map((b) => b.text).join("") + String(obs.ask.system) : "";
+obs?.sink.end({ ok: true, text: JSON.stringify({ cards: [] }), left: [] });
+await safe(() => observed);
+console.log(JSON.stringify({ a, added, asked, text, item: text.includes("SENTINEL-ITEM"), pin: text.includes("SENTINEL-PIN") }));
+process.exit(0);
+`;
+
+test("AC23 (pinned): the observer call's input (Chat.observe in the server) has the track's counts and no checklist item or pin text", async () => {
+  const out = await server("counts.ts", COUNTS);
+  expect(out.added).toEqual({});
+  expect(out.asked).toBe(true);
+  expect(out.text).toContain("Tracks:");
+  expect(out.text).toContain(`- ${out.a}: 2 items, 1 pinned`);
+  expect(out.item).toBe(false);
+  expect(out.pin).toBe(false);
+}, WAIT);

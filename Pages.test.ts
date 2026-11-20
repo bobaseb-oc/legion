@@ -568,3 +568,24 @@ test("L2-AC13: a note's text renders escaped, never as markup", async () => {
   expect(html).not.toContain("<img");
   expect(html).not.toContain("<b>line</b>");
 });
+
+// Tracks (PLP-2895): every other text the Tracks page shows, escaped: a
+// pin's "edited from" text, the observer card's fields, the track's name
+// and title (in its heading, its acts and its add form)
+test("AC25 (pinned): the Tracks page escapes a pin's edited-from text, the card's what/why/status/watch and the track's name and title", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  const evil = (s: string) => `<b id=${s}>`;
+  const name = "Al<u>pha";
+  View.view_hear(v, { $: "state", ...v, tracks: [{ name, title: evil("title"), tier: "worker", editable: true, orphaned: false, queued: false,
+    items: [{ text: "item", status: "doing" }], pins: [{ n: 1, text: "pin", status: "pending", at: NOW, from: evil("from") }] }] } as any);
+  v.explain = { cards: [{ track: name, title: "T", what: evil("what"), why: evil("why"), status: evil("status"), watch: evil("watch") }], at: NOW, hash: "h", tried: null, qa: [], writing: false, asking: null };
+  const html = Pages.tracks_html(v, NOW).join("");
+  for (const s of ["from", "what", "why", "status", "watch", "title"]) {
+    expect([s, html.includes(`&lt;b id=${s}&gt;`)]).toEqual([s, true]);
+  }
+  expect(html).toContain("edited from «&lt;b id=from&gt;»");
+  expect(html).toContain("Al&lt;u&gt;pha");
+  expect(html).not.toContain("<b id=");
+  expect(html).not.toContain("<u>");
+});
