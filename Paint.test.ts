@@ -188,3 +188,18 @@ test("the shell status block: head, last lines, keys; a command's escapes never 
   expect(ansi).not.toContain("\x07");
   expect(ansi).not.toContain("\x1b[31m");
 });
+
+// Tracks (PLP-2895): the terminal's Tracks page (Deck), painted as the
+// terminal draws it: an item's escapes cleaned, its text kept
+test("AC25: the terminal's Tracks page draws an item's text with its escapes cleaned", async () => {
+  const Deck = await import("./Deck.ts");
+  const v = View.view_new();
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Alpha", "main", "working")], tracks: [{ name: "Alpha", tier: "manager", editable: true, orphaned: false, queued: false,
+    items: [{ text: "Fix \x1b[2Jit", status: "doing" }], pins: [{ n: 1, text: "Pin \x1b[2Jme", status: "pending", at: 0 }] }] } as any);
+  const OWNS = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b\x07]*\x1b\\/g;
+  const lines = Deck.deck_lines(v, Deck.deck_new("tracks" as any), 100, 40, 0);
+  const all = lines.map((l) => Paint.line_ansi(Paint.runs_wrap(l, 100, true)[0] ?? [])).join("\r\n");
+  expect(all).toContain("Fix [2Jit");
+  expect(all).toContain("Pin [2Jme");
+  expect(all.replace(OWNS, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+});

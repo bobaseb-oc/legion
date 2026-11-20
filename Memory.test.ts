@@ -74,3 +74,89 @@ test("view.json's lists, not lists, load as none", () => {
   expect(mem.routines).toEqual([]);
   expect(mem.timers).toEqual([]);
 });
+
+// Tracks (PLP-2895): the user's pins per track, kept in view.json and
+// load-guarded like `assigned` (RED ZONE DRAFT)
+const track = { pins: [{ n: 1, text: "Write the migration", status: "pending", at: 5 }, { n: 3, text: "Ship it", status: "doing", at: 6, since: 6 }], next: 3, dropped: ["old item"] };
+
+test("AC11a: saved pins round-trip through Memory.load", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const mem = Memory.load(dir, () => ({}) as any);
+  (mem as any).tracks = { Alpha: track };
+  Memory.save(mem);
+  Memory.stop(mem);
+  const again = Memory.load(dir, () => ({}) as any);
+  expect((again as any).tracks).toEqual({ Alpha: track });
+  Memory.stop(again);
+});
+
+test("AC11b: a corrupt tracks value (\"x\", [1]) loads as {}", () => {
+  expect((loaded({ tracks: "x" }) as any).tracks).toEqual({});
+  expect((loaded({ tracks: [1] }) as any).tracks).toEqual({});
+});
+
+// Tracks (PLP-2895, RED ZONE DRAFT): a view.json written by hand (or by an
+// agent) can't widen what the user pinned: caps, pin numbers, statuses and
+// fields are checked as it loads
+const pin = (n: number, over: object = {}) => ({ n, text: "pin " + n, status: "pending", at: 1, ...over });
+
+test("AC11b (pinned): more than 10 saved pins on a track load cut to the first 10", () => {
+  const pins = Array.from({ length: 12 }, (_, k) => pin(k + 1));
+  const mem = loaded({ tracks: { Many: { pins, next: 12, dropped: [] } } }) as any;
+  expect(mem.tracks.Many.pins.map((p: any) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  expect(mem.tracks.Many.next).toBe(12);
+});
+
+// review (2026-11-20, RED ZONE DRAFT): a track's "dropped by you" marks
+// load capped like the agent's own list (Tools' TODOS 20, TODO_TEXT 120)
+test("AC11b (review): a saved track with 500 dropped entries loads with the last 20", () => {
+  const dropped = Array.from({ length: 500 }, (_, k) => "item " + k);
+  const mem = loaded({ tracks: { D: { pins: [], next: 0, dropped } } }) as any;
+  expect(mem.tracks.D.dropped).toEqual(dropped.slice(-20));
+});
+
+test("AC11b (review): saved dropped entries not strings are dropped, a long one cut to 120 characters", () => {
+  const mem = loaded({ tracks: { D: { pins: [], next: 0, dropped: [1, null, { text: "x" }, ["y"], "ok", "z".repeat(300)] } } }) as any;
+  expect(mem.tracks.D.dropped).toEqual(["ok", "z".repeat(120)]);
+});
+
+test("AC11b (pinned): a saved pin over 500 characters is dropped; a 500-character one kept", () => {
+  const mem = loaded({ tracks: { Long: { pins: [pin(1, { text: "x".repeat(501) }), pin(2, { text: "y".repeat(500) })], next: 2, dropped: [] } } }) as any;
+  expect(mem.tracks.Long.pins.map((p: any) => [p.n, p.text.length])).toEqual([[2, 500]]);
+});
+
+test("AC11b (pinned): a saved pin numbered above the track's next is dropped, so a later add can't reuse its number", () => {
+  const mem = loaded({ tracks: { Above: { pins: [pin(1), pin(3), pin(5)], next: 3, dropped: [] } } }) as any;
+  expect(mem.tracks.Above.pins.map((p: any) => p.n)).toEqual([1, 3]);
+  expect(mem.tracks.Above.next).toBe(3);
+});
+
+test("AC11b (pinned): a saved __proto__ track is no track and leaves the tracks object's prototype alone", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  // written as raw JSON: an object literal's __proto__ would set the prototype, not a key
+  fs.writeFileSync(dir + "/view.json", '{"parts":[],"tracks":{"__proto__":{"pins":[{"n":1,"text":"evil","status":"pending","at":1}],"next":1,"dropped":[]},"Ok":{"pins":[],"next":0,"dropped":[]}}}');
+  const mem = Memory.load(dir, () => ({}) as any) as any;
+  expect(Object.keys(mem.tracks)).toEqual(["Ok"]);
+  expect(Object.hasOwn(mem.tracks, "__proto__")).toBe(false);
+  expect(mem.tracks.pins).toBeUndefined();
+  expect(mem.tracks.next).toBeUndefined();
+  expect(({} as any).pins).toBeUndefined();
+  Memory.stop(mem);
+});
+
+test("AC11b (pinned): a saved track that is an array, or whose next is not a non-negative integer, is dropped", () => {
+  const ok = { pins: [], next: 0, dropped: [] };
+  const mem = loaded({ tracks: { Ok: ok, Arr: [pin(1)], Neg: { ...ok, next: -1 }, Frac: { ...ok, next: 1.5 }, Str: { ...ok, next: "3" }, None: { pins: [], dropped: [] } } }) as any;
+  expect(Object.keys(mem.tracks)).toEqual(["Ok"]);
+  expect(mem.tracks.Ok).toEqual(ok);
+});
+
+test("AC11b (pinned): a saved pin with an unknown status is dropped; known statuses kept", () => {
+  const mem = loaded({ tracks: { S: { pins: [pin(1, { status: "bogus" }), pin(2, { status: "done" }), pin(3, { status: "doing" }), pin(4)], next: 4, dropped: [] } } }) as any;
+  expect(mem.tracks.S.pins.map((p: any) => [p.n, p.status])).toEqual([[2, "done"], [3, "doing"], [4, "pending"]]);
+});
+
+test("AC11b (pinned): a saved pin's unknown fields (by, evil) are not kept; its own fields are", () => {
+  const mem = loaded({ tracks: { X: { pins: [pin(1, { evil: "x", by: "agent", since: 4, reminded: true, from: "orig" })], next: 1, dropped: [] } } }) as any;
+  expect(mem.tracks.X.pins).toEqual([{ n: 1, text: "pin 1", status: "pending", at: 1, since: 4, reminded: true, from: "orig" }]);
+});

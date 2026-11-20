@@ -57,7 +57,7 @@ import * as Notes from "./Notes.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
-import { DECIDED_MS, email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type Decided, type DeviceStatus, type Look, type Looked, type Part, type Question, type Server as Out, type Wait } from "./View.ts";
+import { DECIDED_MS, email_ask, FIND, FRAME, IMAGES, live_push, LOOK_KINDS, MOVE, PING, QUIT, SUMMARIES, TICK, TURN, WIRE, type Answer, type Decided, type DeviceStatus, type Look, type Looked, type Mine, type Part, type Question, type Server as Out, type Todo, type Wait } from "./View.ts";
 import * as config from "./Config.ts";
 import hello_md from "./hello.md" with { type: "text" };
 import app_js from "./web/app.js" with { type: "file" };
@@ -148,6 +148,9 @@ type Chat = {
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
+  edits?: number[]; // when the user's track edits were taken, the last minute's (Chat.track: Explain.EDITS)
+  jots?: Map<string, string[]>; // the track notes waiting to be sent, by agent (Chat.tracked: Explain.NOTE_GAP)
+  nudged?: Map<string, number[]>; // when each agent's stall reminders went, the last hour's (Chat.stalls: Explain.REMINDS)
 };
 
 // a chat as it moves to another process (Chat.move): its user (an id:
@@ -361,6 +364,7 @@ export namespace Chat {
       note   : (text) => Chat.note(chat, text),
       viewed : () => Chat.viewed(chat),
       shells : () => Chat.shelled(chat),
+      pinned : (who, marks, texts) => Chat.pinned(chat, who, marks, texts),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -1220,7 +1224,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1604,6 +1608,11 @@ export namespace Chat {
           return { error: "No agent " + msg.name + " done to dismiss." };
         }
         agent.hidden = true;
+        // its track goes with it: the user's pins on it pruned
+        if (agent.parent === "main" && agent.name in chat.mem.tracks) {
+          delete chat.mem.tracks[agent.name];
+          Memory.save(chat.mem);
+        }
         Chat.change(chat);
         return {};
       }
@@ -1618,6 +1627,9 @@ export namespace Chat {
       }
       case "explain": {
         return Chat.explain(chat, asker, msg);
+      }
+      case "track": {
+        return Chat.track(chat, asker, msg);
       }
       case "decision": {
         return Chat.decision(chat, id, asker, msg);
@@ -2233,7 +2245,7 @@ const LIKES = 30;
 
   // Explain
   // -------
-  // The Explain page (Explain.ts): the observer (config.OBSERVER) writes
+  // The Tracks page's cards (Explain.ts): the observer (config.OBSERVER) writes
   // it from the chat's snapshot on the routines' tick, again only once
   // that changed and at most once an Explain.EVERY; the user's questions
   // are answered on the page. Neither ever reaches the chat: no message,
@@ -2244,13 +2256,15 @@ const LIKES = 30;
   const OBSERVE_MS = 90_000;
 
   // what the observer reads: the goal and plan, the crew with each one's
-  // last words, the questions and todos open, the routines on, the
-  // user's open PRs
+  // last words, the tracks (counts only: no checklist text), the
+  // questions and todos open, the routines on, the user's open PRs
   export function snapshot(chat: Chat): string {
     const agents = chat.tools.agents;
+    const crew = Tools.crew(chat.tools);
+    const tracks = Explain.track_names(crew).map((name) => ({ name, items: agents.get(name)?.todo?.length ?? 0, pins: chat.mem.tracks[name]?.pins.length ?? 0 }));
     return Explain.explain_snapshot({
-      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy, said: lately(chat),
-      crew: Tools.crew(chat.tools).map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
+      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy, said: lately(chat), tracks,
+      crew: crew.map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
       questions: chat.mem.questions.map((q) => q.text), todos: chat.mem.assigned.map((a) => a.text),
       routines: chat.mem.routines.filter((r) => r.on).map((r) => r.name), prs: chat.inbox?.mine ?? [],
     });
@@ -2289,7 +2303,8 @@ const LIKES = 30;
   }
 
   // the page written again, if due (Explain.explain_due) and the credit
-  // pays: nothing going on, no cards and no call; failed, why, the cards
+  // pays: nothing going on or no track, no cards and no call; one card
+  // per track (the crew's names, never the observer's); failed, why, the cards
   // kept and tried again an EVERY on. Only while a view shows it (a socket
   // with no device): the call is billed, and no device reads the page
   export async function observe(chat: Chat, now: number): Promise<void> {
@@ -2302,7 +2317,8 @@ const LIKES = 30;
     if (!Explain.explain_due(ex, hash, now)) {
       return;
     }
-    if (text === "") {
+    const names = Explain.track_names(Tools.crew(chat.tools));
+    if (text === "" || names.length === 0) {
       Object.assign(ex, { cards: [], hash, at: now, error: null });
       Memory.save(chat.mem);
       Chat.explained(chat);
@@ -2315,7 +2331,7 @@ const LIKES = 30;
     ex.writing = true;
     Chat.explained(chat);
     const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
-    const cards = end?.ok ? Explain.explain_cards(end.text) : null;
+    const cards = end?.ok ? Explain.explain_cards(end.text, names) : null;
     ex.writing = false;
     Object.assign(ex, cards === null ? { error: "The page couldn't be written" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." } : { cards, hash, at: Date.now(), error: null });
     Memory.save(chat.mem);
@@ -2323,14 +2339,14 @@ const LIKES = 30;
   }
 
   // RED ZONE (access control, DRAFT awaiting the user's sign-off): the
-  // user's question about the Explain page, a view's act only (a device's
+  // user's question about the Tracks page, a view's act only (a device's
   // socket is within an agent's reach: an agent must not spend the
   // user's credit on it nor write in their thread). One at a time, the
   // credit checked; its answer goes on the page only (Explain.explain_asked):
   // no chat message, no turn, no agent told
   export async function explain(chat: Chat, device: string, msg: any): Promise<Answer> {
     if (device !== "") {
-      return { error: "Ask about the Explain page in a view (the web, or the terminal's /explain)." };
+      return { error: "Ask about the Tracks page in a view (the web, or the terminal's /tracks)." };
     }
     const q = typeof msg.q === "string" ? msg.q.replace(/\s+/g, " ").trim().slice(0, Explain.Q) : "";
     if (q === "") {
@@ -2357,6 +2373,168 @@ const LIKES = 30;
     Memory.save(chat.mem);
     Chat.explained(chat);
     return {};
+  }
+
+  // Tracks
+  // ------
+  // The Tracks page's checklists (Explain.ts): a track is a live top
+  // agent; its pins are the user's, beside the agent's own list
+
+  // RED ZONE (user authority over agents, view-only act gating; DRAFT
+  // awaiting the user's sign-off): the user's edit of a track's pins, a
+  // view's act only (a device's socket is within an agent's reach: an
+  // agent must not forge the user's items). Checks, first failing wins:
+  // the asker, EDITS a minute, an orphaned track (only a pin's drop), a
+  // live top "sub" agent's, an agent item as the user saw it (was), the
+  // pin caps. Only this and Chat.pinned (status only) write mem.tracks
+  export function track(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Tracks are the user's: edit them in a view (the web, or the terminal's Tracks page)." };
+    }
+    const now = Date.now();
+    const edits = (chat.edits ?? []).filter((t) => now - t < 60_000);
+    if (edits.length >= Explain.EDITS) {
+      return { error: "At most " + Explain.EDITS + " edits a minute: wait a moment." };
+    }
+    const name = String(msg.name);
+    const op = ["add", "edit", "move", "drop"].includes(msg.op) ? msg.op as "add" | "edit" | "move" | "drop" : null;
+    const n = Number.isInteger(msg.n) ? msg.n as number : null;
+    const i = Number.isInteger(msg.i) && msg.i >= 1 ? msg.i as number : null;
+    const agent = chat.tools.agents.get(name);
+    const top = agent !== undefined && agent.parent === "main" && agent.hidden !== true ? agent : null;
+    const had = Object.hasOwn(chat.mem.tracks, name) ? chat.mem.tracks[name] : undefined;
+    if (op === null || (op !== "add" && n === null && i === null)) {
+      return { error: "No track edit " + JSON.stringify(msg.op)?.slice(0, 40) + "." };
+    }
+    if (top === null && had !== undefined && !(op === "drop" && n !== null)) {
+      return { error: name + "'s agent is gone: its track is read-only (drop its pins to clear it)." };
+    }
+    if (top === null && had === undefined) {
+      return { error: "No track " + name.slice(0, 80) + "." };
+    }
+    if (top !== null && top.role.$ !== "sub") {
+      return { error: name + "'s track is read-only: Claude Code and computer agents keep their own lists." };
+    }
+    const was = i === null ? null : top?.todo?.[i - 1]?.text;
+    if (i !== null && (was === undefined || was !== msg.was)) {
+      return { error: "That item changed: look again." };
+    }
+    const t = had ?? Explain.track_new();
+    const text = String(msg.text ?? "");
+    const next = op === "add" ? Explain.track_add(t, text, now)
+      : op === "edit" ? (n !== null ? Explain.track_edit(t, n, text, now) : Explain.track_copy(t, was!, text, now))
+      : op === "move" ? (n !== null && Number.isInteger(msg.to) ? Explain.track_move(t, n, msg.to) : "Move a pinned item: #n and a place.")
+      : n !== null ? Explain.track_drop(t, n) : { ...t, dropped: [...t.dropped.filter((d) => d !== was), was!] };
+    if (typeof next === "string") {
+      return { error: next };
+    }
+    if (top === null && next.pins.length === 0) {
+      delete chat.mem.tracks[name];
+    } else {
+      chat.mem.tracks[name] = next;
+    }
+    chat.edits = [...edits, now];
+    Memory.save(chat.mem);
+    Chat.change(chat);
+    if (top !== null) {
+      const at = (k: number) => next.pins.find((p) => p.n === k);
+      const edit: Explain.Edit = op === "add" ? { op, n: next.next, text: at(next.next)!.text }
+        : op === "edit" ? (n !== null ? { op, n, text: at(n)!.text } : { op: "copy", n: next.next, text: at(next.next)!.text, was: was! })
+        : op === "move" ? { op, n: n!, to: next.pins.findIndex((p) => p.n === n) + 1 }
+        : n !== null ? { op, n } : { op: "unlist", was: was! };
+      Chat.tracked(chat, name, Explain.track_note(edit));
+    }
+    return {};
+  }
+
+  // RED ZONE (user authority over agents; DRAFT awaiting the user's
+  // sign-off): a track's notes (Explain.track_note templates only) sent to
+  // its agent together, NOTE_GAP after the first: at work, read between its
+  // calls; idle, kept in its log for its next turn (no Tools.run: no turn
+  // started), the track shown queued till then
+  export function tracked(chat: Chat, name: string, text: string): void {
+    const jots = chat.jots ??= new Map();
+    const waiting = jots.get(name);
+    if (waiting !== undefined) {
+      waiting.push(text);
+      return;
+    }
+    jots.set(name, [text]);
+    setTimeout(() => {
+      const texts = jots.get(name) ?? [];
+      jots.delete(name);
+      const agent = chat.tools.agents.get(name);
+      if (agent === undefined || agent.hidden === true || texts.length === 0) {
+        return;
+      }
+      const joined = texts.join(" ");
+      chat.tools.hooks.push(agent, "note", joined);
+      if (agent.call !== null || agent.runs === true) {
+        agent.call?.send({ text: "note: " + joined, imgs: [] });
+      } else if (Object.hasOwn(chat.mem.tracks, name)) {
+        chat.mem.tracks[name] = { ...chat.mem.tracks[name]!, queued: Date.now() };
+        Memory.save(chat.mem);
+      }
+      Chat.change(chat);
+    }, Explain.NOTE_GAP).unref?.();
+  }
+
+  // RED ZONE (who may start unattended work; DRAFT awaiting the user's
+  // sign-off): each track's items doing STALL with no change reminded once
+  // (Explain.track_remind: a number only), at most REMINDS an agent an
+  // hour, and only to an agent at work: the gate sits here because
+  // Tools.remind starts an idle agent's turn. The agent's items go by
+  // place, the user's pins by n
+  export function stalls(chat: Chat, now: number): number {
+    const nudged = chat.nudged ??= new Map<string, number[]>();
+    let sent = 0;
+    let pinned = false;
+    for (const agent of chat.tools.agents.values()) {
+      if (agent.parent !== "main" || agent.hidden === true || agent.role.$ !== "sub" || (agent.call === null && agent.runs !== true)) {
+        continue;
+      }
+      const hour = (nudged.get(agent.name) ?? []).filter((t) => now - t < 3_600_000);
+      const items = agent.todo ?? [];
+      const t = Object.hasOwn(chat.mem.tracks, agent.name) ? chat.mem.tracks[agent.name] : undefined;
+      const due = [
+        ...Explain.track_stalls(items.map((x, i) => ({ ...x, n: i + 1 })), now).map((n) => ({ n, mark: () => (items[n - 1]!.reminded = true) })),
+        ...Explain.track_stalls(t?.pins ?? [], now).map((n) => ({ n, mark: () => ((t!.pins.find((p) => p.n === n)!.reminded = true), (pinned = true)) })),
+      ];
+      for (const d of due) {
+        if (hour.length >= Explain.REMINDS) {
+          break;
+        }
+        if (!Tools.remind(chat.tools, agent.name, Explain.track_remind(d.n)).fail) {
+          d.mark();
+          hour.push(now);
+          sent += 1;
+        }
+      }
+      nudged.set(agent.name, hour);
+    }
+    if (pinned) {
+      Memory.save(chat.mem);
+    }
+    return sent;
+  }
+
+  // RED ZONE (user authority over agents; DRAFT awaiting the user's
+  // sign-off): an agent's marks on its own track's pins (Tools.todo's
+  // pinned, through hooks.pinned: Tools.ts never touches mem.tracks):
+  // status only, by an existing n (Explain.track_status); the pins after.
+  // texts: the agent's list as todo sets it, so the user's "dropped by
+  // you" marks for items no longer on it go (Explain.track_seen)
+  export function pinned(chat: Chat, who: string, marks: Array<{ n: number; status: Todo["status"] }>, texts: string[]): Mine[] {
+    const t = Object.hasOwn(chat.mem.tracks, who) ? chat.mem.tracks[who] : undefined;
+    if (t === undefined) {
+      return [];
+    }
+    const next = Explain.track_status(Explain.track_seen(t, texts), marks, Date.now());
+    if (JSON.stringify(next) !== JSON.stringify(t)) {
+      chat.mem.tracks[who] = next;
+      Memory.save(chat.mem);
+    }
+    return next.pins;
   }
 
   // GChat bridge
@@ -2488,6 +2666,7 @@ const LIKES = 30;
   export function ticked(chat: Chat, now: number): number {
     const due = chat.mem.routines.filter((r) => Routines.routine_due(r, now));
     due.forEach((r) => Chat.run_routine(chat, r, now));
+    Chat.stalls(chat, now);
     const rung = Chat.rang(chat, now);
     if (due.length > 0 || rung) {
       Memory.save(chat.mem);

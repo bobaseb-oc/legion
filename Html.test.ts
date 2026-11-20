@@ -337,11 +337,11 @@ test("block_html: fenced code colored by its fence's language", () => {
   expect(Html.block_html({ $: "Code", k: "brainfuck", x: "if" })).toContain("<code>if</code>");
 });
 
-test("the top bar's Explain tab: after Crew, marked when shown", () => {
+test("the top bar's Tracks tab: after Crew, marked when shown", () => {
   const bar = Html.mode_html("chat", "").join("");
-  expect(bar).toContain('<a href="#explain">Explain</a>');
-  expect(bar.indexOf("#crew")).toBeLessThan(bar.indexOf("#explain"));
-  expect(Html.mode_html("explain", "").join("")).toContain('<a href="#explain" class="here">Explain</a>');
+  expect(bar).toContain('<a href="#tracks">Tracks</a>');
+  expect(bar.indexOf("#crew")).toBeLessThan(bar.indexOf("#tracks"));
+  expect(Html.mode_html("tracks", "").join("")).toContain('<a href="#tracks" class="here">Tracks</a>');
 });
 
 // a code block Legion wrote (a command for the user to run) has a Copy

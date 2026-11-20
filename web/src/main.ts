@@ -318,6 +318,7 @@ function chat(): void {
   $("#page").addEventListener("submit", memory_find);
   $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
+  $("#page").addEventListener("submit", track_edit);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -1458,11 +1459,11 @@ function page_bars(mode: View.Mode): boolean {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), Pages.todo_html(v));
-  } else if (mode === "explain") {
+  } else if (mode === "tracks") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     const typed = typing($("#page .pbody"));
-    markup($("#page .pbody"), Pages.explain_html(v, Date.now()));
+    markup($("#page .pbody"), Pages.tracks_html(v, Date.now()));
     typed();
   } else if (mode === "files") {
     files_open();
@@ -1688,7 +1689,27 @@ function note_edit(ev: SubmitEvent): void {
   act({ $: "Note", name: form.dataset.note!, text: form.querySelector("textarea")!.value });
 }
 
-// the Explain page's box sent: a question for the observer, answered on
+// a track's box sent: a pin added, or the item its ref names edited (the
+// server checks it: Chat.track); a slip said as a note
+function track_edit(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.tadd");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  const name = form.dataset.track ?? "";
+  const ref = (form.querySelector<HTMLInputElement>('input[name="ref"]')?.value ?? "").trim();
+  const box = form.querySelector<HTMLInputElement>('input[name="text"]')!;
+  const made = Cockpit.tracks_cmd(v, (ref === "" ? "add " + name : "edit " + name + " " + ref) + " " + box.value);
+  if (typeof made === "string") {
+    toast(made);
+    return;
+  }
+  act(made);
+  box.value = "";
+}
+
+// the Tracks page's box sent: a question for the observer, answered on
 // the page (never in the chat)
 function explain_ask(ev: SubmitEvent): void {
   const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.xask");

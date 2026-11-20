@@ -70,11 +70,11 @@ import { Agent } from "./Agent.ts";
 import { AskAI, type Ask, type Bill, type Block, type Call, type End as Ended, type Img, type Kind, type Pay, type Say, type Served } from "./AskAI.ts";
 import { clip_page, clip_pages } from "./Clip.ts";
 import { ASK_KINDS, type AskKind, type Mode, Modes, type Tally } from "./Modes.ts";
-import type { Assignment, Decided, Draft, Hit, Pin, Question, Summary } from "./View.ts";
+import type { Assignment, Decided, Draft, Hit, Mine, Pin, Question, Summary, Track } from "./View.ts";
 import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import * as Routines from "./Routines.ts";
 import type { Routine, Timer } from "./Routines.ts";
-import { explain_new, type Explain } from "./Explain.ts";
+import { DROPPED, DROPPED_TEXT, explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
 import { gchat_new, type Gchat } from "./Gchat.ts";
 import * as config from "./Config.ts";
 import { Disk } from "./Disk.ts";
@@ -127,7 +127,7 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tracks?: unknown; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
@@ -173,7 +173,8 @@ export type Memory = {
   drafts : Draft[];  // the timesheet's (Tools.timesheet), drafted: the last one's number
   assigned: Assignment[]; // what agents need the user to do (Tools.assign), assigns: the last one's number
   assigns : number;
-  explain: Explain; // the Explain page (Explain.ts, Server.ts Chat.observe)
+  explain: Explain; // the Tracks page's observer cards (Explain.ts, Server.ts Chat.observe)
+  tracks : Record<string, Track>; // the user's pins per track (RED ZONE DRAFT: Server.ts Chat.track, Memory.tracks_read)
   gchat  : Gchat;   // the GChat bridge: items posted, replies acted on (Gchat.ts, Server.ts Chat.bridge)
   tallies : Partial<Record<AskKind, Tally>>; // super auto: the user's record per question kind (Modes.unlocked)
   decided : Decided[]; // super auto's answers for the user, till undone or dismissed (Tools.question)
@@ -286,7 +287,7 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tracks: {}, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
       rough: new Map(), redoing: false, rest: { until: null },
@@ -307,6 +308,7 @@ export namespace Memory {
     mem.drafts = Array.isArray(saved?.drafts) ? saved.drafts : [];
     mem.assigned = Array.isArray(saved?.assigned) ? saved.assigned : [];
     mem.assigns = Number.isInteger(saved?.assigns) ? saved!.assigns! : 0;
+    mem.tracks = Memory.tracks_read(saved?.tracks);
     mem.explain = typeof saved?.explain === "object" && saved.explain !== null ? { ...explain_new(), ...saved.explain, writing: false, asking: null } : explain_new();
     mem.gchat = Array.isArray(saved?.gchat?.posted) && Array.isArray(saved?.gchat?.acted) ? { posted: saved.gchat.posted, acted: saved.gchat.acted } : gchat_new();
     // none saved (a chat from before super auto, or new): imported once from its log
@@ -357,6 +359,34 @@ export namespace Memory {
       const ok = Number.isInteger(t?.id) && typeof t.who === "string" && t.who !== "" && Number.isFinite(t.at) && typeof t.note === "string" && t.note !== "" && t.note.length <= Routines.TIMER_NOTE && Number.isFinite(t.made);
       return ok ? [{ id: t.id, who: t.who, at: t.at, note: t.note, made: t.made }] : [];
     }).slice(0, Routines.TIMERS);
+  }
+
+  // RED ZONE (user authority over agents; DRAFT awaiting the user's
+  // sign-off): view.json's tracks as they load, each not well formed
+  // dropped, so a file written by hand (or by an agent) can't forge pins
+  // past the caps; only plain objects with a pin list and an integer next
+  export function tracks_read(x: unknown): Record<string, Track> {
+    const out: Record<string, Track> = {};
+    if (typeof x !== "object" || x === null || Array.isArray(x)) {
+      return out;
+    }
+    const statuses = ["pending", "doing", "done"];
+    const pin = (p: any): Mine[] => {
+      const ok = Number.isInteger(p?.n) && p.n > 0 && typeof p.text === "string" && p.text !== "" && p.text.length <= PIN_TEXT && statuses.includes(p.status) && Number.isFinite(p.at);
+      return ok ? [{ n: p.n, text: p.text, status: p.status, at: p.at, ...(Number.isFinite(p.since) ? { since: p.since } : {}), ...(p.reminded === true ? { reminded: true } : {}), ...(typeof p.from === "string" ? { from: p.from } : {}) }] : [];
+    };
+    for (const [name, t] of Object.entries(x)) {
+      const v = t as any;
+      if (name === "__proto__" || typeof v !== "object" || v === null || Array.isArray(v) || !Array.isArray(v.pins) || !Number.isInteger(v.next) || v.next < 0) {
+        continue;
+      }
+      const pins = v.pins.flatMap(pin).filter((p: Mine) => p.n <= v.next).slice(0, TRACK_PINS);
+      // the "dropped by you" marks: strings only, each cut to DROPPED_TEXT,
+      // the last DROPPED kept (the newest; a file can't grow the list)
+      const dropped = Array.isArray(v.dropped) ? v.dropped.filter((d: unknown) => typeof d === "string").map((d: string) => d.slice(0, DROPPED_TEXT)).slice(-DROPPED) : [];
+      out[name] = { pins, next: v.next, dropped, ...(Number.isFinite(v.queued) ? { queued: v.queued } : {}) };
+    }
+    return out;
   }
 
   export function tallies_read(x: object): Partial<Record<AskKind, Tally>> {
@@ -413,7 +443,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tracks: mem.tracks, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }
