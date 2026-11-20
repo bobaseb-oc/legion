@@ -47,6 +47,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
+import { rules_read } from "./Rules.ts";
 import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
@@ -351,30 +352,6 @@ const DEPTH = 3;
 const BRIEF = 8000;
 const BRIEF_HEAD = "\n\nThe latest lines of {who}'s chat, for context (zoom(\"^id\", n) opens one, and older ones):\n";
 
-// how deep a rules file's @imports go (Claude Code's limit)
-const RULES_DEPTH = 5;
-
-// a rules file with its @imports expanded as Claude Code's are: a line
-// that is only "@path" (relative to its file, absolute, or "~/") is that
-// file's rules; one in a code fence, missing, already open (a loop) or
-// past RULES_DEPTH stays as it is
-function rules_read(file: string, depth: number, open: string[]): string {
-  const stack = [...open, file];
-  let fence = false;
-  return fs.readFileSync(file, "utf8").split("\n").map((line) => {
-    if (/^\s*```/.test(line)) {
-      fence = !fence;
-      return line;
-    }
-    const at = line.trim().match(/^@(\S+)$/);
-    if (fence || at === null || depth >= RULES_DEPTH) {
-      return line;
-    }
-    const to = at[1].startsWith("~/") ? os.homedir() + at[1].slice(1) : path.resolve(path.dirname(file), at[1]);
-    return stack.includes(to) || !fs.existsSync(to) ? line : rules_read(to, depth + 1, stack);
-  }).join("\n");
-}
-
 // the tools of everyone (OWN), the master's (BOSS), those that run on a
 // device (`kit`: Machine.ts's), and the master's computer tasks (HAND),
 // whose agents get only COMPUTER, on their device
@@ -560,9 +537,9 @@ export namespace Tools {
   }
 
   // the rules file, read anew at each call, its @imports expanded
-  // (rules_read)
+  // (Rules.ts)
   export function rules(): string {
-    return config.RULES ? rules_read(config.RULES, 0, []) : "";
+    return config.RULES ? rules_read(config.RULES) : "";
   }
 
   // MCP

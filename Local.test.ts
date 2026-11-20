@@ -110,10 +110,12 @@ test("import reads Claude Code's and Codex's folders, unless UNII_IMPORT_DIRS na
 
 // Tools.rules on a tree of files in its own process (Config reads
 // UNII_RULES once): its text at each `step` (files written before it)
-function rules_at(files: Record<string, string>, steps: Record<string, string>[]): string[] {
+// and `links` (link: target, symlinks made before it runs)
+function rules_at(files: Record<string, string>, steps: Record<string, string>[], links: Record<string, string> = {}): string[] {
   const root = fs.mkdtempSync(os.tmpdir() + "/unii-rules-");
   const write = (fs_: Record<string, string>) => Object.entries(fs_).forEach(([f, text]) => (fs.mkdirSync(require("node:path").dirname(root + "/" + f), { recursive: true }), fs.writeFileSync(root + "/" + f, text.replaceAll("$ROOT", root))));
   write(files);
+  Object.entries(links).forEach(([link, to]) => fs.symlinkSync(root + "/" + to, root + "/" + link));
   fs.writeFileSync(root + "/steps.json", JSON.stringify(steps));
   const code = [
     'import { Tools } from "./Tools.ts"; import * as fs from "node:fs";',
@@ -149,6 +151,29 @@ test("rules stop expanding at depth 5", () => {
   for (let i = 1; i <= 7; i++) files["d" + i + ".md"] = "L" + i + "\n@d" + (i + 1) + ".md";
   const [text] = rules_at(files, [{}]);
   expect(text).toBe("L1\nL2\nL3\nL4\nL5\n@d6.md");
+});
+
+// Claude Code follows a symlinked rules file to its target: ~/.claude/CLAUDE.md
+// linked to a company folder imports that folder's files, not ~/.claude's
+test("a symlinked rules file's relative imports resolve from its target's folder", () => {
+  const [text] = rules_at({ "real/top.md": "@inc.md", "real/inc.md": "target's", "inc.md": "link's" }, [{}], { "top.md": "real/top.md" });
+  expect(text).toBe("target's");
+});
+
+test("a loop through a symlink stops at the file already open", () => {
+  const [text] = rules_at({ "top.md": "Top\n@link.md" }, [{}], { "link.md": "top.md" });
+  expect(text).toBe("Top\n@link.md");
+});
+
+// Claude Code loads ~/.claude/rules/*.md; rules.md asks for them by "@dir/"
+test("@dir/ expands the folder's .md files in name order, each with its imports", () => {
+  const [text] = rules_at({ "top.md": "@rules/\nend", "rules/b.md": "B", "rules/a.md": "A\n@../inc.md", "rules/x.txt": "X", "inc.md": "Inc" }, [{}]);
+  expect(text).toBe("A\nInc\nB\nend");
+});
+
+test("a folder named without the slash, or a missing one with it, stays as it is", () => {
+  const [text] = rules_at({ "top.md": "@rules\n@nope/", "rules/a.md": "A" }, [{}]);
+  expect(text).toBe("@rules\n@nope/");
 });
 
 // Bun 1.3.8: a Bun.file streamed (the importer reads a session's file as
