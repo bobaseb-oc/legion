@@ -1220,7 +1220,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, {}) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -2244,13 +2244,15 @@ const LIKES = 30;
   const OBSERVE_MS = 90_000;
 
   // what the observer reads: the goal and plan, the crew with each one's
-  // last words, the questions and todos open, the routines on, the
-  // user's open PRs
+  // last words, the tracks (counts only: no checklist text), the
+  // questions and todos open, the routines on, the user's open PRs
   export function snapshot(chat: Chat): string {
     const agents = chat.tools.agents;
+    const crew = Tools.crew(chat.tools);
+    const tracks = Explain.track_names(crew).map((name) => ({ name, items: agents.get(name)?.todo?.length ?? 0, pins: 0 }));
     return Explain.explain_snapshot({
-      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy, said: lately(chat),
-      crew: Tools.crew(chat.tools).map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
+      goal: chat.mem.goal, plan: chat.mem.plan?.text ?? null, busy: chat.busy, said: lately(chat), tracks,
+      crew: crew.map((c) => ({ ...c, last: agents.get(c.name)?.replies.at(-1) ?? "" })),
       questions: chat.mem.questions.map((q) => q.text), todos: chat.mem.assigned.map((a) => a.text),
       routines: chat.mem.routines.filter((r) => r.on).map((r) => r.name), prs: chat.inbox?.mine ?? [],
     });
@@ -2289,7 +2291,8 @@ const LIKES = 30;
   }
 
   // the page written again, if due (Explain.explain_due) and the credit
-  // pays: nothing going on, no cards and no call; failed, why, the cards
+  // pays: nothing going on or no track, no cards and no call; one card
+  // per track (the crew's names, never the observer's); failed, why, the cards
   // kept and tried again an EVERY on. Only while a view shows it (a socket
   // with no device): the call is billed, and no device reads the page
   export async function observe(chat: Chat, now: number): Promise<void> {
@@ -2302,7 +2305,8 @@ const LIKES = 30;
     if (!Explain.explain_due(ex, hash, now)) {
       return;
     }
-    if (text === "") {
+    const names = Explain.track_names(Tools.crew(chat.tools));
+    if (text === "" || names.length === 0) {
       Object.assign(ex, { cards: [], hash, at: now, error: null });
       Memory.save(chat.mem);
       Chat.explained(chat);
@@ -2315,7 +2319,7 @@ const LIKES = 30;
     ex.writing = true;
     Chat.explained(chat);
     const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
-    const cards = end?.ok ? Explain.explain_cards(end.text) : null;
+    const cards = end?.ok ? Explain.explain_cards(end.text, names) : null;
     ex.writing = false;
     Object.assign(ex, cards === null ? { error: "The page couldn't be written" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." } : { cards, hash, at: Date.now(), error: null });
     Memory.save(chat.mem);

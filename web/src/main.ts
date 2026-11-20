@@ -1458,11 +1458,11 @@ function page_bars(mode: View.Mode): boolean {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), Pages.todo_html(v));
-  } else if (mode === "explain") {
+  } else if (mode === "tracks") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     const typed = typing($("#page .pbody"));
-    markup($("#page .pbody"), Pages.explain_html(v, Date.now()));
+    markup($("#page .pbody"), Pages.tracks_html(v, Date.now()));
     typed();
   } else if (mode === "files") {
     files_open();
@@ -1688,7 +1688,7 @@ function note_edit(ev: SubmitEvent): void {
   act({ $: "Note", name: form.dataset.note!, text: form.querySelector("textarea")!.value });
 }
 
-// the Explain page's box sent: a question for the observer, answered on
+// the Tracks page's box sent: a question for the observer, answered on
 // the page (never in the chat)
 function explain_ask(ev: SubmitEvent): void {
   const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.xask");

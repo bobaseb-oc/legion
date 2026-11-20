@@ -1595,7 +1595,7 @@ var PINNED = 16000;
 var FIND = 200;
 var FOUND = 50;
 var SHOWN = 200;
-var PAGES = ["home", "inbox", "todo", "explain", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
+var PAGES = ["home", "inbox", "todo", "tracks", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
 var MAIN = "Legion";
 var TURN = "Unii's turn";
 var WIRE = 2;
@@ -2046,6 +2046,11 @@ function view_act(v, act) {
       const q = act.q.replace(/\s+/g, " ").trim().slice(0, Q);
       return q === "" ? [] : [{ $: "explain", q }];
     }
+    case "Track": {
+      const { $, ...edit } = act;
+      const seen = edit.i === undefined ? undefined : v.tracks?.find((t) => t.name === edit.name)?.items[edit.i - 1]?.text;
+      return [{ $: "track", ...edit, ...seen === undefined || edit.was !== undefined ? {} : { was: seen } }];
+    }
     case "Search": {
       const q = act.q.trim().slice(0, FIND);
       v.recall = q === "" ? null : { q, hits: null, more: false };
@@ -2410,9 +2415,12 @@ function view_line(text) {
   return m === null ? null : Number(m[1]);
 }
 function view_route(hash) {
-  const m = /^#(chat|crew|home|inbox|todo|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|tracks|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
+  }
+  if (m[1] === "explain") {
+    return { mode: "tracks", name: null };
   }
   if (m[1] !== "crew") {
     return { mode: m[1], name: null };
@@ -2993,7 +3001,7 @@ function mode_html(mode, pill, asked = 0, perm, inbox = 0, notes = 0, todos = 0)
   const said = [asked === 0 ? "" : "? " + asked, notes === 0 ? "" : "i " + notes].filter((x) => x !== "").join(" · ");
   const qs = said === "" ? [] : [`<button class="qs" data-qs title="${notes === 0 ? "your questions" : "your questions and notes"}">${said}</button>`];
   const chip = perm === undefined ? [] : [`<button class="perm ${perm}" title="the mode: Shift+Tab in the box cycles it"${act_html({ $: "Mode" })}>${perm} mode</button>`];
-  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, `<a href="#explain"${here("explain")}>Explain</a>`, ...chip, ...qs];
+  return [`<a href="#home"${here("home")}>Home</a>`, `<a href="#inbox"${here("inbox")}>Inbox${count}</a>`, `<a href="#todo"${here("todo")}>Todo${todo}</a>`, `<a href="#chat"${here("chat")}>Chat</a>`, `<a href="#crew"${here("crew")}>Crew${tag}</a>`, `<a href="#tracks"${here("tracks")}>Tracks</a>`, ...chip, ...qs];
 }
 function tabs_html(tabs) {
   return tabs.map((tab) => {
@@ -3394,7 +3402,7 @@ function todo_who(a) {
   return a.by === "main" ? MAIN : a.by;
 }
 var TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
-var EXPLAIN_NONE = "Nothing being built right now: once the crew works, an observer writes here what it builds and why.";
+var TRACKS_NONE = "No tracks right now: each agent Legion starts gets one here, its summary and its checklist.";
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3437,7 +3445,7 @@ var CHORDS = {
   f: "files",
   s: "timesheet",
   p: "memory",
-  x: "explain"
+  x: "tracks"
 };
 var PAGE_ITEMS = [
   { label: "Home", hint: "page · g h", go: { href: "#home" } },
@@ -3445,7 +3453,7 @@ var PAGE_ITEMS = [
   { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
-  { label: "Explain", hint: "page · g x", go: { href: "#explain" } },
+  { label: "Tracks", hint: "page · g x · explain", go: { href: "#tracks" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },
   { label: "Digest", hint: "page · g d", go: { href: "#digest" } },
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },
@@ -3590,7 +3598,7 @@ function home_html(v, now, away = null) {
   const meet = (url) => url === "" ? "" : `<a class="pbtn" href="${esc2(url)}" target="_blank" rel="noopener noreferrer">Join</a>`;
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? next.map((e) => `<div class="next"><span class="when">${esc2(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc2(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>` : `<p class="meta">${esc2(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
   const todos = (v.assigned ?? []).length;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#explain", "Explain", explain_line(v))}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#tracks", "Tracks", tracks_line(v))}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}` + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>` + `<section><h3>Activity</h3>${home_activity(v).map((n) => `<a class="act" href="${esc2(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc2(n.title)}</span><span class="meta">${esc2(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
   return [head, ...away === null ? [] : [away_html(away)], stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
 }
 function with_files(v) {
@@ -3619,7 +3627,7 @@ function side_html(v, mode, now) {
     ["todo", "Todo", (v.assigned ?? []).length],
     ["chat", "Chat", (v.questions ?? []).length],
     ["crew", "Crew", working],
-    ["explain", "Explain", 0],
+    ["tracks", "Tracks", 0],
     ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length],
     ["digest", "Digest", 0],
     ["transcripts", "Transcripts", 0],
@@ -3859,21 +3867,29 @@ function todo_html(v) {
   const row = (a) => `<div class="trow todo"><span class="n">${esc2(a.text)}</span><span class="meta why">by ${esc2(todo_who(a))} · ${esc2(minute(a.date))}</span>` + `<button class="pbtn go"${act_html2({ $: "Assignment", n: a.n, done: true })} title="its agent hears it">Done</button><button class="x" title="drop: not yours to do"${act_html2({ $: "Assignment", n: a.n, done: false })}>×</button></div>`;
   return [head, `<div class="tday">${all.map(row).join("")}</div>`];
 }
-function explain_html(v, now) {
+var BOX = { pending: "[ ]", doing: "[>]", done: "[x]" };
+function tracks_html(v, now) {
   const ex = v.explain;
   const ago = ex === null ? "not written yet" : explain_ago(ex, now);
-  const head = `<div class="phead"><h2>Explain</h2><p class="meta">What your crew is building and why, in plain words · ${esc2(ago)}${ex?.error ? " · " + esc2(ex.error) : ""}</p></div>`;
+  const head = `<div class="phead"><h2>Tracks</h2><p class="meta">Each agent's work, what it builds and why, its checklist and your pins · ${esc2(ago)}${ex?.error ? " · " + esc2(ex.error) : ""}</p></div>`;
   const field = (label, text) => `<p><b>${label}</b> ${esc2(text)}</p>`;
-  const card = (c) => `<section class="xcard"><h3>${esc2(c.title)}</h3>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}</section>`;
-  const cards = ex === null || ex.at === null ? `<p class="meta">Not written yet: an observer writes here what the crew builds and why, once it works.</p>` : ex.cards.length === 0 ? `<p class="meta">${esc2(EXPLAIN_NONE)}</p>` : `<div class="xcards">${ex.cards.map(card).join("")}</div>`;
+  const summary = (c) => c === undefined || c.title === "" ? `<p class="meta">No summary yet.</p>` : `<h4>${esc2(c.title)}</h4>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
+  const item = (x, i) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc2(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}</li>`;
+  const pin = (p) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc2(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc2(p.from) + "»"}</span></li>`;
+  const track = (t) => {
+    const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "").map((x) => `<span class="meta">${esc2(x)}</span>`).join(" ");
+    return `<section class="xcard track"><h3>${esc2(t.name)}${t.title === undefined ? "" : " · " + esc2(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item).join("")}${t.pins.map(pin).join("")}</ul></section>`;
+  };
+  const tracks = v.tracks ?? [];
+  const cards = tracks.length === 0 ? `<p class="meta">${esc2(TRACKS_NONE)}</p>` : `<div class="xcards">${tracks.map(track).join("")}</div>`;
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc2(x.q)}</div><div class="xa">${esc2(x.a)}</div>`).join("");
   const asking = ex?.asking ? `<div class="xq">${esc2(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
   const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
   return [head, cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
 }
-function explain_line(v) {
-  const n = v.explain?.cards.length ?? 0;
-  return n === 0 ? "what the crew builds, and why" : n + (n === 1 ? " workstream" : " workstreams") + " in plain words";
+function tracks_line(v) {
+  const n = (v.tracks ?? []).length;
+  return n === 0 ? "each agent's work, and why" : n + (n === 1 ? " track" : " tracks");
 }
 function timesheet_html(v) {
   const drafts = v.drafts ?? [];
@@ -3964,7 +3980,7 @@ var SCENES = `
   <div class="scene"><p>Your entire life.</p><p>One single chat.</p></div>
   <div class="scene"><i class="mark"></i><h1>Legion</h1></div>`;
 var v = view_new();
-var BOX = $("textarea");
+var BOX2 = $("textarea");
 var DEMO = new URLSearchParams(location.search).get("demo") === "1" ? demo_crew(Date.now()) : null;
 var BACK = $("#import [name=back]");
 var P = {
@@ -4074,7 +4090,7 @@ async function guest(expired) {
   const ask = github && APP === null;
   document.body.classList.toggle("bills", bills);
   $(".ai").innerHTML = bills ? GUEST_AI : "";
-  BOX.placeholder = "Enter your email" + (ask ? " or @github" : "");
+  BOX2.placeholder = "Enter your email" + (ask ? " or @github" : "");
   P.end = false;
   guest_say(hello + `
 
@@ -4099,16 +4115,16 @@ function guest_say(text) {
 }
 function chat() {
   const file = $("input[type=file]");
-  BOX.oninput = () => {
+  BOX2.oninput = () => {
     if (!P.guest) {
-      sessionStorage.setItem(kept("draft"), BOX.value);
+      sessionStorage.setItem(kept("draft"), BOX2.value);
     }
-    BOX.style.height = "auto";
-    BOX.style.height = Math.min(BOX.scrollHeight, innerHeight * 0.4) + "px";
-    $(".composer").classList.toggle("shell", !P.guest && view_shell(BOX.value));
+    BOX2.style.height = "auto";
+    BOX2.style.height = Math.min(BOX2.scrollHeight, innerHeight * 0.4) + "px";
+    $(".composer").classList.toggle("shell", !P.guest && view_shell(BOX2.value));
     draw(true);
   };
-  BOX.onkeydown = (ev) => {
+  BOX2.onkeydown = (ev) => {
     if (ev.key === "Tab" && ev.shiftKey && !P.guest) {
       ev.preventDefault();
       act({ $: "Mode" });
@@ -4119,7 +4135,7 @@ function chat() {
       submit();
     }
   };
-  BOX.onpaste = (ev) => {
+  BOX2.onpaste = (ev) => {
     const files = [...ev.clipboardData?.files ?? []];
     if (files.length > 0) {
       ev.preventDefault();
@@ -4192,12 +4208,12 @@ function chat() {
 }
 function signed() {
   document.body.className = "";
-  BOX.placeholder = HINT;
-  BOX.removeAttribute("inputmode");
-  BOX.removeAttribute("enterkeyhint");
-  BOX.removeAttribute("autocomplete");
-  BOX.value = sessionStorage.getItem(kept("draft")) ?? "";
-  BOX.dispatchEvent(new Event("input"));
+  BOX2.placeholder = HINT;
+  BOX2.removeAttribute("inputmode");
+  BOX2.removeAttribute("enterkeyhint");
+  BOX2.removeAttribute("autocomplete");
+  BOX2.value = sessionStorage.getItem(kept("draft")) ?? "";
+  BOX2.dispatchEvent(new Event("input"));
   C.away = away_back();
   document.addEventListener("pointerdown", () => away_active(false));
   document.addEventListener("keydown", () => away_active(false));
@@ -4249,9 +4265,9 @@ function away_done() {
   away_keep();
 }
 function submit() {
-  const text = BOX.value.trim();
+  const text = BOX2.value.trim();
   if (P.guest) {
-    BOX.value = "";
+    BOX2.value = "";
     if (text !== "") {
       guest_send(text);
     }
@@ -4259,16 +4275,16 @@ function submit() {
   }
   act({ $: "Send", text, images: P.imgs });
   pics([]);
-  BOX.value = "";
-  BOX.dispatchEvent(new Event("input"));
+  BOX2.value = "";
+  BOX2.dispatchEvent(new Event("input"));
 }
 function back(sent, out) {
   if (out.error === undefined) {
     return;
   }
-  if (BOX.value.trim() === "" && P.imgs.length === 0) {
-    BOX.value = sent.text;
-    BOX.dispatchEvent(new Event("input"));
+  if (BOX2.value.trim() === "" && P.imgs.length === 0) {
+    BOX2.value = sent.text;
+    BOX2.dispatchEvent(new Event("input"));
     pics(sent.images ?? []);
   }
   if (out.status !== 402) {
@@ -4293,13 +4309,13 @@ function attach(files) {
         toast(`${f.name}: only images and text files can go in a message.`);
         return;
       }
-      const at = BOX.selectionStart;
-      const gap = at > 0 && BOX.value[at - 1] !== `
+      const at = BOX2.selectionStart;
+      const gap = at > 0 && BOX2.value[at - 1] !== `
 ` ? `
 ` : "";
-      BOX.setRangeText(gap + text, at, BOX.selectionEnd, "end");
-      BOX.dispatchEvent(new Event("input"));
-      BOX.focus();
+      BOX2.setRangeText(gap + text, at, BOX2.selectionEnd, "end");
+      BOX2.dispatchEvent(new Event("input"));
+      BOX2.focus();
     }, () => toast(`${f.name}: could not be read.`));
   }
 }
@@ -4460,10 +4476,10 @@ function heard(out) {
     toast(out.error ?? "No words heard.");
     return;
   }
-  const gap = /\S$/.test(BOX.value.slice(0, BOX.selectionStart)) ? " " : "";
-  BOX.setRangeText(gap + text, BOX.selectionStart, BOX.selectionEnd, "end");
-  BOX.dispatchEvent(new Event("input"));
-  BOX.focus();
+  const gap = /\S$/.test(BOX2.value.slice(0, BOX2.selectionStart)) ? " " : "";
+  BOX2.setRangeText(gap + text, BOX2.selectionStart, BOX2.selectionEnd, "end");
+  BOX2.dispatchEvent(new Event("input"));
+  BOX2.focus();
 }
 function connect() {
   link_open(v, {
@@ -4891,7 +4907,7 @@ function bars() {
   }
   const credits = view_credits(v);
   const on = view_typing(v);
-  const stop = on && v.busy && BOX.value.trim() === "" && P.imgs.length === 0;
+  const stop = on && v.busy && BOX2.value.trim() === "" && P.imgs.length === 0;
   const tabs = view_tabs(v);
   const send = $(".send");
   $(".net").hidden = v.up;
@@ -4900,7 +4916,7 @@ function bars() {
   document.body.classList.toggle("bills", v.bills);
   send.classList.toggle("stop", stop);
   send.disabled = !on;
-  BOX.disabled = !on;
+  BOX2.disabled = !on;
   $(".attach").disabled = !on;
   $(".mic").disabled = !on || v.out.some((p) => p.msg.$ === "voice");
   $(".mic").classList.toggle("rec", P.rec !== null);
@@ -5070,11 +5086,11 @@ function page_bars(mode) {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     markup($("#page .pbody"), todo_html(v));
-  } else if (mode === "explain") {
+  } else if (mode === "tracks") {
     $("#picks").hidden = true;
     markup($("#page .ptop"), []);
     const typed = typing($("#page .pbody"));
-    markup($("#page .pbody"), explain_html(v, Date.now()));
+    markup($("#page .pbody"), tracks_html(v, Date.now()));
     typed();
   } else if (mode === "files") {
     files_open();
@@ -5120,9 +5136,9 @@ function side_bars(mode) {
 }
 function new_agent() {
   location.hash = "#chat";
-  BOX.value = "/agent ";
-  BOX.dispatchEvent(new Event("input"));
-  setTimeout(() => BOX.focus());
+  BOX2.value = "/agent ";
+  BOX2.dispatchEvent(new Event("input"));
+  setTimeout(() => BOX2.focus());
 }
 function palette_keys(ev) {
   const dialog = $("#palette");
@@ -5561,7 +5577,7 @@ function intro_play() {
         gone();
       };
       if (DESK.matches) {
-        BOX.focus();
+        BOX2.focus();
       }
     }
     el.id = "intro";

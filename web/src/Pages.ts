@@ -165,7 +165,7 @@ export function home_html(v: View.View, now: Date, away: Cockpit.Away | null = n
   const upnext = `<section><h3>Up next</h3>${v.inbox?.google ? (next.map((e) => `<div class="next"><span class="when">${esc(e.time)}<span class="meta">${e.day}</span></span><span class="t">${esc(e.title)}</span>${meet(e.meet)}</div>`).join("") || `<p class="meta">Nothing coming up.</p>`)
     : `<p class="meta">${esc(signed !== undefined ? signed.replace(/^google: /, "Google: ") : "Calendar: run legion google-login on your device.")}</p>`}</section>`;
   const todos = (v.assigned ?? []).length;
-  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#explain", "Explain", explain_line(v))}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
+  const side = `<div class="hside">${upnext}<section><h3>Apps</h3>${app("#inbox", "Inbox", apps.inbox)}${app("#todo", "Todo", todos === 0 ? "nothing to do" : todos + " for you to do")}${app("#tracks", "Tracks", tracks_line(v))}${app("#chat", "Questions", apps.questions)}${app("#routines", "Routines", apps.routines)}${app("#transcripts", "Transcripts", String(v.inbox?.google?.docs.length ?? 0) + " in 14 days")}`
     + `${app("#digest", "Digest", String(v.inbox?.digest?.merged.length ?? 0) + " merged this week")}${app("#files", "Files", files_line(v))}${app("#timesheet", "Timesheet", sheet_line(v))}${app("#memory", "Memory", (v.pins ?? []).length + " pinned · search, the tree")}</section>`
     + `<section><h3>Activity</h3>${Cockpit.home_activity(v).map((n) => `<a class="act" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer"><span class="mk">${KIND_MARK[n.kind]}</span><span class="t">${esc(n.title)}</span><span class="meta">${esc(n.repo)}</span></a>`).join("") || `<p class="meta">Nothing yet.</p>`}</section></div>`;
   return [head, ...(away === null ? [] : [away_html(away)]), stats, `<div class="hcols"><div class="hmain">${group("Working", working, false)}${group("Done", done, true)}${empty}</div>${side}</div>`];
@@ -205,7 +205,7 @@ export function side_html(v: View.View, mode: View.Mode, now: number): string[] 
   const working = v.crew.filter((c) => c.status === "working").length;
   const pages = [
     ["home", "Home", 0], ["inbox", "Inbox", Cockpit.inbox_badge(v.inbox)], ["todo", "Todo", (v.assigned ?? []).length], ["chat", "Chat", (v.questions ?? []).length],
-    ["crew", "Crew", working], ["explain", "Explain", 0], ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length], ["digest", "Digest", 0], ["transcripts", "Transcripts", 0],
+    ["crew", "Crew", working], ["tracks", "Tracks", 0], ["routines", "Routines", (v.routines ?? []).filter((r) => r.on).length], ["digest", "Digest", 0], ["transcripts", "Transcripts", 0],
     ["files", "Files", with_files(v)], ["timesheet", "Timesheet", drafts_open(v)], ["memory", "Memory", (v.pins ?? []).length],
   ] as const;
   const nav = `<nav class="spages">${pages.map(([m, label, k]) => `<a href="#${m}"${here(m)}>${label}${n(k)}</a>`).join("")}</nav>`;
@@ -516,30 +516,40 @@ export function todo_html(v: View.View): string[] {
   return [head, `<div class="tday">${all.map(row).join("")}</div>`];
 }
 
-// Explain
-// =======
+// Tracks
+// ======
 
-// what the crew is building and why (Explain.ts): the observer's cards,
-// when written; the questions asked and their answers, then the box (a
-// question answered here, never in the chat)
-export function explain_html(v: View.View, now: number): string[] {
+const BOX = { pending: "[ ]", doing: "[>]", done: "[x]" } as const;
+
+// one card per track (Explain.ts): the observer's summary (read-only, when
+// written), the agent's checklist and the user's pins with their marks;
+// the questions asked and their answers, then the box (a question
+// answered here, never in the chat). Every text escaped
+export function tracks_html(v: View.View, now: number): string[] {
   const ex = v.explain;
   const ago = ex === null ? "not written yet" : Explain.explain_ago(ex, now);
-  const head = `<div class="phead"><h2>Explain</h2><p class="meta">What your crew is building and why, in plain words · ${esc(ago)}${ex?.error ? " · " + esc(ex.error) : ""}</p></div>`;
+  const head = `<div class="phead"><h2>Tracks</h2><p class="meta">Each agent's work, what it builds and why, its checklist and your pins · ${esc(ago)}${ex?.error ? " · " + esc(ex.error) : ""}</p></div>`;
   const field = (label: string, text: string) => `<p><b>${label}</b> ${esc(text)}</p>`;
-  const card = (c: Explain.Card) => `<section class="xcard"><h3>${esc(c.title)}</h3>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}</section>`;
-  const cards = ex === null || ex.at === null ? `<p class="meta">Not written yet: an observer writes here what the crew builds and why, once it works.</p>`
-    : ex.cards.length === 0 ? `<p class="meta">${esc(Cockpit.EXPLAIN_NONE)}</p>` : `<div class="xcards">${ex.cards.map(card).join("")}</div>`;
+  const summary = (c: Explain.Card | undefined) => c === undefined || c.title === "" ? `<p class="meta">No summary yet.</p>`
+    : `<h4>${esc(c.title)}</h4>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
+  const item = (x: View.Todo & { dropped?: boolean }, i: number) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}</li>`;
+  const pin = (p: View.Mine) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc(p.from) + "»"}</span></li>`;
+  const track = (t: NonNullable<View.View["tracks"]>[number]) => {
+    const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "").map((x) => `<span class="meta">${esc(x)}</span>`).join(" ");
+    return `<section class="xcard track"><h3>${esc(t.name)}${t.title === undefined ? "" : " · " + esc(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item).join("")}${t.pins.map(pin).join("")}</ul></section>`;
+  };
+  const tracks = v.tracks ?? [];
+  const cards = tracks.length === 0 ? `<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>` : `<div class="xcards">${tracks.map(track).join("")}</div>`;
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc(x.q)}</div><div class="xa">${esc(x.a)}</div>`).join("");
   const asking = ex?.asking ? `<div class="xq">${esc(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
   const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Explain.Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
   return [head, cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
 }
 
-// Home's Explain app: its workstreams, or what it is for
-function explain_line(v: View.View): string {
-  const n = v.explain?.cards.length ?? 0;
-  return n === 0 ? "what the crew builds, and why" : n + (n === 1 ? " workstream" : " workstreams") + " in plain words";
+// Home's Tracks app: its tracks, or what it is for
+function tracks_line(v: View.View): string {
+  const n = (v.tracks ?? []).length;
+  return n === 0 ? "each agent's work, and why" : n + (n === 1 ? " track" : " tracks");
 }
 
 export function timesheet_html(v: View.View): string[] {

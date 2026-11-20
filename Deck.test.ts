@@ -292,7 +292,7 @@ test("from the chat, Ctrl+G and a letter: the chord's page", () => {
   expect(Deck.deck_chord("q")).toBe("questions");
   expect(Deck.deck_chord("f")).toBe("file");
   expect(Deck.deck_chord("m")).toBe("chat");
-  expect(Deck.deck_chord("x")).toBe("explain");
+  expect(Deck.deck_chord("x")).toBe("tracks");
   expect(Deck.deck_chord("z")).toBeNull();
   expect(Deck.deck_chord("constructor")).toBeNull();
 });
@@ -431,16 +431,17 @@ test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, S
   expect(key(v, end, "Home").deck.top).toBe(0);
 });
 
-test("the Explain page, as the web's: the cards and the thread as text; / or ? leaves with /explain typed; g x goes there", () => {
+test("the Tracks page, as the web's: each track's card and the thread as text; / or ? leaves with /tracks typed; g x goes there", () => {
   const v = team();
-  View.view_hear(v, { $: "explain", explain: { cards: [{ title: "Explain tab", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: Date.now(), hash: "h", tried: null, qa: [], writing: false, asking: null } });
-  const d = Deck.deck_new("explain");
+  v.tracks = [{ name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] }];
+  View.view_hear(v, { $: "explain", explain: { cards: [{ track: "Owl", title: "Explain tab", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: Date.now(), hash: "h", tried: null, qa: [], writing: false, asking: null } });
+  const d = Deck.deck_new("tracks");
   const lines = Deck.deck_lines(v, d, W, H, 0).map(text);
-  expect(lines[0]).toContain("x Explain");
+  expect(lines[0]).toContain("x Tracks");
   expect(lines.join("\n")).toMatch(/Explain tab[\s\S]*What: A page for managers/);
-  expect(key(v, d, "/")).toMatchObject({ done: true, type: "/explain " });
-  expect(key(v, d, "?")).toMatchObject({ done: true, type: "/explain " });
-  expect(key(v, Deck.deck_new("home"), "g", "x").deck.page).toBe("explain");
+  expect(key(v, d, "/")).toMatchObject({ done: true, type: "/tracks " });
+  expect(key(v, d, "?")).toMatchObject({ done: true, type: "/tracks " });
+  expect(key(v, Deck.deck_new("home"), "g", "x").deck.page).toBe("tracks");
 });
 
 // R2: what others write (a PR's body, a calendar event's title, an agent's

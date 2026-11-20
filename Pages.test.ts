@@ -506,14 +506,15 @@ test("the Todo page: each todo, who filed it and when, Done and Drop; none: what
   expect(View.view_route("#todo")).toEqual({ mode: "todo", name: null });
 });
 
-// the Explain page (Pages.explain_html): the observer's cards, when
-// written, the thread and its box (answered here, not in the chat)
-test("the Explain page: each card's what, why, status and watch, escaped; updated when; the thread; the box; writing and answering shown", async () => {
+// the Tracks page (Pages.tracks_html): the observer's card per track,
+// when written, the thread and its box (answered here, not in the chat)
+test("the Tracks page: each track card's what, why, status and watch, escaped; updated when; the thread; the box; writing and answering shown", async () => {
   const View = await import("./View.ts");
   const v = View.view_new();
-  expect(Pages.explain_html(v, NOW).join("")).toContain("not written yet");
-  v.explain = { cards: [{ title: "Explain <tab>", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: NOW - 3 * 60_000, hash: "h", tried: null, qa: [{ q: "Is it <cheap>?", a: "Yes.", at: NOW }], writing: true, asking: "And fast?" };
-  const html = Pages.explain_html(v, NOW).join("");
+  expect(Pages.tracks_html(v, NOW).join("")).toContain("not written yet");
+  v.tracks = [{ name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] }];
+  v.explain = { cards: [{ track: "Owl", title: "Explain <tab>", what: "A page for managers", why: "To follow the work", status: "Half done", watch: "Cost" }], at: NOW - 3 * 60_000, hash: "h", tried: null, qa: [{ q: "Is it <cheap>?", a: "Yes.", at: NOW }], writing: true, asking: "And fast?" };
+  const html = Pages.tracks_html(v, NOW).join("");
   expect(html).toContain("Explain &lt;tab&gt;");
   expect(html).not.toContain("<tab>");
   for (const s of ["A page for managers", "To follow the work", "Half done", "Cost", "Is it &lt;cheap&gt;?", "Yes.", "And fast?", "answering", "writing"]) {
@@ -521,7 +522,20 @@ test("the Explain page: each card's what, why, status and watch, escaped; update
   }
   expect(html).toContain('<form class="xask">');
   expect(html).toContain('data-keep="explain"');
-  expect(Pages.side_html(v, "explain", NOW).join("")).toContain('href="#explain" class="here">Explain');
+  expect(Pages.side_html(v, "tracks", NOW).join("")).toContain('href="#tracks" class="here">Tracks');
+});
+
+// Tracks (PLP-2895): item and pin text escaped on the web page
+test("AC25: the Tracks page escapes an item's and a pin's text", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  const evil = "<img onerror=x>";
+  View.view_hear(v, { $: "state", ...v, tracks: [{ name: "Alpha", tier: "worker", editable: true, orphaned: false, queued: false,
+    items: [{ text: evil, status: "doing" }], pins: [{ n: 1, text: "pin " + evil, status: "pending", at: NOW }] }] } as any);
+  const html = Pages.tracks_html(v, NOW).join("");
+  expect(html).toContain("&lt;img onerror=x&gt;");
+  expect(html).toContain("pin &lt;img onerror=x&gt;");
+  expect(html).not.toContain("<img");
 });
 
 // Notes: the Memory page lists Unii's notes, each with an

@@ -495,34 +495,74 @@ export function todo_cmd(v: View, arg: string): Act | string {
   return a === undefined ? "No todo " + n + ": /todos lists them." : { $: "Assignment", n: a.n, done: verb === "done" };
 }
 
-// Explain
-// =======
-// What the crew is building, for a manager (Explain.ts): /explain and the
-// deck's Explain page show the observer's cards and the questions asked
+// Tracks
+// ======
+// One card per track (a top agent's work, Explain.ts): /tracks (and its
+// old name /explain) and the deck's Tracks page show the observer's
+// summary, the agent's checklist and the user's pins, and the questions
+// asked. Edits are acts (RED ZONE DRAFT: Server.ts Chat.track)
 
-export const EXPLAIN_NONE = "Nothing being built right now: once the crew works, an observer writes here what it builds and why.";
+export const TRACKS_NONE = "No tracks right now: each agent Legion starts gets one here, its summary and its checklist.";
+export const TRACKS_HELP = "/tracks <question> asks about them (answered here, not in the chat) · /tracks add <name> <text> · edit <name> <#n|i> <text> · move <name> #<n> <to> · drop <name> <#n|i>";
 
-// /explain: when written, each card, then the questions and answers
-export function explain_text(v: View, now: number): string {
+const BOX = { pending: "[ ]", doing: "[>]", done: "[x]" } as const;
+const TRACK_OPS = ["add", "edit", "move", "drop"] as const;
+
+// /tracks: when written; each track, its card, its items and pins; then
+// the questions and answers
+export function tracks_text(v: View, now: number): string {
   const ex = v.explain;
-  if (ex === null || ex.at === null && !ex.writing) {
-    return "Explain · not written yet: an observer writes here what the crew builds and why, once it works.\n/explain <question> asks about it (answered here, not in the chat).";
-  }
-  const cards = ex.cards.flatMap((c) => [c.title, "  What: " + c.what, "  Why: " + c.why, "  Status: " + c.status, "  Watch: " + c.watch, ""]);
-  const qa = ex.qa.flatMap((x) => ["You: " + x.q, "  " + x.a, ""]);
+  const tracks = v.tracks ?? [];
+  const card = (name: string) => ex?.cards.find((c) => c.track === name);
+  const track = (t: NonNullable<View["tracks"]>[number]) => {
+    const c = card(t.name);
+    const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "");
+    return [
+      t.name + (t.title === undefined ? "" : " · " + t.title) + (marks.length === 0 ? "" : " · " + marks.join(" · ")),
+      ...(c === undefined || c.title === "" ? [] : ["  " + c.title, "  What: " + c.what, "  Why: " + c.why, "  Status: " + c.status, "  Watch: " + c.watch]),
+      ...t.items.map((x, i) => "  " + BOX[x.status] + " " + (i + 1) + ". " + x.text + (x.dropped ? " · dropped by you" : "")),
+      ...t.pins.map((p) => "  " + BOX[p.status] + " #" + p.n + " " + p.text + " · you" + (p.from === undefined ? "" : " · edited from «" + p.from + "»")),
+      "",
+    ];
+  };
+  const qa = (ex?.qa ?? []).flatMap((x) => ["You: " + x.q, "  " + x.a, ""]);
+  const asking = ex?.asking ?? null;
   return [
-    "Explain · " + explain_ago(ex, now) + (ex.error ? " · " + ex.error : ""), "",
-    ...(cards.length === 0 ? [EXPLAIN_NONE, ""] : cards),
-    ...(qa.length === 0 && ex.asking === null ? [] : ["Asked:", ...qa]),
-    ...(ex.asking === null ? [] : ["You: " + ex.asking, "  answering…", ""]),
-    "/explain <question> asks about it (answered here, not in the chat).",
+    "Tracks · " + (ex === null ? "not written yet" : explain_ago(ex, now)) + (ex?.error ? " · " + ex.error : ""), "",
+    ...(tracks.length === 0 ? [TRACKS_NONE, ""] : tracks.flatMap(track)),
+    ...(qa.length === 0 && asking === null ? [] : ["Asked:", ...qa]),
+    ...(asking === null ? [] : ["You: " + asking, "  answering…", ""]),
+    TRACKS_HELP,
   ].join("\n");
 }
 
-// /explain <question>: the page's box
-export function explain_cmd(_v: View, arg: string): Act | string {
+// /tracks <words>: an edit (add, edit, move, drop; a ref #n is a pin, a
+// bare i the agent's item i), else a question for the observer
+export function tracks_cmd(_v: View, arg: string): Act | string {
   const q = arg.trim();
-  return q === "" ? "/explain <question>: ask about what the crew is building (answered on the Explain page, not in the chat)." : { $: "Explain", q };
+  const m = /^(\w+)\s+(\S+)(?:\s+([\s\S]*))?$/.exec(q);
+  const op = TRACK_OPS.find((o) => o === m?.[1]);
+  if (m === null || op === undefined) {
+    return q === "" ? "/tracks <question>: ask about what the crew is building (answered on the Tracks page, not in the chat)." : { $: "Explain", q };
+  }
+  const name = m[2] ?? "";
+  const rest = m[3] ?? "";
+  if (op === "add") {
+    return rest.trim() === "" ? "/tracks add <name> <text>" : { $: "Track", name, op, text: rest.trim() };
+  }
+  const r = /^(#?)(\d+)(?:\s+([\s\S]*))?$/.exec(rest.trim());
+  if (r === null) {
+    return "/tracks " + op + " <name> <#n|i>" + (op === "drop" ? "" : op === "move" ? " <to>" : " <text>");
+  }
+  const ref = r[1] === "#" ? { n: Number(r[2]) } : { i: Number(r[2]) };
+  const tail = (r[3] ?? "").trim();
+  if (op === "drop") {
+    return { $: "Track", name, op, ...ref };
+  }
+  if (op === "move") {
+    return "n" in ref && /^\d+$/.test(tail) ? { $: "Track", name, op, n: ref.n, to: Number(tail) } : "/tracks move <name> #<n> <to>: only a pin of yours moves.";
+  }
+  return tail === "" ? "/tracks edit <name> <#n|i> <text>" : { $: "Track", name, op, ...ref, text: tail };
 }
 
 // /timesheet: the drafts by day, newest first, as the Timesheet page
@@ -620,7 +660,7 @@ export type Item = { label: string; hint: string; go: Go };
 // g and a letter: the page it goes to, on the web (main.ts) and in the
 // terminal's deck (Deck.ts)
 export const CHORDS: Record<string, "chat" | "crew" | Deck> = {
-  h: "home", i: "inbox", o: "todo", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory", x: "explain",
+  h: "home", i: "inbox", o: "todo", m: "chat", c: "crew", r: "routines", d: "digest", t: "transcripts", f: "files", s: "timesheet", p: "memory", x: "tracks",
 };
 
 const PAGE_ITEMS: Item[] = [
@@ -629,7 +669,7 @@ const PAGE_ITEMS: Item[] = [
   { label: "Todo", hint: "page · g o", go: { href: "#todo" } },
   { label: "Chat", hint: "page · g m", go: { href: "#chat" } },
   { label: "Crew", hint: "page · g c", go: { href: "#crew" } },
-  { label: "Explain", hint: "page · g x", go: { href: "#explain" } },
+  { label: "Tracks", hint: "page · g x · explain", go: { href: "#tracks" } },
   { label: "Routines", hint: "page · g r", go: { href: "#routines" } },
   { label: "Digest", hint: "page · g d", go: { href: "#digest" } },
   { label: "Transcripts", hint: "page · g t", go: { href: "#transcripts" } },

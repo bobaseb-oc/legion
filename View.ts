@@ -20,7 +20,7 @@ import * as Md from "./Md.ts";
 import { LABELS, type Move, Pick } from "./Pick.ts";
 import { Price } from "./Price.ts";
 import { GLYPH, WHO } from "./Theme.ts";
-import { Q as EXPLAIN_Q, type Explain } from "./Explain.ts";
+import { Q as EXPLAIN_Q, type Explain, type TrackView } from "./Explain.ts";
 
 // Types
 // =====
@@ -89,6 +89,7 @@ export type State = {
   decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
   tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
   shells?   : Shell[];      // the shell commands running, then the background ones ended (Tools.shells)
+  tracks?   : TrackView[];  // the Tracks page's tracks (Explain.track_views)
 };
 
 // a question super auto answered with Legion's pick (Tools.question),
@@ -150,8 +151,17 @@ export type Draft = { n: number; project_id: number; task_id: number; project: s
 
 export type Question = { id: number; text: string; options?: string[]; at: number; date: string; fyi?: true; kind?: AskKind; pick?: number; prod?: boolean }; // fyi: a note (notify), no answer awaited; kind, pick (of its options), prod: for super auto (Modes.decides)
 
-// an item of an agent's checklist (Tools.todo): what, and how far
-export type Todo = { text: string; status: "pending" | "doing" | "done" };
+// an item of an agent's checklist (Tools.todo): what, and how far; the
+// server's own (never the agent's: Tools.todo strips them): since when
+// its status is so, whether a stall was reminded (Server.ts Chat.stalls)
+export type Todo = { text: string; status: "pending" | "doing" | "done"; since?: number; reminded?: boolean };
+// a pin of the user's on a track (Explain.ts track_add): its number
+// (never reused), text, status, when made; since and reminded as a
+// Todo's; from: the agent item it is an edited copy of
+export type Mine = { n: number; text: string; status: Todo["status"]; at: number; since?: number; reminded?: boolean; from?: string };
+// a track's pins (Memory.ts mem.tracks): next, the last n issued; the
+// agent items the user dropped; when an edit was queued for it idle
+export type Track = { pins: Mine[]; next: number; dropped: string[]; queued?: number };
 // an agent's pulse (Tools.pulse), told every view as it streams: how it
 // is, what it does now, its report's last line
 export type Pulse = { $: "pulse"; name: string; status: Status; act: string; last: string };
@@ -178,7 +188,7 @@ export type TreeRow = CrewRow & { kids: number; rollup: string; open: boolean };
 export type Mode = "chat" | "crew" | Deck;
 // the cockpit's pages (Cockpit.ts, web/src/Pages.ts): #home, #inbox, ...
 // (not "Page": an agent's page is)
-export const PAGES = ["home", "inbox", "todo", "explain", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
+export const PAGES = ["home", "inbox", "todo", "tracks", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
 export type Deck = (typeof PAGES)[number];
 
 // a tile of the Crew grid: an agent Unii started, a dot per agent under
@@ -338,7 +348,8 @@ export type Client =
   | { $: "note"; name: string; text?: string; drop?: boolean } // a view: one of Unii's notes edited, or dropped (the user's only: Chat.noted)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
-  | { $: "explain"; q: string } // a view: a question about the Explain page (the user's only: Chat.explain), answered there
+  | { $: "explain"; q: string } // a view: a question about the Tracks page (the user's only: Chat.explain), answered there
+  | { $: "track"; name: string; op: "add" | "edit" | "move" | "drop"; n?: number; i?: number; was?: string; text?: string; to?: number } // a view: a track's checklist edited (the user's only: Chat.track)
   | { $: "decision"; n: number; undo: boolean; text?: string } // a view: super auto's decision n undone (text: the user's answer) or dismissed (the user's only: Chat.decision)
   | { $: "timer"; n: number } // a view: an agent's pending timer n closed (the user's only: Chat.untimed)
   | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
@@ -410,7 +421,8 @@ export type Act =
   | { $: "Map"; id: number; n: number }         // a map line opened into its two (asked once), or folded
   | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
   | { $: "Search"; q: string }                  // the chat searched (the Memory page's box)
-  | { $: "Explain"; q: string }                 // a question about the Explain page (its box, /explain)
+  | { $: "Explain"; q: string }                 // a question about the Tracks page (its box, /tracks, /explain)
+  | { $: "Track"; name: string; op: "add" | "edit" | "move" | "drop"; n?: number; i?: number; was?: string; text?: string; to?: number } // a track's checklist edited (the Tracks page: Server.ts Chat.track)
   | { $: "Shell"; op: "bg" | "stop"; job?: string } // B2: a shell command (none: each in sight in the foreground) sent to the background (Ctrl+B), or stopped (Esc, Stop)
 
 // what a page draws, top to bottom
@@ -983,6 +995,13 @@ export function view_act(v: View, act: Act): Client[] {
     case "Explain": {
       const q = act.q.replace(/\s+/g, " ").trim().slice(0, EXPLAIN_Q);
       return q === "" ? [] : [{ $: "explain", q }];
+    }
+    case "Track": {
+      // an agent item named by its place: the text the user saw goes with
+      // it, so the server refuses the edit if the agent changed it since
+      const { $, ...edit } = act;
+      const seen = edit.i === undefined ? undefined : v.tracks?.find((t) => t.name === edit.name)?.items[edit.i - 1]?.text;
+      return [{ $: "track", ...edit, ...(seen === undefined || edit.was !== undefined ? {} : { was: seen }) }];
     }
     case "Search": {
       const q = act.q.trim().slice(0, FIND);
@@ -1865,9 +1884,13 @@ export function view_line(text: string): number | null {
 
 // the web's route by its hash, and back
 export function view_route(hash: string): Route {
-  const m = /^#(chat|crew|home|inbox|todo|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
+  const m = /^#(chat|crew|home|inbox|todo|tracks|explain|routines|digest|transcripts|files|timesheet|memory)(?:\/(.+))?$/.exec(hash);
   if (m === null || m[1] === "chat") {
     return { mode: "chat", name: null };
+  }
+  // #explain: the Tracks page's old name, kept one version
+  if (m[1] === "explain") {
+    return { mode: "tracks", name: null };
   }
   if (m[1] !== "crew") {
     return { mode: m[1] as Deck, name: null };

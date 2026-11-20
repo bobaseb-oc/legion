@@ -637,7 +637,7 @@ test("explain: the page as the server tells it; a question asked, trimmed; #expl
   expect(v.explain).toEqual(explain);
   expect(View.view_act(v, { $: "Explain", q: "  why?  " })).toEqual([{ $: "explain", q: "why?" }]);
   expect(View.view_act(v, { $: "Explain", q: "  " })).toEqual([]);
-  expect(View.view_route("#explain")).toEqual({ mode: "explain", name: null });
+  expect(View.view_route("#explain")).toEqual({ mode: "tracks", name: null });
 });
 
 // B2: shell commands running like Claude Code's: the chat shows the
@@ -682,4 +682,10 @@ test("L2: a state message with a notebook keeps the view's toasts and lists the 
   expect(v.notes.every((t: unknown) => typeof t === "string")).toBe(true);
   expect(v.notes).toContain("No command is running here.");
   expect((v as any).notebook).toEqual([note]);
+});
+
+// Tracks (PLP-2895): the page key is tracks; #explain routes there for one version
+test("AC26: #tracks and #explain both route to the tracks page", () => {
+  expect(View.view_route("#tracks")).toEqual({ mode: "tracks", name: null });
+  expect(View.view_route("#explain")).toEqual({ mode: "tracks", name: null });
 });

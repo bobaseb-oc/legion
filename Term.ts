@@ -240,7 +240,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/copy",             "Ctrl+Y",                  "copy the last code block Legion wrote (a command to run: ! then paste it) to your clipboard", term_copy],
       ["/open #id",         "",                        "open block #id, as it shows, and keep it open",  (t, a) => term_block(t, a, true)],
       ["/close #id",        "",                        "close block #id and keep it closed",             (t, a) => term_block(t, a, false)],
-      ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x explain, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
+      ["",                  "Ctrl+G",                  "then a page's letter: that page, full screen, as the web's g (h home, i inbox, o todo, c crew, x tracks, q questions, p memory, f file, r d t s); in it, g and a letter", term_chord],
       ["/bg",               "Ctrl+B",                  "send the shell commands shown running to the background: they go on, and their callers (/shells lists them; Ctrl+B eaten? type /bg)", term_bg],
       ["/shells",           "",                        "the commands in the background, running or ended", term_shells],
       ["/kill <n>",         "",                        "stop background command n", term_kill],
@@ -288,7 +288,8 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
     ]],
     ["Questions", [
       ["/todos [done|drop <n>]", "",                  "what your agents need you to do (only you can); done n tells its agent, drop n drops it", (t, a) => a.trim() === "" ? term_page_cmd(t, "todo", () => Cockpit.todo_text(t.v)) : term_answer(t, Cockpit.todo_cmd(t.v, a))],
-      ["/explain [question]", "",                    "what the crew is building and why, for a manager (an observer writes it); with a question: asked there, answered there, never in the chat", term_explain],
+      ["/tracks [question]", "",                     "each agent's track: what it builds and why (an observer writes it), its checklist and your pins; add|edit|move|drop <name> … edits your pins; a question: asked there, answered there, never in the chat", term_tracks],
+      ["/explain [question]", "",                    "/tracks' old name (one version)",              term_tracks],
       ["/questions",        "",                        "the questions Legion filed for you, open",       (t) => term_page_cmd(t, "questions", () => View.view_questions_note(t.v))],
       ["/answer <n> <text>", "",                       "answer question n (or with an offered answer's number); Legion takes it up", (t, a) => term_answer(t, View.view_answer(t.v, a))],
       ["/drop <n>",         "",                        "dismiss question n (or super auto's decision n)", (t, a) => term_answer(t, View.view_drop(t.v, a))],
@@ -680,7 +681,7 @@ function term_chord(t: Term): void {
   }
   t.chord = true;
   t.scr.grab = true;
-  term_toast(t, "Go to: h home · i inbox · o todo · c crew · x explain · q questions · p memory · f file · r routines · d digest · t transcripts · s timesheet · any other key: stay");
+  term_toast(t, "Go to: h home · i inbox · o todo · c crew · x tracks · q questions · p memory · f file · r routines · d digest · t transcripts · s timesheet · any other key: stay");
 }
 
 function term_chord_key(t: Term, key: string): void {
@@ -1009,13 +1010,14 @@ function term_answer(t: Term, act: View.Act | string): void {
   term_act(t, act);
 }
 
-// /explain [question]: the Explain page; a question asked first (its
+// /tracks [question | add|edit|move|drop …] (and /explain, its old name,
+// one version): the Tracks page; a question or an edit sent first (an
 // answer comes on the page, never in the chat)
-function term_explain(t: Term, arg: string): void {
+function term_tracks(t: Term, arg: string): void {
   if (arg.trim() !== "") {
-    term_answer(t, Cockpit.explain_cmd(t.v, arg));
+    term_answer(t, Cockpit.tracks_cmd(t.v, arg));
   }
-  term_page_cmd(t, "explain", () => Cockpit.explain_text(t.v, Date.now()));
+  term_page_cmd(t, "tracks", () => Cockpit.tracks_text(t.v, Date.now()));
 }
 
 function term_stop(t: Term, arg: string): void {
