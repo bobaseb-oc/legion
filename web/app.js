@@ -533,6 +533,27 @@ var OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpu
 var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
 var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
+var RISKS = ["low", "medium", "high"];
+var PUSH = String.raw`\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*`;
+var HIGH = [
+  new RegExp(PUSH + String.raw`(\s--force(-with-lease)?\b|\s-[a-zA-Z]*f\b|\s\+\S)`),
+  new RegExp(PUSH + String.raw`\s(\S+:)?(main|master|release)\b`),
+  /\bdeploy\b/,
+  /(^|[\s=_\/-])prod([\s_\/-]|$)/i,
+  /\b(npm|pnpm|bun|yarn|cargo)\s+publish\b|\btwine\s+upload\b/,
+  /\bgh\s+pr\s+merge\b/,
+  /\|\s*(sudo\s+)?(ba|z|da)?sh\b/
+];
+var MEDIUM = [
+  new RegExp(PUSH),
+  /\brm\b/,
+  /\bbranch\s+(-[a-zA-Z]*D\b|--delete\s+--force\b)/,
+  /\bworktree\s+remove\b/,
+  /\b(kill|pkill|killall)\b/,
+  /\breset\s+--hard\b|\bclean\s+-[a-zA-Z]*f/,
+  /\bgh\s+(pr|issue|release|repo)\s+(create|comment|edit|close|reopen|review|ready|delete)\b/,
+  /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/
+];
 var DOTS = String.raw`\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.claude\.json`;
 var DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(gh|gcloud)|Library\/Keychains`;
 var SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
@@ -674,6 +695,32 @@ var Modes;
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
   }
   Modes2.reviews = reviews;
+  function floor(tool, input) {
+    if (tool === "write" || tool === "edit") {
+      return SECRETS.test(String(input?.path ?? input?.file_path ?? "")) ? "high" : "low";
+    }
+    if (tool !== "shell") {
+      return "medium";
+    }
+    const c = typeof input?.command === "string" ? input.command : "";
+    if (/[^\x00-\x7f]/.test(c) || SECRETS.test(c) || HIGH.some((r) => r.test(c))) {
+      return "high";
+    }
+    return MEDIUM.some((r) => r.test(c)) ? "medium" : "low";
+  }
+  Modes2.floor = floor;
+  function risk(floor, label) {
+    const at = RISKS.indexOf(label);
+    return at < 0 ? "high" : RISKS[Math.max(at, RISKS.indexOf(floor))];
+  }
+  Modes2.risk = risk;
+  function decide(mode, risk, allow, sub) {
+    if (allow || risk === "low") {
+      return "run";
+    }
+    return mode === "super" && sub && risk === "medium" ? "appeal" : "refuse";
+  }
+  Modes2.decide = decide;
   Modes2.FLOOR = ["access", "redzone", "money", "outward"];
   function unlocked(kind, t) {
     if (!ASK_KINDS.includes(kind) || Modes2.FLOOR.includes(kind) || t === undefined) {
