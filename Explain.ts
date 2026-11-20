@@ -191,3 +191,86 @@ export function explain_ago(ex: Explain, now: number): string {
   const min = Math.floor((now - ex.at) / 60_000);
   return min < 1 ? "updated just now" : min < 120 ? "updated " + min + " min ago" : "updated " + Math.floor(min / 60) + " h ago";
 }
+
+// Tracks: the user's pins
+// =======================
+// RED ZONE (user authority over agents; DRAFT awaiting the user's
+// sign-off): a track's pins are written only by the user's act from a view
+// (Server.ts Chat.track); the agent sets a pin's status only (Chat.pinned).
+// Each edit returns the new Track, or why it is refused; a pin's n is
+// never reused (next only grows)
+
+// pins per track, a pin's characters, the user's edits a minute per chat
+export const PINS     = 10;
+export const PIN_TEXT = 500;
+export const EDITS    = 30;
+
+const STATUSES: readonly Todo["status"][] = ["pending", "doing", "done"];
+
+// a pin's text as kept: one line, at most PIN_TEXT; "": none
+export function pin_text(text: unknown): string {
+  return typeof text === "string" ? cut(text, PIN_TEXT) : "";
+}
+
+export function track_new(): Track {
+  return { pins: [], next: 0, dropped: [] };
+}
+
+// a pin added (from: the agent item it is an edited copy of)
+function pinned(t: Track, text: string, now: number, from?: string): Track | string {
+  const kept = pin_text(text);
+  if (kept === "") {
+    return "Give the item's text.";
+  }
+  if (t.pins.length >= PINS) {
+    return "A track holds at most " + PINS + " pinned items: drop one first.";
+  }
+  const n = t.next + 1;
+  return { ...t, pins: [...t.pins, { n, text: kept, status: "pending", at: now, ...(from === undefined ? {} : { from }) }], next: n };
+}
+
+export function track_add(t: Track, text: string, now: number): Track | string {
+  return pinned(t, text, now);
+}
+
+// an agent item edited: a pin of the edited text, the original named
+export function track_copy(t: Track, from: string, text: string, now: number): Track | string {
+  return pinned(t, text, now, from);
+}
+
+export function track_edit(t: Track, n: number, text: string, _now: number): Track | string {
+  const kept = pin_text(text);
+  if (kept === "") {
+    return "Give the item's text.";
+  }
+  return t.pins.some((p) => p.n === n) ? { ...t, pins: t.pins.map((p) => p.n === n ? { ...p, text: kept } : p) } : "No pinned item #" + n + ".";
+}
+
+// pin n moved to place `to` (1-based, kept within the list)
+export function track_move(t: Track, n: number, to: number): Track | string {
+  const pin = t.pins.find((p) => p.n === n);
+  if (pin === undefined) {
+    return "No pinned item #" + n + ".";
+  }
+  const rest = t.pins.filter((p) => p !== pin);
+  const at = Math.min(Math.max(Math.trunc(to), 1), t.pins.length) - 1;
+  return { ...t, pins: [...rest.slice(0, at), pin, ...rest.slice(at)] };
+}
+
+export function track_drop(t: Track, n: number): Track | string {
+  return t.pins.some((p) => p.n === n) ? { ...t, pins: t.pins.filter((p) => p.n !== n) } : "No pinned item #" + n + ".";
+}
+
+// the agent's marks (Tools.todo's pinned): a known pin's status only, by
+// n; an unknown n or status ignored. A change: since now, not reminded
+export function track_status(t: Track, marks: Array<{ n: number; status: Todo["status"] }>, now: number): Track {
+  const pins = t.pins.map((p) => {
+    const m = marks.findLast((x) => x.n === p.n && STATUSES.includes(x.status));
+    if (m === undefined || m.status === p.status) {
+      return p;
+    }
+    const { reminded: _, ...rest } = p;
+    return { ...rest, status: m.status, since: now };
+  });
+  return { ...t, pins };
+}

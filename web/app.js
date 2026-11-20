@@ -1582,6 +1582,7 @@ function explain_ago(ex, now) {
   const min = Math.floor((now - ex.at) / 60000);
   return min < 1 ? "updated just now" : min < 120 ? "updated " + min + " min ago" : "updated " + Math.floor(min / 60) + " h ago";
 }
+var PIN_TEXT = 500;
 
 // View.ts
 var BROKE = "out of credit";
@@ -3403,6 +3404,33 @@ function todo_who(a) {
 }
 var TODO_NONE = "Nothing to do: agents put here what only you can do (approve a PR, run a login, send something).";
 var TRACKS_NONE = "No tracks right now: each agent Legion starts gets one here, its summary and its checklist.";
+var TRACK_OPS = ["add", "edit", "move", "drop"];
+function tracks_cmd(_v, arg) {
+  const q = arg.trim();
+  const m = /^(\w+)\s+(\S+)(?:\s+([\s\S]*))?$/.exec(q);
+  const op = TRACK_OPS.find((o) => o === m?.[1]);
+  if (m === null || op === undefined) {
+    return q === "" ? "/tracks <question>: ask about what the crew is building (answered on the Tracks page, not in the chat)." : { $: "Explain", q };
+  }
+  const name = m[2] ?? "";
+  const rest = m[3] ?? "";
+  if (op === "add") {
+    return rest.trim() === "" ? "/tracks add <name> <text>" : { $: "Track", name, op, text: rest.trim() };
+  }
+  const r = /^(#?)(\d+)(?:\s+([\s\S]*))?$/.exec(rest.trim());
+  if (r === null) {
+    return "/tracks " + op + " <name> <#n|i>" + (op === "drop" ? "" : op === "move" ? " <to>" : " <text>");
+  }
+  const ref = r[1] === "#" ? { n: Number(r[2]) } : { i: Number(r[2]) };
+  const tail = (r[3] ?? "").trim();
+  if (op === "drop") {
+    return { $: "Track", name, op, ...ref };
+  }
+  if (op === "move") {
+    return "n" in ref && /^\d+$/.test(tail) ? { $: "Track", name, op, n: ref.n, to: Number(tail) } : "/tracks move <name> #<n> <to>: only a pin of yours moves.";
+  }
+  return tail === "" ? "/tracks edit <name> <#n|i> <text>" : { $: "Track", name, op, ...ref, text: tail };
+}
 function side_groups(v, now) {
   const { working, done } = home_cards(v, now);
   const groups = new Map;
@@ -3874,11 +3902,13 @@ function tracks_html(v, now) {
   const head = `<div class="phead"><h2>Tracks</h2><p class="meta">Each agent's work, what it builds and why, its checklist and your pins · ${esc2(ago)}${ex?.error ? " · " + esc2(ex.error) : ""}</p></div>`;
   const field = (label, text) => `<p><b>${label}</b> ${esc2(text)}</p>`;
   const summary = (c) => c === undefined || c.title === "" ? `<p class="meta">No summary yet.</p>` : `<h4>${esc2(c.title)}</h4>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
-  const item = (x, i) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc2(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}</li>`;
-  const pin = (p) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc2(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc2(p.from) + "»"}</span></li>`;
-  const track = (t) => {
+  const button = (label, a) => ` <button class="pbtn small"${act_html2(a)}>${label}</button>`;
+  const item = (t) => (x, i) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc2(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}` + `${t.editable && !x.dropped ? button("Drop", { $: "Track", name: t.name, op: "drop", i: i + 1, was: x.text }) : ""}</li>`;
+  const pin = (t) => (p, k) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc2(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc2(p.from) + "»"}</span>` + `${t.editable && k > 0 ? button("Up", { $: "Track", name: t.name, op: "move", n: p.n, to: k }) : ""}${t.editable && k < t.pins.length - 1 ? button("Down", { $: "Track", name: t.name, op: "move", n: p.n, to: k + 2 }) : ""}` + `${t.editable || t.orphaned ? button("Drop", { $: "Track", name: t.name, op: "drop", n: p.n }) : ""}</li>`;
+  const add = (t, k) => !t.editable ? "" : `<form class="tadd" data-track="${esc2(t.name)}"><input name="ref" data-keep="tref${k}" size="4" maxlength="4" placeholder="#n / i" aria-label="the item to edit (none: a new one)" autocomplete="off"><input name="text" data-keep="ttext${k}" maxlength="${PIN_TEXT}" placeholder="Pin an item for ${esc2(t.name)}, or edit one" aria-label="the item's text" autocomplete="off"></form>`;
+  const track = (t, k) => {
     const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "").map((x) => `<span class="meta">${esc2(x)}</span>`).join(" ");
-    return `<section class="xcard track"><h3>${esc2(t.name)}${t.title === undefined ? "" : " · " + esc2(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item).join("")}${t.pins.map(pin).join("")}</ul></section>`;
+    return `<section class="xcard track"><h3>${esc2(t.name)}${t.title === undefined ? "" : " · " + esc2(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item(t)).join("")}${t.pins.map(pin(t)).join("")}</ul>${add(t, k)}</section>`;
   };
   const tracks = v.tracks ?? [];
   const cards = tracks.length === 0 ? `<p class="meta">${esc2(TRACKS_NONE)}</p>` : `<div class="xcards">${tracks.map(track).join("")}</div>`;
@@ -4177,6 +4207,7 @@ function chat() {
   $("#page").addEventListener("submit", memory_find);
   $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
+  $("#page").addEventListener("submit", track_edit);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -5286,6 +5317,23 @@ function note_edit(ev) {
   }
   ev.preventDefault();
   act({ $: "Note", name: form.dataset.note, text: form.querySelector("textarea").value });
+}
+function track_edit(ev) {
+  const form = ev.target.closest("form.tadd");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  const name = form.dataset.track ?? "";
+  const ref = (form.querySelector('input[name="ref"]')?.value ?? "").trim();
+  const box = form.querySelector('input[name="text"]');
+  const made = tracks_cmd(v, (ref === "" ? "add " + name : "edit " + name + " " + ref) + " " + box.value);
+  if (typeof made === "string") {
+    toast(made);
+    return;
+  }
+  act(made);
+  box.value = "";
 }
 function explain_ask(ev) {
   const form = ev.target.closest("form.xask");

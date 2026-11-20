@@ -49,7 +49,7 @@ import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import * as Notes from "./Notes.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
-import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
+import type { Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
 
@@ -159,7 +159,9 @@ export type Moved = {
 // what the server does for agents (report: work stopped stays unanswered;
 // pick: the chat's pick; halt: what stops its turn; note: a note in the
 // chat, as Chat.note; viewed: whether a view of the user's is open;
-// shells: the views told the shell commands running (Tools.shells))
+// shells: the views told the shell commands running (Tools.shells);
+// pinned: an agent's marks on the user's pins on its track, status only
+// (Server.ts Chat.pinned: no tool here reads or writes the pins), the pins after)
 type Hooks = {
   push   : (agent: Agent, kind: Kind, text: string) => void;
   on     : (agent: Agent, ev: Event) => void;
@@ -171,6 +173,7 @@ type Hooks = {
   viewed?: () => boolean;
   shells?: () => void; // the shell commands running changed (B2: Tools.shells)
   boss?  : (text: string) => void; // Unii hears a refused call of one it started (Tools.appeal): a turn of its own
+  pinned?: (who: string, marks: Array<{ n: number; status: Todo["status"] }>) => Mine[];
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -424,8 +427,9 @@ function boss(main: boolean): Spec[] {
 }
 // the checklist of managers and workers (not Unii's: it does no hands-on
 // work), as Claude Code's TodoWrite
-const TODO = spec("todo", "Set your checklist, the whole list each time, in order: the user sees it with your work, and what you are doing. Use it for a task of 3 or more steps: write the steps first, mark one doing as you start it and done as soon as it is, add steps you find. items: each a step's text and its status (pending, the default; doing; done); none clears it.", {
+const TODO = spec("todo", "Set your checklist, the whole list each time, in order: the user sees it with your work, and what you are doing. Use it for a task of 3 or more steps: write the steps first, mark one doing as you start it and done as soon as it is, add steps you find. items: each a step's text and its status (pending, the default; doing; done); none clears it. The user may pin items of their own on your track (shown after yours as #n, pinned by the user): they are the user's, not in items, and stay whatever list you set; do them, and mark one's status with pinned: [{n, status}].", {
   items: { type: "array", items: { type: "object", properties: { text: STR, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text"] } },
+  pinned: { type: "array", items: { type: "object", properties: { n: INT, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["n", "status"] } },
 }, ["items"]);
 // the orchestrator's questions for the user, kept in a backlog the user
 // answers in due course (Tools.question); at most ASKS open, each at most
@@ -927,7 +931,7 @@ export namespace Tools {
         return Tools.assign(tools, who, args);
       }
       case "todo": {
-        return Tools.todo(tools, who, args.items);
+        return Tools.todo(tools, who, args.items, args.pinned);
       }
       case "wait": {
         const seconds = args.seconds;
@@ -1380,7 +1384,7 @@ export namespace Tools {
       const model = pick === null ? "claude-code" : typeof pick === "string" ? role.$ === "sub" && role.model !== null ? role.model : "?" : pick.model;
       const status = Tools.status(tools, a);
       const tier = role.$ === "hands" ? "computer" : role.$ === "cli" ? "claude" : role.tier;
-      const label = { ...(a.title === undefined ? {} : { title: a.title }), ...(a.repos === undefined ? {} : { repos: a.repos }), ...(a.todo === undefined ? {} : { todo: a.todo }), ...(a.spent === undefined ? {} : { spent: a.spent }), ...(a.files === undefined ? {} : { files: a.files }) };
+      const label = { ...(a.title === undefined ? {} : { title: a.title }), ...(a.repos === undefined ? {} : { repos: a.repos }), ...(a.todo === undefined ? {} : { todo: a.todo.map((t) => ({ text: t.text, status: t.status })) }), ...(a.spent === undefined ? {} : { spent: a.spent }), ...(a.files === undefined ? {} : { files: a.files }) };
       return { name: a.name, parent: a.parent, tier, model, status, since: a.since ?? 0, ...label };
     });
   }
@@ -1872,21 +1876,38 @@ export namespace Tools {
   }
 
   // an agent's own checklist set whole, cleaned: each item one line, at
-  // most TODO_TEXT, at most TODOS, a status not known pending; none, unset
-  export function todo(tools: Tools, who: string, items: unknown): Out {
+  // most TODO_TEXT, at most TODOS, a status not known pending; none, unset.
+  // RED ZONE (user authority over agents; DRAFT awaiting the user's
+  // sign-off): only text and status are the agent's (since and reminded
+  // are the server's: kept from the same item before, since set as one
+  // turns doing); the user's pins are not in the list, so no list touches
+  // them: pinned marks their status only, through hooks.pinned
+  export function todo(tools: Tools, who: string, items: unknown, pinned?: unknown): Out {
     const agent = tools.agents.get(who);
     if (agent === undefined || !Array.isArray(items)) {
       return { text: agent === undefined ? "No checklist here." : "items: give a list of {text, status}.", fail: true };
     }
-    const known = ["pending", "doing", "done"];
+    const known: Todo["status"][] = ["pending", "doing", "done"];
+    const was = agent.todo ?? [];
+    const now = Date.now();
     const list = items
       .map((x: any): Todo => ({ text: String(x?.text ?? "").replace(/\s+/g, " ").trim().slice(0, TODO_TEXT), status: known.includes(x?.status) ? x.status : "pending" }))
       .filter((x) => x.text !== "")
-      .slice(0, TODOS);
+      .slice(0, TODOS)
+      .map((x): Todo => {
+        const same = was.find((w) => w.text === x.text && w.status === x.status);
+        const since = same !== undefined ? same.since : x.status === "doing" ? now : undefined;
+        return { ...x, ...(since === undefined ? {} : { since }), ...(same?.reminded === true ? { reminded: true } : {}) };
+      });
+    const marks = (Array.isArray(pinned) ? pinned : [])
+      .filter((m: any) => Number.isInteger(m?.n) && known.includes(m?.status))
+      .map((m: any) => ({ n: m.n as number, status: m.status as Todo["status"] }));
+    const pins = tools.hooks.pinned?.(who, marks) ?? [];
     agent.todo = list.length === 0 ? undefined : list;
     tools.hooks.change();
     const box = { pending: "[ ]", doing: "[>]", done: "[x]" };
-    return { text: list.length === 0 ? "Checklist cleared." : list.map((x) => box[x.status] + " " + x.text).join("\n"), fail: false };
+    const lines = [...list.map((x) => box[x.status] + " " + x.text), ...pins.map((p) => box[p.status] + " #" + p.n + " " + p.text + " (pinned by the user)")];
+    return { text: list.length === 0 && pins.length === 0 ? "Checklist cleared." : lines.join("\n"), fail: false };
   }
 
   // a title made from a task (spawn's, when it gives none): its first

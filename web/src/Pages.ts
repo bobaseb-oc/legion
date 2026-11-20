@@ -532,11 +532,19 @@ export function tracks_html(v: View.View, now: number): string[] {
   const field = (label: string, text: string) => `<p><b>${label}</b> ${esc(text)}</p>`;
   const summary = (c: Explain.Card | undefined) => c === undefined || c.title === "" ? `<p class="meta">No summary yet.</p>`
     : `<h4>${esc(c.title)}</h4>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
-  const item = (x: View.Todo & { dropped?: boolean }, i: number) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}</li>`;
-  const pin = (p: View.Mine) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc(p.from) + "»"}</span></li>`;
-  const track = (t: NonNullable<View.View["tracks"]>[number]) => {
+  type TrackView = NonNullable<View.View["tracks"]>[number];
+  const button = (label: string, a: View.Act) => ` <button class="pbtn small"${act_html(a)}>${label}</button>`;
+  const item = (t: TrackView) => (x: View.Todo & { dropped?: boolean }, i: number) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}`
+    + `${t.editable && !x.dropped ? button("Drop", { $: "Track", name: t.name, op: "drop", i: i + 1, was: x.text }) : ""}</li>`;
+  const pin = (t: TrackView) => (p: View.Mine, k: number) => `<li class="titem pin ${p.status}"><span class="box">${BOX[p.status]}</span> <span class="t">#${p.n} ${esc(p.text)}</span> <span class="meta">you${p.from === undefined ? "" : " · edited from «" + esc(p.from) + "»"}</span>`
+    + `${t.editable && k > 0 ? button("Up", { $: "Track", name: t.name, op: "move", n: p.n, to: k }) : ""}${t.editable && k < t.pins.length - 1 ? button("Down", { $: "Track", name: t.name, op: "move", n: p.n, to: k + 2 }) : ""}`
+    + `${t.editable || t.orphaned ? button("Drop", { $: "Track", name: t.name, op: "drop", n: p.n }) : ""}</li>`;
+  // an editable track's box: text alone pins a new item; with #n (a pin)
+  // or i (the agent's item i) it edits that one (Cockpit.tracks_cmd)
+  const add = (t: TrackView, k: number) => !t.editable ? "" : `<form class="tadd" data-track="${esc(t.name)}"><input name="ref" data-keep="tref${k}" size="4" maxlength="4" placeholder="#n / i" aria-label="the item to edit (none: a new one)" autocomplete="off"><input name="text" data-keep="ttext${k}" maxlength="${Explain.PIN_TEXT}" placeholder="Pin an item for ${esc(t.name)}, or edit one" aria-label="the item's text" autocomplete="off"></form>`;
+  const track = (t: TrackView, k: number) => {
     const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "").map((x) => `<span class="meta">${esc(x)}</span>`).join(" ");
-    return `<section class="xcard track"><h3>${esc(t.name)}${t.title === undefined ? "" : " · " + esc(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item).join("")}${t.pins.map(pin).join("")}</ul></section>`;
+    return `<section class="xcard track"><h3>${esc(t.name)}${t.title === undefined ? "" : " · " + esc(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item(t)).join("")}${t.pins.map(pin(t)).join("")}</ul>${add(t, k)}</section>`;
   };
   const tracks = v.tracks ?? [];
   const cards = tracks.length === 0 ? `<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>` : `<div class="xcards">${tracks.map(track).join("")}</div>`;

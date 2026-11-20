@@ -318,6 +318,7 @@ function chat(): void {
   $("#page").addEventListener("submit", memory_find);
   $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
+  $("#page").addEventListener("submit", track_edit);
   $("#page").addEventListener("submit", files_find);
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
@@ -1686,6 +1687,26 @@ function note_edit(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   act({ $: "Note", name: form.dataset.note!, text: form.querySelector("textarea")!.value });
+}
+
+// a track's box sent: a pin added, or the item its ref names edited (the
+// server checks it: Chat.track); a slip said as a note
+function track_edit(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.tadd");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  const name = form.dataset.track ?? "";
+  const ref = (form.querySelector<HTMLInputElement>('input[name="ref"]')?.value ?? "").trim();
+  const box = form.querySelector<HTMLInputElement>('input[name="text"]')!;
+  const made = Cockpit.tracks_cmd(v, (ref === "" ? "add " + name : "edit " + name + " " + ref) + " " + box.value);
+  if (typeof made === "string") {
+    toast(made);
+    return;
+  }
+  act(made);
+  box.value = "";
 }
 
 // the Tracks page's box sent: a question for the observer, answered on

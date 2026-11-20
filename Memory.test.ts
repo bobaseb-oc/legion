@@ -74,3 +74,23 @@ test("view.json's lists, not lists, load as none", () => {
   expect(mem.routines).toEqual([]);
   expect(mem.timers).toEqual([]);
 });
+
+// Tracks (PLP-2895): the user's pins per track, kept in view.json and
+// load-guarded like `assigned` (RED ZONE DRAFT)
+const track = { pins: [{ n: 1, text: "Write the migration", status: "pending", at: 5 }, { n: 3, text: "Ship it", status: "doing", at: 6, since: 6 }], next: 3, dropped: ["old item"] };
+
+test("AC11a: saved pins round-trip through Memory.load", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const mem = Memory.load(dir, () => ({}) as any);
+  (mem as any).tracks = { Alpha: track };
+  Memory.save(mem);
+  Memory.stop(mem);
+  const again = Memory.load(dir, () => ({}) as any);
+  expect((again as any).tracks).toEqual({ Alpha: track });
+  Memory.stop(again);
+});
+
+test("AC11b: a corrupt tracks value (\"x\", [1]) loads as {}", () => {
+  expect((loaded({ tracks: "x" }) as any).tracks).toEqual({});
+  expect((loaded({ tracks: [1] }) as any).tracks).toEqual({});
+});
