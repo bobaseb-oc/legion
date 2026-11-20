@@ -690,7 +690,7 @@ function risky(mode: string, hooks: any = {}) {
   return { tools, seen };
 }
 const refuse = (risk: string) => JSON.stringify({ allow: false, risk, reason: "r" });
-const FORCED = ["git", "push", "--" + "force", "origin", "feat/x"].join(" ");
+const FORCED = ["git", "push", "--" + "force", "origin", "PLP-1-x"].join(" ");
 
 test("risk: a low refusal runs; the floor can't be lowered; medium in auto and high in super are refused", async () => {
   await reviewer(async (_told, set) => {
@@ -867,6 +867,18 @@ test("notes: a write with no text is refused, and the note's text is kept", asyn
     const out = await Tools.call(tools, "main", "notes", { write: "plan", line: "a new line" }, go(), "n2");
     expect(out.fail).toBe(true);
     expect(fs.readFileSync(dir + "/notes/plan.md", "utf8")).toContain("step one");
+  } finally {
+    Tools.close(tools);
+  }
+});
+
+test("unkeyed: an agent's shell call opening a PR without a ticket key is refused, in full mode too", async () => {
+  const { tools } = risky("full");
+  try {
+    working(tools, "Wkr");
+    const out = await Tools.call(tools, "Wkr", "shell", { device: "mac", command: ["gh", "pr", "create"].join(" ") + ' --title "Add it"' }, go(), "k");
+    expect(out.fail).toBe(true);
+    expect(out.text).toMatch(/ticket key/);
   } finally {
     Tools.close(tools);
   }

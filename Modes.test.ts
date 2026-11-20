@@ -629,3 +629,27 @@ test("decide: the table, cell by cell", () => {
   expect(Modes.decide("auto", "medium", false, true)).toBe("refuse");
   expect(Modes.decide("super", "medium", false, true)).toBe("appeal");
 });
+
+// the Jira key gate (user's call 2026-11-20): an agent's PR title and
+// pushed branch carry a ticket key; nothing else is judged
+const PR = ["gh", "pr", "create"].join(" ");
+test("unkeyed: a PR title or pushed branch without a ticket key is refused, with one it passes", () => {
+  const why = (c: string) => Modes.unkeyed(c);
+  expect(why(PR + ' --title "Add the checker" --body x')).toMatch(/ticket key/);
+  expect(why(PR + ' -t "Add the checker"')).toMatch(/ticket key/);
+  expect(why(PR + " --title=Add-the-checker")).toMatch(/ticket key/);
+  expect(why(PR + " --fill")).toMatch(/--title/);
+  expect(why("cd /x && " + PR + ' --title "Add it"')).toMatch(/ticket key/);
+  expect(why(PR + ' --title "plp-12 lowercase is no key"')).toMatch(/ticket key/);
+  expect(why('gh pr edit 5 --title "Add it"')).toMatch(/ticket key/);
+  expect(why("git push -u origin feat/checker")).toMatch(/ticket key/);
+  expect(why("git push origin HEAD:feat/checker")).toMatch(/ticket key/);
+  expect(why(PR + ' --title "PLP-123: Add the checker" --body x')).toBeNull();
+  expect(why(PR + ' -t "PLP-123: Add the checker"')).toBeNull();
+  expect(why('gh pr edit 5 --title "PLP-9: x"')).toBeNull();
+  expect(why("gh pr edit 5 --body x")).toBeNull();
+  expect(why("git push -u origin PLP-2904-checker")).toBeNull();
+  expect(why("git push origin HEAD:PLP-2904-checker")).toBeNull();
+  expect(why("git push origin HEAD")).toBeNull();
+  expect(why("git status && gh pr list")).toBeNull();
+});

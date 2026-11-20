@@ -888,6 +888,11 @@ export namespace Tools {
     if (refused !== null) {
       return { text: refused, fail: true };
     }
+    // a PR or pushed branch with no ticket key, in every mode (Modes.unkeyed)
+    const unkeyed = name === "shell" ? Modes.unkeyed(String(args?.command ?? "")) : null;
+    if (unkeyed !== null) {
+      return { text: unkeyed, fail: true };
+    }
     if (Modes.reviews(Tools.mode_of(tools, who), name, args, config.MCP_READS)) {
       const why = await Tools.review(tools, who, name, args, signal);
       if (why !== null) {
