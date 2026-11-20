@@ -1,0 +1,25 @@
+README.md
+  s_f25dc952aff0fa::t_3232d6a5eff794 337-341
+Rules.test.ts
+  s_f25dc952aff0fa::t_a94dec8cbd28fe 47-49,54
+Rules.ts
+  s_f25dc952aff0fa::t_dd1ee1cd466705 44-45,124-126,139,144
+tasks/todo.md
+  s_f25dc952aff0fa::t_8d39721968f825 1262,1266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9f0c37bdba3afa717cb96d256a3f803dae6a4b1",
+  "prompts": {},
+  "sessions": {
+    "s_f25dc952aff0fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59a82d42-a6e5-4f18-ad5d-d573ea879eac",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
