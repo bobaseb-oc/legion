@@ -2,10 +2,11 @@
 // =======
 // RED ZONE (R4, DRAFT awaiting the user's sign-off): the approvals
 // waiting for the user (auto mode's consents) or a boss (super mode's
-// appeals), kept in view.json so a restart re-shows them. Disk never says
-// yes: a record read at load only asks again; a grant is made in memory by
-// the user's live yes (Server.ts Chat.consented), bound to the call's
-// fingerprint, used once, expiring. Shown text comes from the hashed args.
+// appeals), kept in view.json so a restart re-shows the consents (an open
+// appeal it cuts). Disk never says yes: a record read at load only asks
+// again; a grant is made in memory by the user's live yes (Server.ts
+// Chat.consented), bound to the call's fingerprint, used once, expiring.
+// Shown text comes from the hashed args.
 
 export type Kind  = "consent" | "appeal";
 export type State = "open" | "yes" | "no" | "cut" | "expired";

@@ -760,8 +760,8 @@ export namespace Tools {
     const list = (tools.appeals ??= new Map());
     const id = Tools.numbered(tools);
     const what = Tools.shown(name, args);
-    // RED ZONE (R4, DRAFT awaiting the user's sign-off): kept on disk to be
-    // shown as cut after a restart (Pending.restart); never answered from there
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): kept on disk; a
+    // restart closes it as cut (Pending.restart), never shown or answered again
     const now = Date.now();
     const key = Pending.canon(args);
     if (key.length <= Pending.ARGS) {
