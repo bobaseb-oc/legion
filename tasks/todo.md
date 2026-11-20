@@ -1225,3 +1225,22 @@ Constraints: red test first per item, mutation check, RED ZONE markers as DRAFT 
 - Not verified live: Touch ID itself and a real legion-key read; the web status line, keys and badge in a real browser; the terminal status block and OSC 52 copy in a real TTY; a real device streaming output.
 - Residual risks: an agent can edit local/legion-key/main.swift, so the next start rebuilds it and macOS asks whether the new build may use each key (Deny unless you expected a new build); a disguised command in full mode runs as the same macOS user and can still forge local state; the Google grant and Harvest token still use security-trusting prompts; with workers > 0 the fd-mode server refuses to start.
 - [ ] Clean out work-tasks/ and the worker worktrees (user's ask) after the PR
+
+## Risk-adjusted reviewer; boss may overrule scope refusals in super mode (feat/risk-reviewer, RED ZONE, user's ask 2026-11-20)
+Why: of 404 distinct refusals in ~/.unii, about 153 cite step order or checks not yet run (the prompt already bans this), and 172 cite limits a boss wrote into a task.
+Design (approved 2026-11-20): Haiku labels risk, deterministic code decides. The code floor can only raise the risk.
+
+| risk | Haiku allow | Haiku refuse, auto | Haiku refuse, super |
+|---|---|---|---|
+| low (local, reversible) | run | run | run |
+| medium (hard to undo locally, or a remote write) | run | refuse | sub-agent: waits for its boss's `overrule`; main: refuse |
+| high (floor) | run (Haiku found the user approved it) | refuse | refuse (only the user) |
+
+Decisions (mine, for review): the direct boss (who wrote the task) overrules, not always main; a call waits APPEAL_MS = 10 min, then the refusal stands; a stop is a refusal; each overrule is noted in the user's chat (hooks.note); the action shown to the boss is fenced as untrusted data; a reply with no or unknown risk counts as high.
+
+- [ ] Red tests, Modes.test.ts: `Modes.floor` (force-push, push to main/master, prod profiles, deploy, publish, merge, SECRETS → high; rm, `branch -D`, `worktree remove --force`, kill, `reset --hard`, any push → medium; else low); `Modes.decide` covers every cell of the table; unknown risk → high
+- [ ] Red tests, Tools.test.ts: low refusal runs; medium in auto refused; medium in super waits, boss `overrule` runs it, another agent can't answer it, timeout or stop refuses; high refused in super; main's medium refused; a floor-high call that Haiku labels low stays refused
+- [ ] Modes.ts: `floor`, `decide`
+- [ ] Tools.ts: REVIEW prompt (risk field, allow-examples from the logs), `reviewed` parses risk, `review` uses decide, appeals map, `overrule` tool for bosses
+- [ ] Proof: `bun run test` green; mutation check (each rule reverted fails a test)
+- [ ] User: sign off the Red Zone draft
