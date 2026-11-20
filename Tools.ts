@@ -160,8 +160,9 @@ export type Moved = {
 // pick: the chat's pick; halt: what stops its turn; note: a note in the
 // chat, as Chat.note; viewed: whether a view of the user's is open;
 // shells: the views told the shell commands running (Tools.shells);
-// pinned: an agent's marks on the user's pins on its track, status only
-// (Server.ts Chat.pinned: no tool here reads or writes the pins), the pins after)
+// pinned: an agent's marks on the user's pins on its track, status only,
+// with its list's texts as set (Server.ts Chat.pinned: no tool here reads
+// or writes the pins), the pins after)
 type Hooks = {
   push   : (agent: Agent, kind: Kind, text: string) => void;
   on     : (agent: Agent, ev: Event) => void;
@@ -173,7 +174,7 @@ type Hooks = {
   viewed?: () => boolean;
   shells?: () => void; // the shell commands running changed (B2: Tools.shells)
   boss?  : (text: string) => void; // Unii hears a refused call of one it started (Tools.appeal): a turn of its own
-  pinned?: (who: string, marks: Array<{ n: number; status: Todo["status"] }>) => Mine[];
+  pinned?: (who: string, marks: Array<{ n: number; status: Todo["status"] }>, texts: string[]) => Mine[];
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -1902,7 +1903,7 @@ export namespace Tools {
     const marks = (Array.isArray(pinned) ? pinned : [])
       .filter((m: any) => Number.isInteger(m?.n) && known.includes(m?.status))
       .map((m: any) => ({ n: m.n as number, status: m.status as Todo["status"] }));
-    const pins = tools.hooks.pinned?.(who, marks) ?? [];
+    const pins = tools.hooks.pinned?.(who, marks, list.map((x) => x.text)) ?? [];
     agent.todo = list.length === 0 ? undefined : list;
     tools.hooks.change();
     const box = { pending: "[ ]", doing: "[>]", done: "[x]" };

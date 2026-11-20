@@ -107,6 +107,19 @@ test("AC11b (pinned): more than 10 saved pins on a track load cut to the first 1
   expect(mem.tracks.Many.next).toBe(12);
 });
 
+// review (2026-11-20, RED ZONE DRAFT): a track's "dropped by you" marks
+// load capped like the agent's own list (Tools' TODOS 20, TODO_TEXT 120)
+test("AC11b (review): a saved track with 500 dropped entries loads with the last 20", () => {
+  const dropped = Array.from({ length: 500 }, (_, k) => "item " + k);
+  const mem = loaded({ tracks: { D: { pins: [], next: 0, dropped } } }) as any;
+  expect(mem.tracks.D.dropped).toEqual(dropped.slice(-20));
+});
+
+test("AC11b (review): saved dropped entries not strings are dropped, a long one cut to 120 characters", () => {
+  const mem = loaded({ tracks: { D: { pins: [], next: 0, dropped: [1, null, { text: "x" }, ["y"], "ok", "z".repeat(300)] } } }) as any;
+  expect(mem.tracks.D.dropped).toEqual(["ok", "z".repeat(120)]);
+});
+
 test("AC11b (pinned): a saved pin over 500 characters is dropped; a 500-character one kept", () => {
   const mem = loaded({ tracks: { Long: { pins: [pin(1, { text: "x".repeat(501) }), pin(2, { text: "y".repeat(500) })], next: 2, dropped: [] } } }) as any;
   expect(mem.tracks.Long.pins.map((p: any) => [p.n, p.text.length])).toEqual([[2, 500]]);

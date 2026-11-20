@@ -202,10 +202,14 @@ export function explain_ago(ex: Explain, now: number): string {
 // Each edit returns the new Track, or why it is refused; a pin's n is
 // never reused (next only grows)
 
-// pins per track, a pin's characters, the user's edits a minute per chat
-export const PINS     = 10;
-export const PIN_TEXT = 500;
-export const EDITS    = 30;
+// pins per track, a pin's characters, the user's edits a minute per chat;
+// a track's "dropped by you" marks kept, and each one's characters (as
+// Tools' TODOS and TODO_TEXT: a mark is an agent item's text)
+export const PINS         = 10;
+export const PIN_TEXT     = 500;
+export const EDITS        = 30;
+export const DROPPED      = 20;
+export const DROPPED_TEXT = 120;
 
 const STATUSES: readonly Todo["status"][] = ["pending", "doing", "done"];
 
@@ -268,6 +272,15 @@ export function track_move(t: Track, n: number, to: number): Track | string {
 
 export function track_drop(t: Track, n: number): Track | string {
   return t.pins.some((p) => p.n === n) ? { ...t, pins: t.pins.filter((p) => p.n !== n) } : "No pinned item #" + n + ".";
+}
+
+// the user's "dropped by you" marks kept only for texts the agent's list
+// (as todo just set it) still holds. Invariant (review 2026-11-20): once
+// the agent removes the item, its mark goes, so the same text added again
+// later is not shown as dropped; the marks never outgrow the list
+export function track_seen(t: Track, texts: string[]): Track {
+  const dropped = t.dropped.filter((d) => texts.includes(d));
+  return dropped.length === t.dropped.length ? t : { ...t, dropped };
 }
 
 // the agent's marks (Tools.todo's pinned): a known pin's status only, by

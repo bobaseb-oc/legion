@@ -364,7 +364,7 @@ export namespace Chat {
       note   : (text) => Chat.note(chat, text),
       viewed : () => Chat.viewed(chat),
       shells : () => Chat.shelled(chat),
-      pinned : (who, marks) => Chat.pinned(chat, who, marks),
+      pinned : (who, marks, texts) => Chat.pinned(chat, who, marks, texts),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -2521,13 +2521,15 @@ const LIKES = 30;
   // RED ZONE (user authority over agents; DRAFT awaiting the user's
   // sign-off): an agent's marks on its own track's pins (Tools.todo's
   // pinned, through hooks.pinned: Tools.ts never touches mem.tracks):
-  // status only, by an existing n (Explain.track_status); the pins after
-  export function pinned(chat: Chat, who: string, marks: Array<{ n: number; status: Todo["status"] }>): Mine[] {
+  // status only, by an existing n (Explain.track_status); the pins after.
+  // texts: the agent's list as todo sets it, so the user's "dropped by
+  // you" marks for items no longer on it go (Explain.track_seen)
+  export function pinned(chat: Chat, who: string, marks: Array<{ n: number; status: Todo["status"] }>, texts: string[]): Mine[] {
     const t = Object.hasOwn(chat.mem.tracks, who) ? chat.mem.tracks[who] : undefined;
-    if (t === undefined || marks.length === 0) {
-      return t?.pins ?? [];
+    if (t === undefined) {
+      return [];
     }
-    const next = Explain.track_status(t, marks, Date.now());
+    const next = Explain.track_status(Explain.track_seen(t, texts), marks, Date.now());
     if (JSON.stringify(next) !== JSON.stringify(t)) {
       chat.mem.tracks[who] = next;
       Memory.save(chat.mem);

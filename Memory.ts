@@ -74,7 +74,7 @@ import type { Assignment, Decided, Draft, Hit, Mine, Pin, Question, Summary, Tra
 import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import * as Routines from "./Routines.ts";
 import type { Routine, Timer } from "./Routines.ts";
-import { explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
+import { DROPPED, DROPPED_TEXT, explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
 import { gchat_new, type Gchat } from "./Gchat.ts";
 import * as config from "./Config.ts";
 import { Disk } from "./Disk.ts";
@@ -381,7 +381,9 @@ export namespace Memory {
         continue;
       }
       const pins = v.pins.flatMap(pin).filter((p: Mine) => p.n <= v.next).slice(0, TRACK_PINS);
-      const dropped = Array.isArray(v.dropped) ? v.dropped.filter((d: unknown) => typeof d === "string") : [];
+      // the "dropped by you" marks: strings only, each cut to DROPPED_TEXT,
+      // the last DROPPED kept (the newest; a file can't grow the list)
+      const dropped = Array.isArray(v.dropped) ? v.dropped.filter((d: unknown) => typeof d === "string").map((d: string) => d.slice(0, DROPPED_TEXT)).slice(-DROPPED) : [];
       out[name] = { pins, next: v.next, dropped, ...(Number.isFinite(v.queued) ? { queued: v.queued } : {}) };
     }
     return out;

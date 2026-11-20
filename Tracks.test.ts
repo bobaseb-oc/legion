@@ -422,6 +422,37 @@ test("AC21: the reminder's turn bills its tokens: the usage its request tells gr
   expect(out.billed).toBeCloseTo(out.control, 10);
 }, WAIT);
 
+// review (2026-11-20, RED ZONE DRAFT): an agent item the user dropped is
+// marked "dropped by you" while the agent's list still holds its text;
+// once the list no longer does, the mark goes (Chat.pinned, as todo sets
+// the list), so the same text added again later shows no mark
+const DROPS = PRE(false) + `
+const w = await start("drop work", true);
+await Bun.sleep(200);
+const marks = () => (view(w)?.items ?? []).map((x) => [x.text, x.dropped === true]);
+const kept = () => JSON.parse(JSON.stringify(chat.mem.tracks?.[w]?.dropped ?? null));
+await todo(w, { items: [{ text: "own x", status: "pending" }, { text: "own y", status: "pending" }] });
+const drop = await track("d1", { name: w, op: "drop", i: 1, was: "own x" });
+const shown = { marks: marks(), kept: kept() };
+await todo(w, { items: [{ text: "own x", status: "pending" }, { text: "own y", status: "doing" }] });
+const still = { marks: marks(), kept: kept() };
+await todo(w, { items: [{ text: "own y", status: "doing" }] });
+const gone = { marks: marks(), kept: kept() };
+await todo(w, { items: [{ text: "own x", status: "pending" }, { text: "own y", status: "doing" }] });
+const again = { marks: marks(), kept: kept() };
+console.log(JSON.stringify({ drop, shown, still, gone, again }));
+process.exit(0);
+`;
+
+test("AC17 (review): an agent item the user dropped is marked till the agent's list loses its text; the same text re-added shows no mark", async () => {
+  const out = await server("drops.ts", DROPS);
+  expect(out.drop).toEqual({});
+  expect(out.shown).toEqual({ marks: [["own x", true], ["own y", false]], kept: ["own x"] });
+  expect(out.still).toEqual({ marks: [["own x", true], ["own y", false]], kept: ["own x"] });
+  expect(out.gone).toEqual({ marks: [["own y", false]], kept: [] });
+  expect(out.again).toEqual({ marks: [["own x", false], ["own y", false]], kept: [] });
+}, WAIT);
+
 // pinned (PLP-2895, RED ZONE DRAFT): who may edit a track, by which
 // address, and when its notes go out; real time (one NOTE_GAP wait for all)
 const EDITS = PRE(false) + `
