@@ -789,3 +789,73 @@ test("risk: the reviewer is asked for a risk label and told what each level is",
     }
   });
 });
+
+// notes (PLP-2899 L2): Unii's tool alone; a bad name refused before any
+// file call; a read fenced as untrusted data, never instructions
+function noting(): { tools: any; base: string; dir: string } {
+  const base = fs.mkdtempSync(os.tmpdir() + "/unii-notes-");
+  const dir = base + "/u";
+  fs.mkdirSync(dir);
+  const tools = Tools.serve({ dir, mode: "auto", count: 0 } as any, { change: () => {} } as any);
+  return { tools, base, dir };
+}
+
+// every file under `root`, as paths relative to it
+function files_under(root: string): string[] {
+  return fs.readdirSync(root, { withFileTypes: true, recursive: true })
+    .filter((e) => !e.isDirectory())
+    .map((e) => (e.parentPath + "/" + e.name).slice(root.length + 1))
+    .sort();
+}
+
+test("L2-AC2: the notes tool refuses a write to ../x; no file outside notes/ exists", async () => {
+  const { tools, base } = noting();
+  try {
+    const out = await Tools.call(tools, "main", "notes", { write: "../x", text: "t" }, go(), "n1");
+    expect(out.fail).toBe(true);
+    expect(files_under(base).filter((f) => !f.startsWith("u/notes/"))).toEqual([]);
+    expect(files_under(base)).not.toContain("x.md");
+    expect(files_under(base)).not.toContain("u/x.md");
+    // the tool exists and writes a good name (else the refusal proves nothing)
+    expect((await Tools.call(tools, "main", "notes", { write: "ok", line: "fine", text: "t" }, go(), "n2")).fail).toBe(false);
+  } finally {
+    Tools.close(tools);
+  }
+});
+
+test("L2-AC4: a sub-agent Wkr writing a note is told only Unii keeps notes, and fails", async () => {
+  const { tools, dir } = noting();
+  try {
+    working(tools, "Wkr");
+    const out = await Tools.call(tools, "Wkr", "notes", { write: "mine", line: "l", text: "t" }, go(), "n1");
+    expect(out.fail).toBe(true);
+    expect(out.text).toContain("Only Unii keeps notes");
+    expect(fs.existsSync(dir + "/notes/mine.md")).toBe(false);
+  } finally {
+    Tools.close(tools);
+  }
+});
+
+test("L2-AC5: Tools.list for Wkr has no notes tool; Unii's has it", () => {
+  const { tools } = noting();
+  try {
+    working(tools, "Wkr");
+    expect(Tools.list(tools, "Wkr").map((t) => t.name)).not.toContain("notes");
+    expect(Tools.list(tools, "main").map((t) => t.name)).toContain("notes");
+  } finally {
+    Tools.close(tools);
+  }
+});
+
+test("N5: a note read through the tool is fenced as untrusted notes", async () => {
+  const { tools } = noting();
+  try {
+    expect((await Tools.call(tools, "main", "notes", { write: "plan", line: "the plan", text: "step one" }, go(), "n1")).fail).toBe(false);
+    const read = await Tools.call(tools, "main", "notes", { read: "plan" }, go(), "n2");
+    expect(read.fail).toBe(false);
+    expect(read.text.startsWith('<untrusted source="notes">')).toBe(true);
+    expect(read.text).toContain("step one");
+  } finally {
+    Tools.close(tools);
+  }
+});

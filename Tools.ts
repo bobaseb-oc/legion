@@ -47,6 +47,7 @@ import { Search } from "./Search.ts";
 import { Fetch } from "./Fetch.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
+import * as Notes from "./Notes.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
 import type { Assignment, Crew, Decided, Draft, Live, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
@@ -446,6 +447,8 @@ const ASK = spec("ask", "File a question for the user in their backlog of questi
 // Harvest only by the user's Submit; at most DRAFTS kept
 const TIMESHEET = spec("timesheet", "File drafts of the user's Harvest time entries for their review on the Timesheet page; only the user submits them to Harvest. entries: each with project_id and task_id (from harvest's projects), project and task (their names), date (YYYY-MM-DD), hours (in hundredths, at most 24 a day), notes (what was done, as the user would write it) and why (your evidence: calendar events, PRs, commits, tickets). Read harvest's entries first and don't draft time already logged. clear: true drops your drafts not yet sent.", { entries: { type: "array", items: { type: "object" } }, clear: { type: "boolean" } }, []);
 const NOTIFY = spec("notify", "Put a short note in the user's pane beside their questions, to keep them in the loop without asking anything: a decision you made and why, a milestone done or an agent's result worth knowing, a risk or a change of plan, something they should look at when they can. One thing per note, said in full in a few lines (it is read apart from the chat). No answer is awaited; they may dismiss it or reply. Don't note routine progress the chat already shows.", { text: STR }, ["text"]);
+// Unii's notes across runs (PLP-2899 L2: Notes.ts), its tool alone
+const NOTEBOOK = spec("notes", "Your notes, kept across runs: facts about the user and their work worth knowing next time (who they are, how they like things done, what a project is and where it stands), one note per topic. Their index is at the start of your messages; the user sees each note, and may edit or drop it. No args: the index. read: a note's name, its text. write: a name (lower case, digits, -) with line (its one-line index entry) and text (the whole note, replacing it). drop: a name, the note gone. A secret in a note is redacted.", { read: STR, write: STR, line: STR, text: STR, drop: STR }, []);
 // what an agent needs the user to do (any agent: Tools.assign), on their
 // Todo page till they tick it Done or drop it; at most ASSIGNS open
 const ASSIGNS = 30;
@@ -615,7 +618,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, NOTIFY, NOTEBOOK, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -913,6 +916,9 @@ export namespace Tools {
       }
       case "notify": {
         return Tools.notify(tools, who, args);
+      }
+      case "notes": {
+        return Tools.notes(tools, who, args);
       }
       case "timesheet": {
         return Tools.timesheet(tools, who, args);
@@ -1739,6 +1745,36 @@ export namespace Tools {
     Memory.save(mem);
     tools.hooks.change();
     return { text: "Noted for the user as note " + q.id + "; no answer is awaited.", fail: false };
+  }
+
+  // Unii's notes (Notes.ts): its own (N1); what it reads back fenced as
+  // data (N5), as a note may hold what a page or a mail said
+  export function notes(tools: Tools, who: string, args: any): Out {
+    if (who !== "main") {
+      return { text: "Only Unii keeps notes: put what is worth keeping in your report.", fail: true };
+    }
+    const dir = tools.mem.dir;
+    const said = (got: Notes.Note | true | string, ok: string): Out => (typeof got === "string" ? { text: got, fail: true } : { text: ok, fail: false });
+    if (typeof args?.drop === "string") {
+      return said(Notes.notes_drop(dir, args.drop), "Dropped note " + args.drop + ".");
+    }
+    if (typeof args?.write === "string") {
+      const line = typeof args.line === "string" ? args.line : null;
+      return said(Notes.notes_write(dir, args.write, line, String(args.text ?? "")), "Wrote note " + args.write + ".");
+    }
+    if (typeof args?.read === "string") {
+      const note = Notes.notes_read(dir, args.read);
+      return typeof note === "string" ? { text: note, fail: true } : { text: Google.fence("notes", note.name + " — " + note.line + "\n\n" + note.text, "A note Legion wrote earlier"), fail: false };
+    }
+    const index = Notes.notes_index(dir);
+    return { text: index === "" ? "No notes yet." : Google.fence("notes", index, "Notes Legion wrote earlier"), fail: false };
+  }
+
+  // Unii's notes index, fenced, at the start of its calls' messages; no
+  // notes: no block
+  export function notes_block(tools: Tools): Block[] {
+    const index = Notes.notes_index(tools.mem.dir);
+    return index === "" ? [] : [{ text: Google.fence("notes", index, "Notes Legion wrote earlier") + "\n\n", mark: false }];
   }
 
   // an action for the user filed by any agent (its text one line of spaces,
