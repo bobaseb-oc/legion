@@ -1,0 +1,29 @@
+Pending.ts
+  s_86d60a7889a432::t_583397fc115697 5-9
+Tools.ts
+  s_90d85f87c9cbc8::t_43949318e07ca3 763-764
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2df9509b17c77ac48dddb433b915a5ed03f2e536",
+  "prompts": {},
+  "sessions": {
+    "s_86d60a7889a432": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "VioletSpider",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_90d85f87c9cbc8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "SwiftElk",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
