@@ -55,6 +55,7 @@ import * as Explain from "./Explain.ts";
 import * as Gchat from "./Gchat.ts";
 import * as Notes from "./Notes.ts";
 import { Directives } from "./Directives.ts";
+import * as Pending from "./Pending.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
@@ -356,6 +357,11 @@ export namespace Chat {
     const acct = { cloud, user: user.id };
     const dir = config.DIR + "/users/" + user.id;
     const mem = Memory.load(dir, () => Chat.share(chat), (id, ans) => Cloud.act_put(acct, id, ans));
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): the approvals the
+    // last process left open: a consent past its time expired, an appeal
+    // cut; the rest only shown again (no record read here says yes, P1)
+    mem.pending = Pending.restart(mem.pending, Date.now());
+    Memory.save(mem);
     const tools = Tools.serve(mem, {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
       on     : (agent, ev) => Chat.on(chat, agent, ev),
@@ -368,6 +374,7 @@ export namespace Chat {
       viewed : () => Chat.viewed(chat),
       shells : () => Chat.shelled(chat),
       pinned : (who, marks, texts) => Chat.pinned(chat, who, marks, texts),
+      pended : () => Memory.save(chat.mem),
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,
@@ -461,9 +468,25 @@ export namespace Chat {
   }
 
   // stops a chat for good; done at rest, its work logged where it was cut
+  // the process going (its exit: a supervised restart's SIGTERM, a lone
+  // server's): every chat stopped at once, as Chat.end does, its waits
+  // left open on disk.
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): without ending set,
+  // each cut wait would close as no and a restart erase it (P10)
+  export function quit(): void {
+    for (const chat of Chat.chats.values()) {
+      chat.tools.ending = true;
+      Chat.stop(chat, null);
+      Memory.stop(chat.mem);
+    }
+  }
+
   export function end(chat: Chat): Promise<void> {
     Chat.chats.delete(chat.acct.user);
     chat.socks.forEach((sock) => sock.close());
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): the waits cut
+    // here stay open on disk, for the next process to show again (P10)
+    chat.tools.ending = true;
     Chat.stop(chat, null);
     Memory.stop(chat.mem);
     return new Promise((done) => {
@@ -880,6 +903,35 @@ export namespace Chat {
     Chat.unanswered(chat, agent);
     Chat.live(chat, agent, []);
     Chat.work(chat, text, !stopped && !agent.user);
+  }
+
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's answer
+  // to a waiting call (the consent act, behind SAYS: never a device's). A
+  // live wait takes it; else a record a restart cut: a yes grants one
+  // identical re-issue (P2, the one place a grant is made), its agent told
+  export function consented(chat: Chat, n: number, yes: boolean): Answer {
+    if (Tools.consent(chat.tools, n, yes)) {
+      return {};
+    }
+    const p = Tools.regrant(chat.tools, n, yes);
+    if (p === null) {
+      return { error: "No call " + n + " waits for you." };
+    }
+    if (!yes) {
+      Chat.note(chat, "Call " + n + " of " + p.who + " refused.");
+      return {};
+    }
+    const text = "The user approved your call " + n + " (" + p.tool + "), cut by a restart: make it again exactly as before within " + Math.round(Pending.GRANT_MS / 60_000) + " minutes; any change asks again.";
+    if (p.who === "main") {
+      Chat.work(chat, text, true);
+    } else {
+      void Tools.tell(chat.tools, "main", p.who, text).then((out) => {
+        if (out.fail) {
+          Chat.note(chat, "Call " + n + " of " + p.who + " approved, but " + p.who + " was not told: " + out.text);
+        }
+      });
+    }
+    return {};
   }
 
   // a work message to Unii, logged; taken as a turn of its own (take, and
@@ -1621,7 +1673,7 @@ export namespace Chat {
         return {};
       }
       case "consent": {
-        return Tools.consent(chat.tools, Number(msg.n), msg.yes === true) ? {} : { error: "No call " + msg.n + " waits for you." };
+        return Chat.consented(chat, Number(msg.n), msg.yes === true);
       }
       case "plan": {
         return Chat.verdict(chat, id, msg.yes === true, msg.mode, msg.text === undefined || msg.text === null ? "" : String(msg.text).trim());
@@ -2724,7 +2776,16 @@ const LIKES = 30;
     due.forEach((r) => Chat.run_routine(chat, r, now));
     Chat.stalls(chat, now);
     const rung = Chat.rang(chat, now);
-    if (due.length > 0 || rung) {
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): a shown record no
+    // live wait holds has no timer of its own: past its time, expired (P6)
+    let lapsed = false;
+    for (const p of chat.mem.pending) {
+      if (p.kind === "consent" && p.state === "open" && p.until <= now && chat.tools.consents?.has(p.id) !== true) {
+        p.state = "expired";
+        lapsed = true;
+      }
+    }
+    if (due.length > 0 || rung || lapsed) {
       Memory.save(chat.mem);
       Chat.change(chat);
     }
@@ -3635,10 +3696,7 @@ export namespace Main {
         fs.rmSync(SOCK, { force: true });
       }
       Mcp.end();
-      for (const chat of Chat.chats.values()) {
-        Chat.stop(chat, null);
-        Memory.stop(chat.mem);
-      }
+      Chat.quit();
     });
     console.log("unii: " + config.SITE + ", users in " + config.DIR + "/users, worker " + Main.index + " of " + Main.count + " on 127.0.0.1:" + port);
     // the bridge on: the grant read now, while the user who started this
