@@ -274,3 +274,43 @@ export function track_status(t: Track, marks: Array<{ n: number; status: Todo["s
   });
   return { ...t, pins };
 }
+
+// Tracks: what the agent is told
+// ==============================
+// RED ZONE (user authority over agents; DRAFT awaiting the user's
+// sign-off): an edit's note and a stall's reminder are fixed templates
+// with only the user's own text, the item the user saw, or a number: no
+// card, snapshot, PR or agent words reach an agent from here
+
+// a "doing" item unchanged this long is reminded; at most REMINDS an hour
+// an agent; an agent's notes sent once NOTE_GAP after the first
+export const STALL    = 20 * 60_000;
+export const REMINDS  = 3;
+export const NOTE_GAP = 10_000;
+
+export type Edit =
+  | { op: "add" | "edit"; n: number; text: string }
+  | { op: "copy"; n: number; text: string; was: string }
+  | { op: "move"; n: number; to: number }
+  | { op: "drop"; n: number }
+  | { op: "unlist"; was: string };
+
+export function track_note(e: Edit): string {
+  switch (e.op) {
+    case "add": return "[Tracks] The user added pinned item #" + e.n + ": «" + e.text + "».";
+    case "edit": return "[Tracks] The user changed pinned item #" + e.n + " to: «" + e.text + "».";
+    case "copy": return "[Tracks] The user replaced your item «" + e.was + "» with pinned item #" + e.n + ": «" + e.text + "». Remove your item once.";
+    case "move": return "[Tracks] The user moved pinned item #" + e.n + " to place " + e.to + ".";
+    case "drop": return "[Tracks] The user dropped pinned item #" + e.n + ".";
+    case "unlist": return "[Tracks] The user dropped your item «" + e.was + "».";
+  }
+}
+
+// the items doing for STALL or more with no change, not reminded yet
+export function track_stalls(items: Array<{ n: number; status: Todo["status"]; since?: number; reminded?: boolean }>, now: number): number[] {
+  return items.filter((x) => x.status === "doing" && x.since !== undefined && now - x.since >= STALL && x.reminded !== true).map((x) => x.n);
+}
+
+export function track_remind(n: number): string {
+  return "[Tracks] Item #" + Math.trunc(n) + " has been doing for 20 min with no change: mark it done, or say what blocks it.";
+}

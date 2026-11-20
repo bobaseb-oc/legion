@@ -32,12 +32,27 @@ How it works
   the terminal's `/crew` show the tree; questions the orchestrator has
   for you wait in a Questions pane, and what only you can do (approve a
   PR, run a login) waits on the Todo page (`#todo`, the terminal's
-  `/todos`), where Done tells the agent that filed it. The Explain page
-  (`#explain`, `g x`, the terminal's `/explain`) says in plain words, for a
-  manager, what the crew is building and why: an observer (config
-  `observer`, Haiku 5.5 by default, no tools) rewrites its cards once the
-  crew, the plan or your PRs change, at most every 5 minutes, and answers
-  your questions there, never in the chat and without interrupting Legion.
+  `/todos`), where Done tells the agent that filed it. The Tracks page
+  (`#tracks`, `g x`, the terminal's `/tracks`; `#explain` and `/explain`
+  still open it for one version) has one card per track: each agent
+  Legion started. On top, an observer (config `observer`, Haiku 5.5 by
+  default, no tools) says in plain words what the track builds and why.
+  It rewrites the cards once the crew, the plan or your PRs change, at
+  most every 5 minutes, and answers your questions there, never in the
+  chat. It reads only each track's item counts, never the items, and
+  nothing it writes reaches an agent. Below is the track's checklist:
+  the agent's own items, then your pinned items. You add, edit, move and
+  drop pins in a view only (the web, or `/tracks add|edit|move|drop`); a
+  device's socket is refused (a Red Zone draft). The agent can't undo
+  your pins: its `todo` list never touches them, and it may only set a
+  pin's status. Each edit reaches the agent as one fixed-text note per
+  10 s; an idle agent gets no turn, and the track shows "queued, agent
+  idle" till its next turn reads it. An item `doing` for 20 min with no
+  change gets one reminder (its number only), at most 3 an agent an
+  hour, and only while the agent is at work. Caps: 10 pins a track, 500
+  characters a pin, 30 edits a minute. Claude Code and computer agents'
+  tracks are read-only. Dismissing an agent drops its pins; pins of an
+  agent gone after a restart stay read-only till you drop them.
   Away from your desk, a private Google Chat space can be a second
   Questions pane (the GChat bridge, off by default; a Red Zone draft):
   each new question, note, todo and super auto decision is posted once

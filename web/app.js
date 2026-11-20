@@ -1583,6 +1583,7 @@ function explain_ago(ex, now) {
   return min < 1 ? "updated just now" : min < 120 ? "updated " + min + " min ago" : "updated " + Math.floor(min / 60) + " h ago";
 }
 var PIN_TEXT = 500;
+var STALL = 20 * 60000;
 
 // View.ts
 var BROKE = "out of credit";
@@ -2293,7 +2294,7 @@ var ROLLUP = ["working", "waiting", "asking", "failed", "stopped", "done"];
 function rollup(crew) {
   return ROLLUP.map((s) => [s, crew.filter((c) => c.status === s).length]).filter(([, n]) => n > 0).map(([s, n]) => n + " " + s).join(", ");
 }
-var STALL = 120000;
+var STALL2 = 120000;
 var LANE = { user: "told", tool: "tool", unii: "words", work: "words", note: "note", echo: "note" };
 function view_lane(v, now) {
   const page = v.page;
@@ -2314,9 +2315,9 @@ function view_lane(v, now) {
   }
   const busy = v.crew.some((c) => c.name === page.name && (c.status === "working" || c.status === "waiting"));
   const end = busy ? Math.max(now, marks[marks.length - 1].t) : marks[marks.length - 1].t;
-  const quiet = (a, b) => b - a > STALL ? [{ k: null, at: 0, kind: "stall", label: "quiet " + ago(b - a), t: (a + b) / 2 }] : [];
+  const quiet = (a, b) => b - a > STALL2 ? [{ k: null, at: 0, kind: "stall", label: "quiet " + ago(b - a), t: (a + b) / 2 }] : [];
   const all = marks.flatMap((m, i) => i === 0 ? [m] : [...quiet(marks[i - 1].t, m.t), m]);
-  const tail = busy && end - marks[marks.length - 1].t > STALL ? [{ k: null, at: 0, kind: "stall", label: "quiet " + ago(end - marks[marks.length - 1].t), t: end }] : [];
+  const tail = busy && end - marks[marks.length - 1].t > STALL2 ? [{ k: null, at: 0, kind: "stall", label: "quiet " + ago(end - marks[marks.length - 1].t), t: end }] : [];
   const t0 = marks[0].t;
   return [...all, ...tail].map((m) => ({ ...m, at: end === t0 ? 0 : (m.t - t0) / (end - t0) }));
 }

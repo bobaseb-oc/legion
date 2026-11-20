@@ -149,6 +149,8 @@ type Chat = {
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
   edits?: number[]; // when the user's track edits were taken, the last minute's (Chat.track: Explain.EDITS)
+  jots?: Map<string, string[]>; // the track notes waiting to be sent, by agent (Chat.tracked: Explain.NOTE_GAP)
+  nudged?: Map<string, number[]>; // when each agent's stall reminders went, the last hour's (Chat.stalls: Explain.REMINDS)
 };
 
 // a chat as it moves to another process (Chat.move): its user (an id:
@@ -2434,7 +2436,86 @@ const LIKES = 30;
     chat.edits = [...edits, now];
     Memory.save(chat.mem);
     Chat.change(chat);
+    if (top !== null) {
+      const at = (k: number) => next.pins.find((p) => p.n === k);
+      const edit: Explain.Edit = op === "add" ? { op, n: next.next, text: at(next.next)!.text }
+        : op === "edit" ? (n !== null ? { op, n, text: at(n)!.text } : { op: "copy", n: next.next, text: at(next.next)!.text, was: was! })
+        : op === "move" ? { op, n: n!, to: next.pins.findIndex((p) => p.n === n) + 1 }
+        : n !== null ? { op, n } : { op: "unlist", was: was! };
+      Chat.tracked(chat, name, Explain.track_note(edit));
+    }
     return {};
+  }
+
+  // RED ZONE (user authority over agents; DRAFT awaiting the user's
+  // sign-off): a track's notes (Explain.track_note templates only) sent to
+  // its agent together, NOTE_GAP after the first: at work, read between its
+  // calls; idle, kept in its log for its next turn (no Tools.run: no turn
+  // started), the track shown queued till then
+  export function tracked(chat: Chat, name: string, text: string): void {
+    const jots = chat.jots ??= new Map();
+    const waiting = jots.get(name);
+    if (waiting !== undefined) {
+      waiting.push(text);
+      return;
+    }
+    jots.set(name, [text]);
+    setTimeout(() => {
+      const texts = jots.get(name) ?? [];
+      jots.delete(name);
+      const agent = chat.tools.agents.get(name);
+      if (agent === undefined || agent.hidden === true || texts.length === 0) {
+        return;
+      }
+      const joined = texts.join(" ");
+      chat.tools.hooks.push(agent, "note", joined);
+      if (agent.call !== null || agent.runs === true) {
+        agent.call?.send({ text: "note: " + joined, imgs: [] });
+      } else if (Object.hasOwn(chat.mem.tracks, name)) {
+        chat.mem.tracks[name] = { ...chat.mem.tracks[name]!, queued: Date.now() };
+        Memory.save(chat.mem);
+      }
+      Chat.change(chat);
+    }, Explain.NOTE_GAP).unref?.();
+  }
+
+  // RED ZONE (who may start unattended work; DRAFT awaiting the user's
+  // sign-off): each track's items doing STALL with no change reminded once
+  // (Explain.track_remind: a number only), at most REMINDS an agent an
+  // hour, and only to an agent at work: the gate sits here because
+  // Tools.remind starts an idle agent's turn. The agent's items go by
+  // place, the user's pins by n
+  export function stalls(chat: Chat, now: number): number {
+    const nudged = chat.nudged ??= new Map();
+    let sent = 0;
+    let pinned = false;
+    for (const agent of chat.tools.agents.values()) {
+      if (agent.parent !== "main" || agent.hidden === true || agent.role.$ !== "sub" || (agent.call === null && agent.runs !== true)) {
+        continue;
+      }
+      const hour = (nudged.get(agent.name) ?? []).filter((t) => now - t < 3_600_000);
+      const items = agent.todo ?? [];
+      const t = Object.hasOwn(chat.mem.tracks, agent.name) ? chat.mem.tracks[agent.name] : undefined;
+      const due = [
+        ...Explain.track_stalls(items.map((x, i) => ({ ...x, n: i + 1 })), now).map((n) => ({ n, mark: () => (items[n - 1]!.reminded = true) })),
+        ...Explain.track_stalls(t?.pins ?? [], now).map((n) => ({ n, mark: () => ((t!.pins.find((p) => p.n === n)!.reminded = true), (pinned = true)) })),
+      ];
+      for (const d of due) {
+        if (hour.length >= Explain.REMINDS) {
+          break;
+        }
+        if (!Tools.remind(chat.tools, agent.name, Explain.track_remind(d.n)).fail) {
+          d.mark();
+          hour.push(now);
+          sent += 1;
+        }
+      }
+      nudged.set(agent.name, hour);
+    }
+    if (pinned) {
+      Memory.save(chat.mem);
+    }
+    return sent;
   }
 
   // RED ZONE (user authority over agents; DRAFT awaiting the user's
@@ -2583,6 +2664,7 @@ const LIKES = 30;
   export function ticked(chat: Chat, now: number): number {
     const due = chat.mem.routines.filter((r) => Routines.routine_due(r, now));
     due.forEach((r) => Chat.run_routine(chat, r, now));
+    Chat.stalls(chat, now);
     const rung = Chat.rang(chat, now);
     if (due.length > 0 || rung) {
       Memory.save(chat.mem);
