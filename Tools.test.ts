@@ -1157,7 +1157,7 @@ test("an appeal is kept as an open record; its boss's yes closes it yes, a no cl
 // the yes the user gave a re-shown call (user's call 2026-11-22), as it
 // takes back the stopped agents' timers
 test("P3, Stop: stopping all work cancels a grant; the identical call waits again", async () => {
-  await reviewer(async (told, set) => {
+  await reviewer(async (_told, set) => {
     set(UNSURE);
     const { tools } = await granted("main", "shell", DEPLOY);
     Tools.stop(tools, null);
@@ -1166,7 +1166,7 @@ test("P3, Stop: stopping all work cancels a grant; the identical call waits agai
 });
 
 test("P3, Stop: stopping one agent cancels its grants only", async () => {
-  await reviewer(async (told, set) => {
+  await reviewer(async (_told, set) => {
     set(UNSURE);
     const { tools } = await granted("Wkr", "shell", DEPLOY);
     const Pending = await import("./Pending.ts");
