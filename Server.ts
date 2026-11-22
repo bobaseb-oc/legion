@@ -1014,7 +1014,7 @@ export namespace Chat {
       chat.posts += 1;
       const works: Msg[] = [];
       for (const e of due) {
-        // the time too: an id a reset view.json reuses names a new act (AC21)
+        // the time too: an id a reset view.json reuses names a new act
         const act = "event-" + e.id + "-" + e.at;
         // only main reads the inbox: an event to anyone else, from disk, fails
         if (e.to !== "main") {
