@@ -125,6 +125,14 @@ How it works
   dismissing the agent, takes that yes back). Nothing saved
   on disk counts as a yes. A wait expires as a no after 24 hours, and a
   boss's appeal cut by a restart closes as a no (Red Zone draft).
+  Everything that reaches Legion goes through one inbox: your consents,
+  your GChat replies, and events a device posts (the `event` act: a note
+  or work for Unii, one per source and key, at most 50 waiting). A
+  device's event waits until a view is open and reaches Unii fenced as
+  untrusted; it can never answer an approval. After a restart nothing
+  read back from disk counts as yours: an undelivered event waits for a
+  view and arrives fenced, a half-done approval or reply is closed, and
+  an event cut three times is dropped with a note (Red Zone draft).
 - **A cockpit.** The web has Home (who needs you, stats, agents with an
   estimated cost, activity), an Inbox (review requests, your PRs and
   their CI state, Jira tickets, worktrees to clean up), Routines and a

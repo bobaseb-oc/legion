@@ -56,6 +56,7 @@ import * as Gchat from "./Gchat.ts";
 import * as Notes from "./Notes.ts";
 import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
+import * as Events from "./Events.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
 import { MASTER, SEARCHES, Tools, type Agent, type Live, type Moved as Kit } from "./Tools.ts";
@@ -361,6 +362,10 @@ export namespace Chat {
     // last process left open: a consent past its time expired, an appeal
     // cut; the rest only shown again (no record read here says yes, P1)
     mem.pending = Pending.restart(mem.pending, Date.now());
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): an approval or a
+    // reply closed; the rest parked, untrusted, till a view opens (E6)
+    const events = Events.restart(mem.events);
+    mem.events = events.list;
     Memory.save(mem);
     const tools = Tools.serve(mem, {
       push   : (agent, kind, text) => Chat.push(chat, agent, kind, text),
@@ -396,6 +401,9 @@ export namespace Chat {
       Memory.save(mem);
       Chat.note(chat, saved + " isn't offered here, so the chat now runs on " + Pick.label(pick) + ".");
     }
+    for (const e of events.failed) {
+      Chat.note(chat, "Event " + e.key + " from " + e.src + " failed " + Events.TRIES + " times; dropped.");
+    }
     mem.pay = tools.pay = wallet.pay;
     if (mem.count === 0) {
       const hello = HELLO + "\n\n" + email_ask(cloud.billing.github !== null);
@@ -422,6 +430,9 @@ export namespace Chat {
       Memory.pump(mem);
       Chat.progress(chat);
       await Chat.resume(chat, work);
+      if (Chat.chats.get(user.id) === chat) {
+        Chat.drain(chat);
+      }
     }).finally(() => {
       chat.posts -= 1;
       Chat.change(chat);
@@ -934,6 +945,104 @@ export namespace Chat {
     return {};
   }
 
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): an event in (src from
+  // the credential, E1; a dup answers {}, E5); an approval or a reply done now
+  export async function enqueue(chat: Chat, e: Events.Ask, act: object = {}): Promise<Answer> {
+    const mem = chat.mem;
+    const out = Events.add(mem.events, e, mem.evented + 1, Date.now());
+    if ("error" in out) {
+      return { error: out.error };
+    }
+    if ("dup" in out) {
+      return {};
+    }
+    mem.events = out.list;
+    mem.evented = out.event.id;
+    Memory.save(mem);
+    if (out.event.kind === "approval") {
+      return Chat.approved(chat, out.event);
+    }
+    if (out.event.kind === "reply") {
+      return Chat.replied(chat, out.event, act);
+    }
+    Chat.drain(chat);
+    return {};
+  }
+
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): a live approval (the
+  // user's origins only, E2) answers through Chat.consented, as before
+  export function approved(chat: Chat, e: Events.Event): Answer {
+    e.state = "taken";
+    Memory.save(chat.mem);
+    const answer = Chat.consented(chat, e.ref ?? -1, e.body === "yes");
+    Chat.closed(chat, e);
+    return answer;
+  }
+
+  // a GChat reply event (Chat.bridged): its act done as a view's, once by
+  // its id (Chat.apply)
+  export async function replied(chat: Chat, e: Events.Event, act: object): Promise<Answer> {
+    e.state = "taken";
+    Memory.save(chat.mem);
+    const done = await Chat.apply(chat, { ...act, id: "gchat-" + e.key.split("/").at(-1) }, "", true);
+    Chat.closed(chat, e);
+    return done;
+  }
+
+  // an event done, the inbox trimmed (Events.keep) and saved
+  export function closed(chat: Chat, e: Events.Event): void {
+    e.state = "done";
+    chat.mem.events = Events.keep(chat.mem.events);
+    Memory.save(chat.mem);
+  }
+
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): work and notify due (a
+  // device's parked with no view, E3), fenced if not the user's (E4), act
+  // "event-" + id + "-" + at never pushed twice (E7); the work ones one turn
+  export function drain(chat: Chat): void {
+    const mem = chat.mem;
+    const parked = mem.events.filter((e) => e.state === "parked").length;
+    const due = Events.due(mem.events, Chat.viewed(chat)).filter((e) => e.kind === "work" || e.kind === "notify");
+    due.forEach((e) => (e.state = "taken"));
+    if (due.length > 0 || mem.events.filter((e) => e.state === "parked").length !== parked) {
+      Memory.save(mem);
+    }
+    if (due.length === 0) {
+      return;
+    }
+    Chat.hold(chat, () => {
+      chat.posts += 1;
+      const works: Msg[] = [];
+      for (const e of due) {
+        // the time too: an id a reset view.json reuses names a new act (AC21)
+        const act = "event-" + e.id + "-" + e.at;
+        // only main reads the inbox: an event to anyone else, from disk, fails
+        if (e.to !== "main") {
+          e.state = "failed";
+          Chat.note(chat, "Event " + e.key + " from " + e.src + " is not for Unii; dropped.");
+          continue;
+        }
+        if (Cloud.act_get(chat.acct, act) === null) {
+          const text = Events.trusted(e) ? e.body : Google.fence("event:" + (e.restarted === true ? "restart" : e.src), e.body, e.restarted === true ? "An event read back at a restart" : "An event a device posted");
+          const msg = Chat.push(chat, null, e.kind === "work" ? "work" : "note", text, [], false, act);
+          if (e.kind === "work") {
+            works.push(msg);
+          }
+        }
+        e.state = "done";
+      }
+      mem.events = Events.keep(mem.events);
+      Memory.save(mem);
+      const [first, last] = [works.at(0), works.at(-1)];
+      if (first !== undefined && last !== undefined && Chat.cloud.billing.refuse(chat.acct.user, 0) === null) {
+        Chat.take(chat, { id: first.id, end: last.end });
+      }
+      chat.posts -= 1;
+      Chat.change(chat);
+      Chat.free(chat);
+    });
+  }
+
   // a work message to Unii, logged; taken as a turn of its own (take, and
   // credit left), as a post is, so the chat never rests between the two.
   // A report (Chat.report), or a refused call of an agent Unii started
@@ -1380,6 +1489,8 @@ export namespace Chat {
     Chat.show(chat, sock);
     Chat.send(sock, { $: "live", live: chat.live });
     if (host === null) {
+      // a view: a device's events parked till now are due (E3)
+      Chat.drain(chat);
       return;
     }
     const link = { send: (msg: object) => Chat.send(sock, msg), live: () => chat.socks.has(sock), computer, work, home: home ?? undefined };
@@ -1673,7 +1784,18 @@ export namespace Chat {
         return {};
       }
       case "consent": {
-        return Chat.consented(chat, Number(msg.n), msg.yes === true);
+        // the user's answer (SAYS above: never a device's), through the inbox
+        const n = Number(msg.n);
+        return Chat.enqueue(chat, { src: Events.src_of(device, says), kind: "approval", key: "consent:" + n + ":" + (chat.mem.evented + 1), ref: n, body: msg.yes === true ? "yes" : "no", to: "main" });
+      }
+      case "event": {
+        // RED ZONE (R4, DRAFT awaiting the user's sign-off): src from the
+        // credential, never msg.src (E1); no approval here (E2); not in SAYS
+        const kind = msg.kind === "work" ? "work" : msg.kind === "notify" || msg.kind === undefined ? "notify" : null;
+        if (kind === null) {
+          return { error: "An event is notify or work." };
+        }
+        return Chat.enqueue(chat, { src: Events.src_of(device, says), key: String(msg.key ?? ""), kind, to: "main", body: String(msg.body ?? "") });
       }
       case "plan": {
         return Chat.verdict(chat, id, msg.yes === true, msg.mode, msg.text === undefined || msg.text === null ? "" : String(msg.text).trim());
@@ -2740,7 +2862,9 @@ const LIKES = 30;
       Gchat.gchat_acted(g, r.name);
       Memory.save(chat.mem);
       const act = Gchat.gchat_act(r);
-      const done = act === null ? { error: "Not understood: " + (r.item.kind === "todo" ? "reply done or drop." : "reply undo (and what instead), or keep.") } : await Chat.act(chat, "gchat-" + r.name.split("/").at(-1), act, "");
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): a reply through
+      // the inbox (one event per reply, E5), done as a view's act as before
+      const done = act === null ? { error: "Not understood: " + (r.item.kind === "todo" ? "reply done or drop." : "reply undo (and what instead), or keep.") } : await Chat.enqueue(chat, { src: "gchat", kind: "reply", key: r.name, body: r.text, to: "main" }, act);
       if (done.error !== undefined) {
         const tk = g.posted.find((p) => p.key === r.item.key)?.tk;
         const said = tk === undefined ? null : await Gchat.gchat_post(url, tk, done.error);
@@ -2777,6 +2901,7 @@ const LIKES = 30;
     due.forEach((r) => Chat.run_routine(chat, r, now));
     Chat.stalls(chat, now);
     const rung = Chat.rang(chat, now);
+    Chat.drain(chat);
     // RED ZONE (R4, DRAFT awaiting the user's sign-off): a shown record no
     // live wait holds has no timer of its own: past its time, expired (P6)
     let lapsed = false;
