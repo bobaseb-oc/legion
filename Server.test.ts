@@ -2090,6 +2090,18 @@ console.log(JSON.stringify({ a1, a2, before, after: { held: held(chat, "BODY-21B
 process.exit(0);
 `;
 
+// a view's approval event new in the inbox when Chat.drain runs: only
+// enqueue answers an approval, so drain leaves it new and pushes nothing
+const EVENT_DRAIN = EVENT_HEAD + `
+const chat = opened();
+chat.mem.events.push(ev({ id: 1, key: "consent:1:1", kind: "approval", ref: 1, body: "DRAIN-APPROVAL" }));
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("DRAIN-APPROVAL")).length;
+console.log(JSON.stringify({ state: events(chat).find((e) => e.id === 1)?.state ?? null, held }));
+process.exit(0);
+`;
+
 // one GChat reply seen by two bridge passes (AC14): fetch stubbed as in
 // Gchat.test.ts (no network); STEP "post" posts the question, "reply" (a
 // restart on the same UNII_DIR) reads the user's reply twice
@@ -2284,6 +2296,12 @@ test("L3-AC21, E7: event 1 delivered, view.json reset (evented 0, no events), a 
   expect(out.after.id).toBe(1);
   expect(out.after.held).toBe(1);
   expect(out.after.state).toBe("done");
+}, 30_000);
+
+test("E2, L3: Chat.drain never delivers an approval event: one new in the inbox stays new, its body never pushed", async () => {
+  const out = await event_run("event-drain", EVENT_DRAIN);
+  expect(out.held).toBe(0);
+  expect(out.state).toBe("new");
 }, 30_000);
 
 test("L3-AC14, E5: one GChat reply seen by two bridge passes: one gchat reply event for that message", async () => {
