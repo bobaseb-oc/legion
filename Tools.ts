@@ -2337,10 +2337,23 @@ export namespace Tools {
   }
 
   // every agent at work (name null), or the one named and those under it
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): a Stop or a dismiss
+  // takes back the yes the user gave these agents' re-shown calls (none
+  // named: every grant), as a Stop takes back their timers
+  export function ungrant(tools: Tools, who: string[] | null): void {
+    const grants = tools.grants;
+    for (const [fp, g] of grants ?? []) {
+      if (who === null || who.includes(g.who)) {
+        grants?.delete(fp);
+      }
+    }
+  }
+
   export function stop(tools: Tools, name: string | null): void {
     const named = name === null ? [] : [tools.agents.get(name)].filter((a) => a !== undefined);
     const all = name === null ? Tools.working(tools) : [...named, ...Tools.below(tools, name)];
     const gone = new Set(all.map((a) => a.name));
+    Tools.ungrant(tools, name === null ? null : [...gone]);
     if (tools.mem?.timers?.some((t) => gone.has(t.who))) {
       tools.mem.timers = tools.mem.timers.filter((t) => !gone.has(t.who));
       Memory.save(tools.mem);

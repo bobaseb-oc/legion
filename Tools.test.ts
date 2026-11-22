@@ -1152,3 +1152,35 @@ test("an appeal is kept as an open record; its boss's yes closes it yes, a no cl
     expect(record(b!.id).state).toBe("no");
   });
 });
+
+// RED ZONE (R4, DRAFT awaiting the user's sign-off): a Stop takes back
+// the yes the user gave a re-shown call (user's call 2026-11-22), as it
+// takes back the stopped agents' timers
+test("P3, Stop: stopping all work cancels a grant; the identical call waits again", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("main", "shell", DEPLOY);
+    Tools.stop(tools, null);
+    await waits(tools, "main", "shell", DEPLOY, "s1");
+  });
+});
+
+test("P3, Stop: stopping one agent cancels its grants only", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("Wkr", "shell", DEPLOY);
+    const Pending = await import("./Pending.ts");
+    const now = Date.now();
+    Pending.grant(tools.grants, { id: 8, kind: "consent", who: "Oth", tool: "shell", args: Pending.canon(DEPLOY), fp: Pending.fp("Oth", "shell", DEPLOY), made: now, until: now + Pending.CONSENT_MS, state: "yes" }, now);
+    tools.agents.set("Wkr", { name: "Wkr", parent: "main" } as any);
+    Tools.stop(tools, "Wkr");
+    expect(Pending.take(tools.grants, "Wkr", "shell", DEPLOY, Date.now())).toBe(false);
+    expect(Pending.take(tools.grants, "Oth", "shell", DEPLOY, Date.now())).toBe(true);
+  });
+});
+
+test("P3, dismiss: the dismiss act takes back the dismissed agent's grants (Tools.ungrant)", () => {
+  const src = fs.readFileSync(import.meta.dir + "/Server.ts", "utf8");
+  const dismiss = /case "dismiss": \{([\s\S]*?)\n      \}/.exec(src)?.[1] ?? "";
+  expect(dismiss).toContain("Tools.ungrant(chat.tools, [agent.name])");
+});

@@ -121,7 +121,8 @@ How it works
   outward and prod merges always ask) and full. Shift+Tab cycles them.
   A call waiting for your yes survives a restart: it is shown again, and
   a yes then lets that exact call (same agent, tool, arguments, device)
-  run once, if the agent makes it again within 30 minutes. Nothing saved
+  run once, if the agent makes it again within 30 minutes (a Stop, or
+  dismissing the agent, takes that yes back). Nothing saved
   on disk counts as a yes. A wait expires as a no after 24 hours, and a
   boss's appeal cut by a restart closes as a no (Red Zone draft).
 - **A cockpit.** The web has Home (who needs you, stats, agents with an

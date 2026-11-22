@@ -1716,6 +1716,7 @@ export namespace Chat {
           return { error: "No agent " + msg.name + " done to dismiss." };
         }
         agent.hidden = true;
+        Tools.ungrant(chat.tools, [agent.name]);
         // its track goes with it: the user's pins on it pruned
         if (agent.parent === "main" && agent.name in chat.mem.tracks) {
           delete chat.mem.tracks[agent.name];
