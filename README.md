@@ -119,6 +119,12 @@ How it works
   Legion's pick 85% of the time, over 20 answers or more, is decided with
   it, shown on the Questions page to undo; access, Red Zone, money,
   outward and prod merges always ask) and full. Shift+Tab cycles them.
+  A call waiting for your yes survives a restart: it is shown again, and
+  a yes then lets that exact call (same agent, tool, arguments, device)
+  run once, if the agent makes it again within 30 minutes (a Stop, or
+  dismissing the agent, takes that yes back). Nothing saved
+  on disk counts as a yes. A wait expires as a no after 24 hours, and a
+  boss's appeal cut by a restart closes as a no (Red Zone draft).
 - **A cockpit.** The web has Home (who needs you, stats, agents with an
   estimated cost, activity), an Inbox (review requests, your PRs and
   their CI state, Jira tickets, worktrees to clean up), Routines and a

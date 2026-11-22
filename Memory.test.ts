@@ -160,3 +160,30 @@ test("AC11b (pinned): a saved pin's unknown fields (by, evil) are not kept; its 
   const mem = loaded({ tracks: { X: { pins: [pin(1, { evil: "x", by: "agent", since: 4, reminded: true, from: "orig" })], next: 1, dropped: [] } } }) as any;
   expect(mem.tracks.X.pins).toEqual([{ n: 1, text: "pin 1", status: "pending", at: 1, since: 4, reminded: true, from: "orig" }]);
 });
+
+// RED ZONE (R4, ADR 1; DRAFT awaiting the user's sign-off): the approvals
+// waiting for the user or a boss (Pending.ts), kept in view.json; a record
+// not well formed (here a forged one, its fp not its args' hash) dropped
+test("P8, L1-AC8: view.json's pending records are checked as they load; a forged one is dropped", async () => {
+  const Pending = await import("./Pending.ts");
+  const args = { device: "mac", command: "make deploy" };
+  const good = { id: 1, kind: "consent", who: "main", tool: "shell", args: Pending.canon(args), fp: Pending.fp("main", "shell", args), made: 1, until: 1 + Pending.CONSENT_MS, state: "open" };
+  const forged = { ...good, id: 2, args: Pending.canon({ device: "mac", command: "make wipe" }) };
+  const mem: any = loaded({ pending: [good, forged] });
+  expect(mem.pending).toEqual([good]);
+  const none: any = loaded({});
+  expect(none.pending).toEqual([]);
+  expect(none.pended).toBe(0);
+});
+
+test("L1-AC16: view.json's pended (the last approval id) survives a save and a load; not an integer, 0", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
+  const mem: any = Memory.load(dir, () => ({}) as any);
+  mem.pended = 7;
+  Memory.save(mem);
+  const back: any = Memory.load(dir, () => ({}) as any);
+  expect(back.pended).toBe(7);
+  expect((loaded({ pended: "7" }) as any).pended).toBe(0);
+  expect((loaded({ pended: 1.5 }) as any).pended).toBe(0);
+});

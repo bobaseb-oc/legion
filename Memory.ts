@@ -76,6 +76,7 @@ import * as Routines from "./Routines.ts";
 import type { Routine, Timer } from "./Routines.ts";
 import { DROPPED, DROPPED_TEXT, explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
 import { gchat_new, type Gchat } from "./Gchat.ts";
+import * as Pending from "./Pending.ts";
 import * as config from "./Config.ts";
 import { Disk } from "./Disk.ts";
 import { Pick } from "./Pick.ts";
@@ -127,7 +128,7 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tracks?: unknown; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[] };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tracks?: unknown; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[]; pending?: Pending.Pending[]; pended?: number };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
@@ -176,6 +177,8 @@ export type Memory = {
   explain: Explain; // the Tracks page's observer cards (Explain.ts, Server.ts Chat.observe)
   tracks : Record<string, Track>; // the user's pins per track (RED ZONE DRAFT: Server.ts Chat.track, Memory.tracks_read)
   gchat  : Gchat;   // the GChat bridge: items posted, replies acted on (Gchat.ts, Server.ts Chat.bridge)
+  pending: Pending.Pending[]; // RED ZONE (R4, DRAFT awaiting the user's sign-off): approvals waiting or answered (Pending.ts); none says yes
+  pended : number;            // the last approval's number (never reused)
   tallies : Partial<Record<AskKind, Tally>>; // super auto: the user's record per question kind (Modes.unlocked)
   decided : Decided[]; // super auto's answers for the user, till undone or dismissed (Tools.question)
   likes   : string[];  // what the user chose over Legion's pick, a line each (Chat.reply), in its prompt
@@ -290,7 +293,7 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tracks: {}, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tracks: {}, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], pending: [], pended: 0, work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
       rough: new Map(), redoing: false, rest: { until: null },
@@ -308,6 +311,8 @@ export namespace Memory {
     mem.routined = Number(saved?.routined ?? 0) || 0;
     mem.timers = Memory.timers_read(saved?.timers);
     mem.timered = Number(saved?.timered ?? 0) || 0;
+    mem.pending = Pending.pending_read(saved?.pending);
+    mem.pended = Number.isInteger(saved?.pended) ? saved!.pended! : 0;
     mem.drafts = Array.isArray(saved?.drafts) ? saved.drafts : [];
     mem.assigned = Array.isArray(saved?.assigned) ? saved.assigned : [];
     mem.assigns = Number.isInteger(saved?.assigns) ? saved!.assigns! : 0;
@@ -446,7 +451,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tracks: mem.tracks, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tracks: mem.tracks, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, pending: mem.pending, pended: mem.pended, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }

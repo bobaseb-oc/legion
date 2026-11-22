@@ -893,3 +893,294 @@ test("directives: the notes tool tells Unii to keep the user's standing orders i
     Tools.close(tools);
   }
 });
+
+// RED ZONE (L1 durable approvals, R4, ADR 1; DRAFT awaiting the user's
+// sign-off): a call waiting for the user is kept as a record (Pending.ts);
+// after a restart the record is shown again, and the user's live yes to
+// it (Tools.regrant, called by Chat.consented alone) grants one re-issue
+// of the identical call: same who, tool and args (the device among them),
+// within GRANT_MS. The grant skips only the reviewer. Each reviewer reply
+// here is no verdict ("maybe?"), so every review falls to the user.
+const DEPLOY = { device: "mac", command: "make deploy" };
+const UNSURE = "maybe?";
+
+// a chat whose view.json held an open consent record `id` (a restart cut
+// its waiting call): the record, and the tools over it
+async function reshown(who: string, tool: string, args: object, id = 7, mode = "auto", extra: object = {}) {
+  const Pending = await import("./Pending.ts");
+  const now = Date.now();
+  const record = { id, kind: "consent", who, tool, args: Pending.canon(args), fp: Pending.fp(who, tool, args), made: now, until: now + Pending.CONSENT_MS, state: "open", ...extra };
+  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-unii/", pending: [record], pended: id };
+  const seen = { pended: 0 };
+  const tools = Tools.serve(mem, { change: () => {}, push: () => {}, note: () => {}, pended: () => void (seen.pended += 1) } as any);
+  return { Pending, mem, tools, seen };
+}
+
+// the user's live yes to a re-shown record: the grant
+async function granted(who: string, tool: string, args: object, mode = "auto") {
+  const r = await reshown(who, tool, args, 7, mode);
+  expect((Tools as any).regrant(r.tools, 7, true)).toMatchObject({ id: 7, state: "yes" });
+  return r;
+}
+
+// a call that waits for the user: listed, then refused by the test
+async function waits(tools: any, who: string, tool: string, args: object, id: string): Promise<any> {
+  const waiting = Tools.call(tools, who, tool, args, go(), id);
+  await Bun.sleep(20);
+  const listed = Tools.consents(tools);
+  expect([id, listed.length]).toEqual([id, 1]);
+  expect(listed[0]).toMatchObject({ who, tool });
+  expect(Tools.consent(tools, listed[0]!.id, false)).toBe(true);
+  expect((await waiting).text).toContain("The user refused");
+  return listed[0];
+}
+
+test("L1-AC3, L1-AC4, P9, P3: a grant lets the identical call skip the reviewer once; the next identical call waits again", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("main", "shell", DEPLOY);
+    const n = told.length;
+    // the args' key order is not the call
+    const out = await Tools.call(tools, "main", "shell", { command: "make deploy", device: "mac" }, go(), "a");
+    expect(told.length).toBe(n);
+    expect(out.text.toLowerCase()).not.toContain("refused");
+    expect(Tools.consents(tools)).toEqual([]);
+    await waits(tools, "main", "shell", DEPLOY, "b");
+    expect(told.length).toBe(n + 1);
+  });
+});
+
+test("L1-AC5, L1-AC6, P4: a granted call with one arg changed, or on another device, waits; the exact call still runs once", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("main", "shell", DEPLOY);
+    await waits(tools, "main", "shell", { ...DEPLOY, command: "make deploy2" }, "arg");
+    await waits(tools, "main", "shell", { ...DEPLOY, device: "pc" }, "pc");
+    const n = told.length;
+    expect((await Tools.call(tools, "main", "shell", DEPLOY, go(), "exact")).text.toLowerCase()).not.toContain("refused");
+    expect(told.length).toBe(n);
+  });
+});
+
+test("L1-AC17, P9: plan mode refuses a granted write (the grant skips no mode); the grant is left for the reviewer's place", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const write = { device: "mac", path: "a", content: "x" };
+    const { tools, mem } = await granted("main", "write", write, "plan");
+    const out = await Tools.call(tools, "main", "write", write, go(), "p");
+    expect(out.fail).toBe(true);
+    expect(out.text).toContain("plan mode");
+    // the mode's refusal came before the review: the grant is still there
+    mem.mode = "auto";
+    const n = told.length;
+    expect((await Tools.call(tools, "main", "write", write, go(), "a")).text.toLowerCase()).not.toContain("refused");
+    expect(told.length).toBe(n);
+  });
+});
+
+test("L1-AC15, P10: a waiting call is kept as an open record; the user's Stop closes it no", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const mem: any = { mode: "auto", count: 0 };
+    let pended = 0;
+    const tools = Tools.serve(mem, { change: () => {}, pended: () => void (pended += 1) } as any);
+    const stop = new AbortController();
+    const waiting = Tools.call(tools, "main", "shell", DEPLOY, stop.signal, "s");
+    await Bun.sleep(20);
+    const [c] = Tools.consents(tools);
+    const record = () => (mem.pending ?? []).find((p: any) => p.id === c!.id);
+    expect(record()).toMatchObject({ kind: "consent", who: "main", tool: "shell", state: "open" });
+    expect(pended).toBeGreaterThan(0);
+    stop.abort();
+    expect((await waiting).text).toContain("The user refused");
+    expect(record()!.state).toBe("no");
+  });
+});
+
+test("P2, P1: the user's yes to a live wait runs that call, closes its record yes, and grants nothing", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const mem: any = { mode: "auto", count: 0 };
+    const tools = Tools.serve(mem, { change: () => {}, pended: () => {} } as any);
+    const waiting = Tools.call(tools, "main", "shell", DEPLOY, go(), "y");
+    await Bun.sleep(20);
+    const [c] = Tools.consents(tools);
+    expect(Tools.consent(tools, c!.id, true)).toBe(true);
+    expect((await waiting).text).not.toContain("refused this call");
+    expect(mem.pending.find((p: any) => p.id === c!.id).state).toBe("yes");
+    const n = told.length;
+    await waits(tools, "main", "shell", DEPLOY, "again");
+    expect(told.length).toBe(n + 1);
+  });
+});
+
+test("L1-AC16, P8: a re-shown record and its agent's re-issued identical call are one entry, the record's id; shown from its args", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("Wkr", "shell", DEPLOY, 7, "auto", { what: "ls" });
+    working(tools, "Wkr");
+    const before = Tools.consents(tools);
+    expect(before).toHaveLength(1);
+    expect(before[0]).toMatchObject({ id: 7, who: "Wkr", tool: "shell", what: expect.stringContaining("make deploy") });
+    expect(before[0]!.what).not.toBe("ls");
+    const waiting = Tools.call(tools, "Wkr", "shell", DEPLOY, go(), "w");
+    await Bun.sleep(20);
+    const after = Tools.consents(tools);
+    expect(after.map((c: any) => c.id)).toEqual([7]);
+    expect(mem.pending.filter((p: any) => p.state === "open")).toHaveLength(1);
+    expect(mem.pended).toBe(7);
+    expect(Tools.consent(tools, 7, false)).toBe(true);
+    expect((await waiting).text).toContain("The user refused");
+  });
+});
+
+test("L1-AC16, P4: another agent's identical call does not take a re-shown record; it waits under a number of its own", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("Wkr", "shell", DEPLOY);
+    working(tools, "Other");
+    const waiting = Tools.call(tools, "Other", "shell", DEPLOY, go(), "o");
+    await Bun.sleep(20);
+    const listed = Tools.consents(tools);
+    expect(listed.map((c: any) => [c.id === 7, c.who])).toEqual([[true, "Wkr"], [false, "Other"]]);
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("open");
+    expect(Tools.consent(tools, listed[1]!.id, false)).toBe(true);
+    expect((await waiting).text).toContain("The user refused");
+  });
+});
+
+test("P6: a live wait on a re-shown record ends at the record's until: refused, the record expired", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("main", "shell", DEPLOY, 7, "auto", { until: Date.now() + 100 });
+    const waiting = Tools.call(tools, "main", "shell", DEPLOY, go(), "t");
+    const out = await Promise.race([waiting, Bun.sleep(2000).then(() => null)]);
+    expect(out?.text).toContain("The user refused");
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("expired");
+    expect(Tools.consents(tools)).toEqual([]);
+  });
+});
+
+// P2, read as text: a grant is made in one place, Tools.regrant, and only
+// the user's consent act (Server.ts Chat.consented, behind SAYS) calls it
+test("P2: Pending.grant( only inside Tools.regrant; Tools.regrant( called only from Chat.consented in Server.ts", () => {
+  const src = (f: string) => fs.readFileSync(import.meta.dir + "/" + f, "utf8");
+  const count = (text: string, s: string) => text.split(s).length - 1;
+  // a function's text: from its `function name(` to the next function
+  const body = (text: string, name: string): string => {
+    const at = text.search(new RegExp("function " + name + "\\("));
+    if (at < 0) {
+      return "";
+    }
+    const next = text.slice(at + 1).search(/\n\s*(export\s+)?(async\s+)?function\s/);
+    return next < 0 ? text.slice(at) : text.slice(at, at + 1 + next);
+  };
+  const files = fs.readdirSync(import.meta.dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  const tools = src("Tools.ts");
+  const server = src("Server.ts");
+  expect(count(tools, "Pending.grant(")).toBe(1);
+  expect(body(tools, "regrant")).toContain("Pending.grant(");
+  // (Google.ts and Auth.ts have OAuth grant( calls of their own: not these)
+  expect(files.filter((f) => /import\s*\{[^}]*\bgrant\b[^}]*\}\s*from\s*["']\.\/Pending/.test(src(f)))).toEqual([]);
+  expect(files.filter((f) => f !== "Tools.ts" && src(f).includes("Pending.grant("))).toEqual([]);
+  // regrant: defined in Tools.ts, never called there; called once, from consented
+  expect(count(tools, "regrant(")).toBe(1);
+  expect(files.filter((f) => src(f).includes("regrant(")).sort()).toEqual(["Server.ts", "Tools.ts"]);
+  expect(count(server, "regrant(")).toBe(1);
+  expect(count(server, "Tools.regrant(")).toBe(1);
+  expect(body(server, "consented")).toContain("Tools.regrant(");
+});
+
+test("P1, P2: the user's no to a re-shown record closes it no and grants nothing; it can't be answered again; the identical call waits", async () => {
+  await reviewer(async (told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("main", "shell", DEPLOY);
+    expect((Tools as any).regrant(tools, 7, false)).toMatchObject({ id: 7, state: "no" });
+    expect(mem.pending.find((p: any) => p.id === 7).state).toBe("no");
+    expect((Tools as any).regrant(tools, 7, true)).toBeNull();
+    const n = told.length;
+    await waits(tools, "main", "shell", DEPLOY, "after-no");
+    expect(told.length).toBe(n + 1);
+  });
+});
+
+test("a new wait never takes a kept record's number, even when pended lags behind it", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools, mem } = await reshown("Wkr", "shell", DEPLOY, 7);
+    mem.pended = 0;
+    working(tools, "Other");
+    const waiting = Tools.call(tools, "Other", "shell", DEPLOY, go(), "n");
+    await Bun.sleep(20);
+    expect(Tools.consents(tools).map((c: any) => [c.id, c.who])).toEqual([[7, "Wkr"], [8, "Other"]]);
+    expect(Tools.consent(tools, 8, false)).toBe(true);
+    expect((await waiting).text).toContain("The user refused");
+  });
+});
+
+test("a call whose args pass Pending.ARGS still waits for the user, but keeps no record", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const Pending = await import("./Pending.ts");
+    const mem: any = { mode: "auto", count: 0 };
+    const tools = Tools.serve(mem, { change: () => {}, pended: () => {} } as any);
+    await waits(tools, "main", "write", { device: "mac", path: "a", content: "x".repeat(Pending.ARGS) }, "big");
+    expect(mem.pending ?? []).toEqual([]);
+  });
+});
+
+test("an appeal is kept as an open record; its boss's yes closes it yes, a no closes it no", async () => {
+  await reviewer(async (_told, set) => {
+    set(refuse("medium"));
+    const { tools } = risky("super", { pended: () => {} });
+    const mem: any = (tools as any).mem;
+    const record = (id: number) => (mem.pending ?? []).find((p: any) => p.id === id);
+    working(tools, "Wkr");
+    const first = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Bun.sleep(20);
+    const [a] = Tools.appeals(tools);
+    expect(record(a!.id)).toMatchObject({ kind: "appeal", who: "Wkr", boss: "main", tool: "shell", reason: "r", state: "open" });
+    expect((await Tools.call(tools, "main", "overrule", { n: a!.id, yes: true, why: "the user asked for it" }, go(), "o1")).fail).toBe(false);
+    await first;
+    expect(record(a!.id).state).toBe("yes");
+    const second = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    await Bun.sleep(20);
+    const [b] = Tools.appeals(tools);
+    expect(b!.id).not.toBe(a!.id);
+    expect((await Tools.call(tools, "main", "overrule", { n: b!.id, yes: false }, go(), "o2")).fail).toBe(false);
+    expect((await second).text).toBe("Refused by auto mode's reviewer: r");
+    expect(record(b!.id).state).toBe("no");
+  });
+});
+
+// RED ZONE (R4, DRAFT awaiting the user's sign-off): a Stop takes back
+// the yes the user gave a re-shown call (user's call 2026-11-22), as it
+// takes back the stopped agents' timers
+test("P3, Stop: stopping all work cancels a grant; the identical call waits again", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("main", "shell", DEPLOY);
+    Tools.stop(tools, null);
+    await waits(tools, "main", "shell", DEPLOY, "s1");
+  });
+});
+
+test("P3, Stop: stopping one agent cancels its grants only", async () => {
+  await reviewer(async (_told, set) => {
+    set(UNSURE);
+    const { tools } = await granted("Wkr", "shell", DEPLOY);
+    const Pending = await import("./Pending.ts");
+    const now = Date.now();
+    Pending.grant(tools.grants, { id: 8, kind: "consent", who: "Oth", tool: "shell", args: Pending.canon(DEPLOY), fp: Pending.fp("Oth", "shell", DEPLOY), made: now, until: now + Pending.CONSENT_MS, state: "yes" }, now);
+    tools.agents.set("Wkr", { name: "Wkr", parent: "main" } as any);
+    Tools.stop(tools, "Wkr");
+    expect(Pending.take(tools.grants, "Wkr", "shell", DEPLOY, Date.now())).toBe(false);
+    expect(Pending.take(tools.grants, "Oth", "shell", DEPLOY, Date.now())).toBe(true);
+  });
+});
+
+test("P3, dismiss: the dismiss act takes back the dismissed agent's grants (Tools.ungrant)", () => {
+  const src = fs.readFileSync(import.meta.dir + "/Server.ts", "utf8");
+  const dismiss = /case "dismiss": \{([\s\S]*?)\n      \}/.exec(src)?.[1] ?? "";
+  expect(dismiss).toContain("Tools.ungrant(chat.tools, [agent.name])");
+});
