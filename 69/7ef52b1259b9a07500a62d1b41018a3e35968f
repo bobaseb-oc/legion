@@ -1,0 +1,19 @@
+Tools.ts
+  s_70eecbf9d08a36::t_3cad18f475a2ae 2351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "697ef52b1259b9a07500a62d1b41018a3e35968f",
+  "prompts": {},
+  "sessions": {
+    "s_70eecbf9d08a36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ac3315f3703afd684",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
