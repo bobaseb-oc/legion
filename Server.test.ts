@@ -2321,3 +2321,26 @@ test("L3-AC14, E5: one GChat reply seen by two bridge passes: one gchat reply ev
   expect(b.answered).toBe(1);
   expect(b.replies).toEqual([space + "/messages/r1"]);
 }, 30_000);
+
+// an event in the inbox addressed to anyone but Unii (only a hand-written
+// view.json holds one): a view open, Chat.drain fails it, with a note, and
+// pushes nothing holding its body
+const EVENT_TO = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, key: "k-to", to: "Wkr", body: "TO-WORKER" }));
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("TO-WORKER")).length;
+const notes = msgs(chat).filter((m) => m.kind === "note" && String(m.text).includes("k-to")).map((m) => m.text);
+console.log(JSON.stringify({ viewed: Chat.viewed(chat), state: events(chat).find((e) => e.id === 1)?.state ?? null, held, notes }));
+process.exit(0);
+`;
+
+test("L3: an event not for main, a view open: failed, one note naming its key, its body never pushed", async () => {
+  const out = await event_run("event-to", EVENT_TO);
+  expect(out.viewed).toBe(true);
+  expect(out.held).toBe(0);
+  expect(out.state).toBe("failed");
+  expect(out.notes).toEqual(["Event k-to from view is not for Unii; dropped."]);
+}, 30_000);
