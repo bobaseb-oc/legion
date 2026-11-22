@@ -2336,7 +2336,6 @@ export namespace Tools {
     return said + (not.length === 0 ? "" : " Not at work: " + not.join(", ") + ".");
   }
 
-  // every agent at work (name null), or the one named and those under it
   // RED ZONE (R4, DRAFT awaiting the user's sign-off): a Stop or a dismiss
   // takes back the yes the user gave these agents' re-shown calls (none
   // named: every grant), as a Stop takes back their timers
@@ -2349,6 +2348,7 @@ export namespace Tools {
     }
   }
 
+  // every agent at work (name null), or the one named and those under it
   export function stop(tools: Tools, name: string | null): void {
     const named = name === null ? [] : [tools.agents.get(name)].filter((a) => a !== undefined);
     const all = name === null ? Tools.working(tools) : [...named, ...Tools.below(tools, name)];
