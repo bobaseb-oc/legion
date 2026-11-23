@@ -32,10 +32,15 @@ export type Item = { key: string; kind: Kind; n: number; text: string; options?:
 // when Google says it was posted (ms); an approval's fp as posted
 export type Posted = { key: string; tk: string; thread: string; at: number; fp?: string };
 
-// the bridge's state, kept in view.json: the items posted and still open
-// (a record only: Server.ts routes replies by its own memory's posts),
-// the messages acted on (their names, the last ACTED)
-export type Gchat = { posted: Posted[]; acted: string[] };
+// the bridge's state kept in view.json: the messages acted on (their
+// names, the last ACTED), read across restarts. What was posted is never
+// kept there (PLP-2924)
+export type Gchat = { acted: string[] };
+
+// what gchat_replies routes by: the items this process posted and still
+// open (Server.ts chat.bridging.threads, in memory only), and the
+// messages acted on (Gchat's acted)
+export type Threads = { posted: Posted[]; acted: string[] };
 
 // a reply to act on: the item, the message's name, its text
 export type Reply = { item: Item; name: string; text: string };
@@ -57,7 +62,7 @@ const SPACE = /^spaces\/[\w-]{1,100}$/;
 // =========
 
 export function gchat_new(): Gchat {
-  return { posted: [], acted: [] };
+  return { acted: [] };
 }
 
 // on: a space and a webhook of that space on Chat's API (https, its key
@@ -155,7 +160,7 @@ async function gchat_why(res: Response, url: string, u: URL): Promise<string> {
 // users/<id>; none known: none counts) and HUMAN, in the space, in the
 // thread of an item posted and still open, made after it was posted, and
 // never acted on (acted). A bot's, the webhook's or anyone else's never
-export function gchat_replies(said: Message[], me: string | null, space: string, g: Gchat, items: Item[]): Reply[] {
+export function gchat_replies(said: Message[], me: string | null, space: string, g: Threads, items: Item[]): Reply[] {
   if (me === null || !/^users\/\d+$/.test(me) || !SPACE.test(space)) {
     return [];
   }
