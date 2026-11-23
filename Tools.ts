@@ -1208,8 +1208,11 @@ export namespace Tools {
     }
   }
 
+  // RED ZONE (DRAFT): which devices are up, so which one runs the user's
+  // !command. A link lost (its process killed, no quit) stays attached, so
+  // a reconnect of its tab keeps its jobs; it is not open until then
   export function opened(tools: Tools): [string, Device][] {
-    return [...tools.devices].filter(([, d]) => d.terms.size > 0);
+    return [...tools.devices].filter(([, d]) => [...d.terms.values()].some((l) => l.live?.() !== false));
   }
 
   // else why not
