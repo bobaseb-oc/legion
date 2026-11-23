@@ -126,16 +126,17 @@ export function explain_due(ex: Explain, hash: string, now: number): boolean {
 // the observer's cards from its JSON, one per track named: each field a
 // string, cut; a card for any other name (or a second for one) dropped,
 // an empty one for a name with none (the tracks are the crew's, never
-// the observer's). Not JSON: null
-export function explain_cards(text: string, names: string[]): Card[] | null {
+// the observer's). Else why not: not JSON, or no card for any track (the
+// page kept as it was, not made blank)
+export function explain_cards(text: string, names: string[]): Card[] | string {
   let json: any;
   try {
     json = JSON.parse(/\{[\s\S]*\}/.exec(text)?.[0] ?? "");
   } catch {
-    return null;
+    return "not JSON with cards";
   }
   if (!Array.isArray(json?.cards)) {
-    return null;
+    return "not JSON with cards";
   }
   const field = (x: unknown, most = FIELD) => typeof x === "string" ? cut(x, most) : "";
   const by = new Map<string, Card>();
@@ -144,6 +145,9 @@ export function explain_cards(text: string, names: string[]): Card[] | null {
     if (names.includes(track) && !by.has(track)) {
       by.set(track, { track, title: field(c?.title, TITLE), what: field(c?.what), why: field(c?.why), status: field(c?.status), watch: field(c?.watch) });
     }
+  }
+  if (names.length > 0 && by.size === 0) {
+    return "no card matched a track";
   }
   return names.map((track) => by.get(track) ?? { track, title: "", what: "", why: "", status: "", watch: "" }).slice(0, CARDS);
 }

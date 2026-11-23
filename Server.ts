@@ -2663,7 +2663,8 @@ const LIKES = 30;
     const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
     const cards = end?.ok ? Explain.explain_cards(end.text, names) : null;
     ex.writing = false;
-    Object.assign(ex, cards === null ? { error: "The page couldn't be written" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." } : { cards, hash, at: Date.now(), error: null });
+    const why = typeof cards === "string" ? ": " + cards : end?.ok === false ? ": " + end.text.slice(0, 200) : "";
+    Object.assign(ex, Array.isArray(cards) ? { cards, hash, at: Date.now(), error: null } : { error: "The page couldn't be written" + why + "." });
     Memory.save(chat.mem);
     Chat.explained(chat);
   }
