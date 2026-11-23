@@ -261,6 +261,25 @@ test("the question names each listed dir's .env files, by path within it", async
   expect(text.split("\n").find((l) => l.includes(work + "/Bob"))).not.toContain(".env");
 });
 
+test("only .env files git does not track are named: a tracked template is not; an ignored one and one outside any repo are", async () => {
+  const { work, out } = fresh();
+  fs.mkdirSync(work + "/Ada");
+  const app = repo(work + "/Ada/app", out);
+  fs.writeFileSync(app + "/.gitignore", ".env\n");
+  fs.writeFileSync(app + "/.env.example", "A=");
+  git(app, "add", ".");
+  git(app, "commit", "-q", "-m", "template");
+  git(app, "push", "-q", "origin", "main");
+  fs.writeFileSync(app + "/.env", "A=secret"); // ignored
+  fs.writeFileSync(work + "/Ada/.env.local", "B=secret"); // in no repo
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const ada = items.find((x) => x.path === work + "/Ada")!;
+  expect(ada).toBeDefined();
+  expect([...(ada.envs ?? [])].sort()).toEqual([".env.local", "app/.env"]);
+  expect(Sweep.sweep_text(items)).not.toContain(".env.example");
+});
+
 test("the fingerprint covers each listed dir's path, size and time", async () => {
   const a: Sweep.Item = { path: "/w/A", bytes: 1, mtime: 1, git: null };
   const fp = Sweep.sweep_fp([a]);
