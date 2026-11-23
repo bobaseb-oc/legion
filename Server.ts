@@ -2920,27 +2920,27 @@ const LIKES = 30;
     try {
       const mem = chat.mem;
       const items = Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, now);
-      const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
+      const open = (p: { key: string }) => items.some((x) => x.key === p.key);
       b.threads = b.threads.filter(open);
       // an item cut short (a later chunk failed) sends only its rest, in
       // its thread; kept in memory only, as threads are
-      b.parts = (b.parts ?? []).filter(open);
+      const parts = (b.parts = (b.parts ?? []).filter(open));
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
       // a process. view.json keeps no record of what was posted
       // an item Google refused (a 4xx other than 429) is not tried again in this process
       const refused = (b.refused ??= new Set());
-      const plan = Outbox.plan(items.filter((x) => !refused.has(x.key) && ![...b.threads, ...b.parts].some((p) => p.key === x.key)), mem.pace, mem.digested, now);
-      const nows = plan.now.slice(0, Math.max(0, Gchat.POSTS - b.parts.length));
-      const digest = plan.digest.slice(0, Math.max(0, Gchat.POSTS - b.parts.length - nows.length));
+      const plan = Outbox.plan(items.filter((x) => !refused.has(x.key) && ![...b.threads, ...parts].some((p) => p.key === x.key)), mem.pace, mem.digested, now);
+      const nows = plan.now.slice(0, Math.max(0, Gchat.POSTS - parts.length));
+      const digest = plan.digest.slice(0, Math.max(0, Gchat.POSTS - parts.length - nows.length));
       // the digest's first item carries its header, so each keeps a thread of its own
       const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
       // posts GAP apart; a 429 ends the pass and holds posting (Retry-After,
       // at least HOLD): nothing more is sent until then
       const held = now < (b.until ?? 0);
       const fresh = [...nows, ...digest].map((item): Gchat.Part => ({ key: item.key, tk: "legion-" + item.key + "-" + now, text: (item === digest[0] ? head : "") + item.text, ...(item.fp === undefined ? {} : { fp: item.fp }), done: null, next: 0 }));
-      for (const [i, s] of (held ? [] : [...b.parts, ...fresh]).entries()) {
+      for (const [i, s] of (held ? [] : [...parts, ...fresh]).entries()) {
         if (i > 0) {
           await Chat.gchat_wait(Gchat.GAP);
         }
