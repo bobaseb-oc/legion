@@ -26,7 +26,10 @@ const fresh = (): { work: string; out: string } => {
 const age = (dir: string, days: number, now = Date.now()): void => {
   const t = new Date(now - days * DAY);
   const each = (p: string): void => {
-    const st = fs.lstatSync(p);
+    const st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (st === undefined) {
+      return; // gone meanwhile (a lock git dropped)
+    }
     if (st.isDirectory()) {
       fs.readdirSync(p).forEach((e) => each(p + "/" + e));
     }
@@ -38,7 +41,7 @@ const age = (dir: string, days: number, now = Date.now()): void => {
 };
 
 const git = (cwd: string, ...args: string[]): string => {
-  const run = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const run = Bun.spawnSync(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   if (run.exitCode !== 0) {
     throw new Error("git " + args.join(" ") + ": " + run.stderr.toString());
   }
@@ -62,19 +65,19 @@ const repo = (dir: string, out: string): string => {
 const none = { known: new Set<string>(), busy: new Set<string>() };
 const listed = (items: Sweep.Item[]): string[] => items.map((x) => x.path).sort();
 
-test("AC1: a finished agent's dir untouched 8 days is listed once with its size; nothing is removed", () => {
+test("AC1: a finished agent's dir untouched 8 days is listed once with its size; nothing is removed", async () => {
   const { work } = fresh();
   fs.mkdirSync(work + "/Ada/sub", { recursive: true });
   fs.writeFileSync(work + "/Ada/sub/f.bin", Buffer.alloc(5000));
   age(work + "/Ada", 8);
-  const items = Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
   expect(listed(items)).toEqual([work + "/Ada"]);
   expect(items[0]!.bytes).toBeGreaterThanOrEqual(5000);
   expect(Sweep.sweep_text(items)).toContain(work + "/Ada");
   expect(fs.existsSync(work + "/Ada/sub/f.bin")).toBe(true);
 });
 
-test("age: a dir touched 6 days ago, or with one file touched today, is not listed", () => {
+test("age: a dir touched 6 days ago, or with one file touched today, is not listed", async () => {
   const { work } = fresh();
   fs.mkdirSync(work + "/Ada");
   fs.mkdirSync(work + "/Bob/deep", { recursive: true });
@@ -82,10 +85,10 @@ test("age: a dir touched 6 days ago, or with one file touched today, is not list
   age(work + "/Ada", 6);
   age(work + "/Bob", 30);
   fs.utimesSync(work + "/Bob/deep/new.txt", new Date(), new Date());
-  expect(Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set() }, [], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set() }, [], Date.now())).toEqual([]);
 });
 
-test("AC3: an old repo with a change, a stash, or a commit on no remote is not listed; a clean pushed one is", () => {
+test("AC3: an old repo with a change, a stash, or a commit on no remote is not listed; a clean pushed one is", async () => {
   const { work, out } = fresh();
   const clean = repo(work + "/review/clean", out);
   const dirty = repo(work + "/review/dirty", out);
@@ -98,17 +101,17 @@ test("AC3: an old repo with a change, a stash, or a commit on no remote is not l
   git(local, "add", ".");
   git(local, "commit", "-q", "-m", "unpushed");
   age(work + "/review", 8);
-  expect(listed(Sweep.sweep_list(work, none, [], Date.now()))).toEqual([clean]);
+  expect(listed(await Sweep.sweep_list(work, none, [], Date.now()))).toEqual([clean]);
 });
 
-test("AC4: an agent at work, asking or waiting is not listed, however old", () => {
+test("AC4: an agent at work, asking or waiting is not listed, however old", async () => {
   const { work } = fresh();
   fs.mkdirSync(work + "/Ada");
   age(work + "/Ada", 90);
-  expect(Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(["Ada"]) }, [], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(["Ada"]) }, [], Date.now())).toEqual([]);
 });
 
-test("AC9: never WORK/main, the user's dirs, or a non-git dir not named after an agent", () => {
+test("AC9: never WORK/main, the user's dirs, or a non-git dir not named after an agent", async () => {
   const { work } = fresh();
   fs.mkdirSync(work + "/main");
   fs.mkdirSync(work + "/scratch/inner", { recursive: true });
@@ -116,26 +119,26 @@ test("AC9: never WORK/main, the user's dirs, or a non-git dir not named after an
   fs.writeFileSync(work + "/users/u1/view.json", "{}");
   age(work, 30);
   const keep = [work + "/users/u1"];
-  expect(Sweep.sweep_list(work, { known: new Set(["main", "users"]), busy: new Set() }, keep, Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["main", "users"]), busy: new Set() }, keep, Date.now())).toEqual([]);
 });
 
-test("symlinks: one in WORK pointing outside is never listed nor removed; the outside dir stays", () => {
+test("symlinks: one in WORK pointing outside is never listed nor removed; the outside dir stays", async () => {
   const { work, out } = fresh();
   fs.mkdirSync(out + "/precious");
   fs.writeFileSync(out + "/precious/keep.txt", "keep");
   fs.symlinkSync(out + "/precious", work + "/Eve");
   age(out, 30);
-  expect(Sweep.sweep_list(work, { known: new Set(["Eve"]), busy: new Set() }, [], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["Eve"]), busy: new Set() }, [], Date.now())).toEqual([]);
   const forged: Sweep.Item = { path: work + "/Eve", bytes: 4, mtime: 0, git: null };
-  expect(Sweep.sweep_remove(work, forged)).not.toBeNull();
-  expect(Sweep.sweep_remove(work, { ...forged, path: work + "/../out/precious" })).not.toBeNull();
-  expect(Sweep.sweep_remove(work, { ...forged, path: out + "/precious" })).not.toBeNull();
-  expect(Sweep.sweep_remove(work, { ...forged, path: work })).not.toBeNull();
+  expect(await Sweep.sweep_remove(work, forged)).not.toBeNull();
+  expect(await Sweep.sweep_remove(work, { ...forged, path: work + "/../out/precious" })).not.toBeNull();
+  expect(await Sweep.sweep_remove(work, { ...forged, path: out + "/precious" })).not.toBeNull();
+  expect(await Sweep.sweep_remove(work, { ...forged, path: work })).not.toBeNull();
   expect(fs.readFileSync(out + "/precious/keep.txt", "utf8")).toBe("keep");
   expect(fs.existsSync(work)).toBe(true);
 });
 
-test("AC5: a listed dir touched or made dirty since the listing fails its re-check; an unchanged one passes", () => {
+test("AC5: a listed dir touched or made dirty since the listing fails its re-check; an unchanged one passes", async () => {
   const { work, out } = fresh();
   fs.mkdirSync(work + "/Ada");
   fs.writeFileSync(work + "/Ada/f", "x");
@@ -143,37 +146,122 @@ test("AC5: a listed dir touched or made dirty since the listing fails its re-che
   fs.mkdirSync(work + "/Bob");
   age(work, 8);
   const agents = { known: new Set(["Ada", "Bob"]), busy: new Set<string>() };
-  const items = Sweep.sweep_list(work, agents, [], Date.now());
+  const items = await Sweep.sweep_list(work, agents, [], Date.now());
   expect(listed(items)).toEqual([work + "/Ada", work + "/Bob", r]);
   fs.writeFileSync(work + "/Ada/f", "y");
   fs.writeFileSync(r + "/a.txt", "dirty\n");
   age(r, 8);
-  const ok = items.map((x) => [x.path, Sweep.sweep_check(work, x, agents, [], Date.now())]);
-  expect(ok).toEqual([[work + "/Ada", false], [work + "/Bob", true], [r, false]]);
+  const ok = [];
+  for (const x of items) {
+    ok.push([x.path, await Sweep.sweep_check(work, x, agents, [], Date.now())]);
+  }
+  expect(ok.sort()).toEqual([[work + "/Ada", false], [work + "/Bob", true], [r, false]]);
   // touched again yet still older than AGE: newer than listed, so kept
+  const bob = items.find((x) => x.path === work + "/Bob")!;
   fs.writeFileSync(work + "/Bob/later", "z");
   age(work + "/Bob", 7.5);
-  expect(Sweep.sweep_check(work, items[1]!, agents, [], Date.now())).toBe(false);
-  expect(Sweep.sweep_check(work, items[1]!, { ...agents, busy: new Set(["Bob"]) }, [], Date.now())).toBe(false);
+  expect(await Sweep.sweep_check(work, bob, agents, [], Date.now())).toBe(false);
+  expect(await Sweep.sweep_check(work, bob, { ...agents, busy: new Set(["Bob"]) }, [], Date.now())).toBe(false);
 });
 
-test("AC6: a listed git worktree is removed by git worktree remove; its parent's list drops it", () => {
+test("AC6: a listed git worktree is removed by git worktree remove; its parent's list drops it", async () => {
   const { work, out } = fresh();
   const parent = repo(work + "/review/af", out);
   const wt = work + "/review/af-worktrees/pr1";
   git(parent, "worktree", "add", "-q", "--detach", wt);
   age(work, 8);
-  const items = Sweep.sweep_list(work, none, [], Date.now());
+  const items = await Sweep.sweep_list(work, none, [], Date.now());
   // the parent has a worktree: kept; the worktree is the one listed
   expect(listed(items)).toEqual([wt]);
   expect(items[0]!.git).toBe("worktree");
-  expect(Sweep.sweep_remove(work, items[0]!)).toBeNull();
+  expect(await Sweep.sweep_remove(work, items[0]!)).toBeNull();
   expect(fs.existsSync(wt)).toBe(false);
   expect(git(parent, "worktree", "list", "--porcelain")).not.toContain(wt);
   expect(fs.existsSync(parent + "/a.txt")).toBe(true);
 });
 
-test("the fingerprint covers each listed dir's path, size and time", () => {
+test("cap: the biggest dirs are listed first, so 60 empty agent dirs never crowd out a big clone", async () => {
+  const { work, out } = fresh();
+  const names = Array.from({ length: 60 }, (_, k) => "Ag" + String.fromCharCode(97 + Math.floor(k / 26)) + String.fromCharCode(97 + (k % 26)));
+  names.forEach((n) => fs.mkdirSync(work + "/" + n));
+  const big = repo(work + "/zz/big", out);
+  fs.writeFileSync(big + "/blob.bin", Buffer.alloc(200_000));
+  git(big, "add", ".");
+  git(big, "commit", "-q", "-m", "blob");
+  git(big, "push", "-q", "origin", "main");
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, { known: new Set(names), busy: new Set() }, [], Date.now());
+  expect(items.length).toBe(50);
+  expect(items[0]!.path).toBe(big);
+  expect(items.map((x) => x.bytes)).toEqual(items.map((x) => x.bytes).sort((a, b) => b - a));
+});
+
+test("worktrees: one is judged by its own HEAD and changes, not by the shared repo's other branches or stash", async () => {
+  const { work, out } = fresh();
+  const parent = repo(work + "/review/af", out);
+  // an unpushed branch and a stash in the shared repo
+  git(parent, "checkout", "-q", "-b", "ryanf/x");
+  fs.writeFileSync(parent + "/r.txt", "r\n");
+  git(parent, "add", ".");
+  git(parent, "commit", "-q", "-m", "unpushed elsewhere");
+  git(parent, "checkout", "-q", "main");
+  fs.writeFileSync(parent + "/a.txt", "stashed\n");
+  git(parent, "stash", "-q");
+  const pr1 = work + "/review/wt/pr1"; // detached at a pushed commit: listed
+  git(parent, "worktree", "add", "-q", "--detach", pr1, "main");
+  const pr2 = work + "/review/wt/pr2"; // a commit on a detached HEAD only: lost on removal, kept
+  git(parent, "worktree", "add", "-q", "--detach", pr2, "main");
+  fs.writeFileSync(pr2 + "/d.txt", "d\n");
+  git(pr2, "add", ".");
+  git(pr2, "commit", "-q", "-m", "detached");
+  const pr3 = work + "/review/wt/pr3"; // on a local branch: the branch outlives the worktree, listed
+  git(parent, "worktree", "add", "-q", "-b", "local/pr3", pr3, "main");
+  fs.writeFileSync(pr3 + "/l.txt", "l\n");
+  git(pr3, "add", ".");
+  git(pr3, "commit", "-q", "-m", "on a branch");
+  const pr4 = work + "/review/wt/pr4"; // a change: kept
+  git(parent, "worktree", "add", "-q", "--detach", pr4, "main");
+  fs.writeFileSync(pr4 + "/a.txt", "changed\n");
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, none, [], Date.now());
+  expect(listed(items)).toEqual([pr1, pr3]);
+  const three = items.find((x) => x.path === pr3)!;
+  expect(await Sweep.sweep_remove(work, three)).toBeNull();
+  expect(git(parent, "branch", "--list", "local/pr3").trim()).not.toBe("");
+});
+
+test("an agent dir holding a linked worktree: removed, then the worktree pruned from its repo's list", async () => {
+  const { work, out } = fresh();
+  const parent = repo(work + "/review/af", out);
+  const wt = work + "/Ada/af-pr";
+  git(parent, "worktree", "add", "-q", "--detach", wt);
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const ada = items.find((x) => x.path === work + "/Ada")!;
+  expect(ada).toBeDefined();
+  expect(await Sweep.sweep_remove(work, ada)).toBeNull();
+  expect(fs.existsSync(work + "/Ada")).toBe(false);
+  expect(git(parent, "worktree", "list", "--porcelain")).not.toContain(wt);
+});
+
+test("the question names each listed dir's .env files, by path within it", async () => {
+  const { work } = fresh();
+  fs.mkdirSync(work + "/Ada/app/.git-not", { recursive: true });
+  fs.writeFileSync(work + "/Ada/.env", "A=1");
+  fs.writeFileSync(work + "/Ada/app/.env.local", "B=2");
+  fs.writeFileSync(work + "/Ada/app/env.txt", "not one");
+  fs.mkdirSync(work + "/Bob");
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set() }, [], Date.now());
+  const text = Sweep.sweep_text(items);
+  const ada = text.split("\n").find((l) => l.includes(work + "/Ada"))!;
+  expect(ada).toContain(".env");
+  expect(ada).toContain("app/.env.local");
+  expect(ada).not.toContain("env.txt");
+  expect(text.split("\n").find((l) => l.includes(work + "/Bob"))).not.toContain(".env");
+});
+
+test("the fingerprint covers each listed dir's path, size and time", async () => {
   const a: Sweep.Item = { path: "/w/A", bytes: 1, mtime: 1, git: null };
   const fp = Sweep.sweep_fp([a]);
   expect(Sweep.sweep_fp([a])).toBe(fp);
@@ -183,7 +271,7 @@ test("the fingerprint covers each listed dir's path, size and time", () => {
   expect(Sweep.sweep_fp([a, a])).not.toBe(fp);
 });
 
-test("due: weekly at the first Sunday 03:00 (local) since the last; early over the size, once a day", () => {
+test("due: weekly at the first Sunday 03:00 (local) since the last; early over the size, once a day", async () => {
   const sun = new Date(2026, 10, 29, 3, 0).getTime(); // Sunday 29 Nov 2026, 03:00
   const wed = new Date(2026, 10, 25, 12, 0).getTime();
   const most = 10 * 2 ** 30;
@@ -225,6 +313,8 @@ const agent = (name) => {
 const sweeps = () => chat.mem.questions.filter((q) => q.sweep !== undefined);
 const answer = (q, text, device = "") => Chat.act(chat, "a" + Math.random(), { $: "answer", q, text }, device);
 Chat.SWEEP_BYTES = 1; // WORK is "over the size": the sweep runs early
+// the tick only starts the sweep (Chat.sweep); this waits for its run
+const tick = async (t) => { Chat.ticked(chat, t); await chat.sweeps?.running; };
 `;
 
 const YES = HEAD + `
@@ -232,11 +322,11 @@ agent("Ada");
 agent("Bob");
 const log = fs.readFileSync(chat.mem.dir + "/docs/agent/Ada.jsonl");
 const now = Date.now();
-Chat.ticked(chat, now);
+await tick(now);
 const first = sweeps().map((q) => ({ id: q.id, text: q.text, options: q.options }));
 const asked = chat.mem.asked;
-Chat.ticked(chat, now + 3600e3);
-Chat.ticked(chat, now + 20 * 3600e3);
+await tick(now + 3600e3);
+await tick(now + 20 * 3600e3);
 const again = { ids: sweeps().map((q) => q.id), asked: chat.mem.asked };
 const listedboth = fs.existsSync(work + "/Ada") && fs.existsSync(work + "/Bob");
 const bydevice = await answer(first[0].id, "yes", "mac");
@@ -282,13 +372,13 @@ test("AC1, AC2, AC5, AC7: one question lists both dirs; a device's yes is refuse
 const LAPSE = HEAD + `
 agent("Cy");
 const now = Date.now();
-Chat.ticked(chat, now);
+await tick(now);
 const q = sweeps()[0];
 // a question that claims the listing's fingerprint, not the one asked
 chat.mem.questions.push({ id: 999, text: "forged", options: ["yes", "no"], at: 0, date: "", sweep: q.sweep });
 const forged = await answer(999, "yes");
 const afterforged = fs.existsSync(work + "/Cy");
-Chat.ticked(chat, now + DAY + 60e3);
+await tick(now + DAY + 60e3);
 const lapsed = !sweeps().some((x) => x.id === q.id);
 const lapsenote = chat.mem.questions.some((x) => x.fyi && x.text.includes("no answer in 24 h"));
 const afterlapse = fs.existsSync(work + "/Cy");
@@ -296,11 +386,15 @@ const late = await answer(q.id, "yes");
 const afterlate = fs.existsSync(work + "/Cy");
 const next = sweeps().map((x) => x.id);
 const no = next.length === 1 ? await answer(next[0], "no") : null;
-console.log(JSON.stringify({ forged, afterforged, lapsed, lapsenote, afterlapse, late: late !== null && "error" in late, afterlate, next: next.length, no, afterno: fs.existsSync(work + "/Cy"), open: sweeps().length }));
+// a no snoozes exactly those paths for 7 days: a new stale dir is still listed
+agent("Dee");
+await tick(now + 2 * DAY + 120e3);
+const snoozed = sweeps().map((x) => x.text);
+console.log(JSON.stringify({ forged, afterforged, lapsed, lapsenote, afterlapse, late: late !== null && "error" in late, afterlate, next: next.length, no, afterno: fs.existsSync(work + "/Cy"), snoozed }));
 process.exit(0);
 `;
 
-test("AC8: unanswered for 24 h the question lapses and every dir stays; a forged question, a late yes and a no remove nothing", async () => {
+test("AC8: unanswered for 24 h the question lapses and every dir stays; a forged question, a late yes and a no remove nothing; a no snoozes those paths, a new stale dir is still listed", async () => {
   const out = await run("lapse", LAPSE);
   expect(out.forged).toEqual({});
   expect(out.afterforged).toBe(true);
@@ -312,5 +406,7 @@ test("AC8: unanswered for 24 h the question lapses and every dir stays; a forged
   expect(out.next).toBe(1);
   expect(out.no).toEqual({});
   expect(out.afterno).toBe(true);
-  expect(out.open).toBe(0);
+  expect(out.snoozed.length).toBe(1);
+  expect(out.snoozed[0]).toContain(out.work + "/Dee");
+  expect(out.snoozed[0]).not.toContain(out.work + "/Cy");
 }, 30_000);
