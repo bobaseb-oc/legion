@@ -1212,14 +1212,19 @@ export namespace Tools {
   // !command. A link lost (its process killed, no quit) stays attached, so
   // a reconnect of its tab keeps its jobs; it is not open until then
   export function opened(tools: Tools): [string, Device][] {
-    return [...tools.devices].filter(([, d]) => [...d.terms.values()].some((l) => l.live?.() !== false));
+    return [...tools.devices].filter(([, d]) => Tools.live(d).length > 0);
+  }
+
+  // a device's links that are up (a lost one stays attached till it quits)
+  export function live(d: Device): Link[] {
+    return [...d.terms.values()].filter((l) => l.live?.() !== false);
   }
 
   // else why not
   export function open(tools: Tools, device: string, computer: boolean): Device | string {
     const d = tools.devices.get(device);
     const open = Tools.opened(tools).map(([name]) => name).join(", ") || "none";
-    if (d === undefined || d.terms.size === 0) {
+    if (d === undefined || Tools.live(d).length === 0) {
       // only the user opens one, so a retry in a loop only keeps the chat
       // busy: stop and say so instead
       return "No device " + device + " is open (unii isn't running there). Open: " + open + ". Only the user opens it, so don't retry or wait: end your turn, saying what is left.";
