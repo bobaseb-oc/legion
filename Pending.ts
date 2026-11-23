@@ -35,7 +35,7 @@ export function fp(who: string, tool: string, args: unknown): string {
 // RED ZONE (R4, DRAFT awaiting the user's sign-off): the records view.json
 // holds, checked as they load: each field's type, args its own canonical
 // JSON (≤ ARGS), fp its hash; any other dropped, no extra field kept;
-// then kept by keep's rule, as on save, so no open record is cut
+// then kept by keep's rule, as Tools.pend keeps it, so no open record is cut
 export function pending_read(x: unknown): Pending[] {
   if (!Array.isArray(x)) {
     return [];

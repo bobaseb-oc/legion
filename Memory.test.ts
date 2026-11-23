@@ -185,7 +185,7 @@ test("PLP-2920 AC1, AC2: view.json with 55 closed then 5 open records loads all 
   const open = Array.from({ length: 5 }, (_, k) => rec(56 + k, "open"));
   const mem: any = loaded({ pending: [...closed, ...open] });
   expect(mem.pending.filter((p: any) => p.state === "open").map((p: any) => p.id)).toEqual([56, 57, 58, 59, 60]);
-  expect(mem.pending.length).toBeLessThanOrEqual(Pending.PENDS);
+  expect(mem.pending).toHaveLength(Pending.PENDS);
 });
 
 test("L1-AC16: view.json's pended (the last approval id) survives a save and a load; not an integer, 0", () => {
