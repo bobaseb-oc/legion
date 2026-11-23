@@ -1960,6 +1960,49 @@ test("P6: the tick expires a re-shown consent past its until, and saves it", asy
   expect((out.disk ?? []).map((p: any) => p.state)).toEqual(["expired"]);
 }, 30_000);
 
+// PLP-2919, P6/P7 on disk: the closed states a restart gives (an open
+// consent made 24 h + 1 s ago expired, an open appeal cut) are in
+// view.json once Chat.open returns, read with no await between: so no
+// tick, act or end has saved yet; only Chat.load's own save can have
+const APPROVE_RESTART = APPROVE_HEAD + `
+const first = opened();
+await Chat.end(first);
+const file = first.mem.dir + "/view.json";
+const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+const now = Date.now();
+const DAY = 24 * 3600_000;
+const canon = (o) => JSON.stringify(Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])));
+const hash = (who, tool, args) => new Bun.CryptoHasher("sha256").update(who + String.fromCharCode(0) + tool + String.fromCharCode(0) + canon(args)).digest("hex");
+const rec = (id, who, over) => ({ id, kind: "consent", who, tool: "shell", args: canon(DEPLOY), fp: hash(who, "shell", DEPLOY), made: now, until: now + DAY, state: "open", ...over });
+saved.pending = [
+  rec(1, "main", { made: now - DAY - 1000, until: now - 1000 }),
+  rec(2, "Wkr", { kind: "appeal", boss: "main", reason: "r", until: now + 600_000 }),
+];
+saved.pended = 2;
+fs.writeFileSync(file, JSON.stringify(saved));
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+console.log(JSON.stringify({ disk: disk(chat) }));
+process.exit(0);
+`;
+
+let restarting: Promise<any> | null = null;
+const restart_run = (): Promise<any> => (restarting ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/restart.ts", APPROVE_RESTART);
+  const proc = Bun.spawn([process.execPath, dir + "/restart.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+})());
+
+test("PLP-2919 AC1, P6: an open consent made 24 h + 1 s ago is saved expired in view.json when the chat opens", async () => {
+  const out = await restart_run();
+  expect((out.disk ?? []).find((p: any) => p.id === 1)?.state).toBe("expired");
+}, 30_000);
+
+test("PLP-2919 AC2, P7: an open appeal is saved cut in view.json when the chat opens", async () => {
+  const out = await restart_run();
+  expect((out.disk ?? []).find((p: any) => p.id === 2)?.state).toBe("cut");
+}, 30_000);
+
 // RED ZONE (ADR 2; DRAFT awaiting the user's sign-off): the chat's inbox
 // (Events.ts). Who sent an event is the credential's (a view, a terminal
 // key, else a device), never the payload's; a device's event waits
