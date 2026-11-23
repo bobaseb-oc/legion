@@ -139,10 +139,12 @@ export function explain_cards(text: string, names: string[]): Card[] | string {
     return "not JSON with cards";
   }
   const field = (x: unknown, most = FIELD) => typeof x === "string" ? cut(x, most) : "";
+  // a track's name matched whatever its case; the card keeps the track's own
+  const own = new Map(names.map((n) => [n.toLowerCase(), n]));
   const by = new Map<string, Card>();
   for (const c of json.cards) {
-    const track = typeof c?.track === "string" ? c.track : "";
-    if (names.includes(track) && !by.has(track)) {
+    const track = own.get(typeof c?.track === "string" ? c.track.toLowerCase() : "");
+    if (track !== undefined && !by.has(track)) {
       by.set(track, { track, title: field(c?.title, TITLE), what: field(c?.what), why: field(c?.why), status: field(c?.status), watch: field(c?.watch) });
     }
   }
