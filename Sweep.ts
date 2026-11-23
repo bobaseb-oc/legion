@@ -145,7 +145,32 @@ export async function sweep_candidate(work: string, p: string, agents: Agents, k
       return null;
     }
   }
-  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind, ...(walk.envs.length === 0 ? {} : { envs: walk.envs }) };
+  const envs = await untracked(at, walk.envs, walk.repos);
+  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind, ...(envs.length === 0 ? {} : { envs }) };
+}
+
+// of the .env files in dir (paths within it), those git cannot give back:
+// in no repo, or not tracked by the innermost repo holding them (a
+// tracked template, .env.example, is left out). A failed git: named
+async function untracked(dir: string, envs: string[], repos: string[]): Promise<string[]> {
+  const by = new Map<string, string[]>();
+  const loose: string[] = [];
+  for (const rel of envs) {
+    const abs = dir + "/" + rel;
+    const repo = repos.filter((r) => abs.startsWith(r + "/")).sort((x, y) => y.length - x.length)[0];
+    if (repo === undefined) {
+      loose.push(rel);
+    } else {
+      by.set(repo, [...(by.get(repo) ?? []), rel]);
+    }
+  }
+  const kept = [...loose];
+  for (const [repo, rels] of by) {
+    const listed = await git(repo, ["--literal-pathspecs", "ls-files", "-z", "--", ...rels.map((rel) => path.relative(repo, dir + "/" + rel))]);
+    const tracked = new Set((listed ?? "").split("\0").filter((x) => x !== "").map((x) => path.relative(dir, repo + "/" + x)));
+    kept.push(...rels.filter((rel) => listed === null || !tracked.has(rel)));
+  }
+  return kept;
 }
 
 // the candidates in WORK, the biggest MOST, biggest first: its entries,
