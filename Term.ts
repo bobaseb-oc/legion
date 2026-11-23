@@ -269,6 +269,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
     ["Agents", [
       ["",                  "Tab",                     "the next tab",                                   term_cycle],
       ["/tab [name]",       "",                        "the tabs; with a name, that one",               term_tab],
+      ["/agents <text>",    "",                        "find agents by name or title, archived ones and those from before a restart too; /tab <name> opens one", (t, a) => term_act(t, { $: "Agents", q: a }).length === 0 && term_note(t, "Find which agents? /agents <text>")],
       ["/agent <task>",     "",                        "start an agent on a task; its report waits in the chat, starting no turn", (t, a) => term_act(t, { $: "Send", text: "/agent " + a })],
       ["/stop [name]",      "",                        "stop all work, agents too; or that agent and those under it", term_stop],
       ["/crew [full]",      "",                        "show or hide the crew: Legion and every agent under its starter; full: the whole screen (Esc goes back)", term_crew],
@@ -1419,6 +1420,11 @@ function term_print(t: Term, msg: View.Server): void {
     }
     case "recalled": {
       term_note(t, View.view_recall_note(v));
+      return;
+    }
+    case "agents_found": {
+      // an older search's answer: dropped (View.view_hear)
+      msg.q === v.lookup?.q && term_note(t, View.view_agents_note(v));
       return;
     }
     case "themes": {
