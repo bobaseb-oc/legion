@@ -447,6 +447,29 @@ console.log(JSON.stringify({ none, one, first: first && first.job, empty, device
 process.exit(0);
 `;
 
+// a device killed (no quit) keeps its link, dead: the user's !command, its
+// device not named, runs on the one device whose link is live; with only a
+// dead one, no device is open
+const BANG_LIVE = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
+const jobs = { mac: [], "mac-2": [] };
+const link = (k, live) => ({ send: (x) => { if (x.$ === "job") jobs[k].push(x); }, live, computer: false, work: "~/w" });
+Tools.attach(chat.tools, "t1", "mac", "old", link("mac", () => false));
+const alone = await Chat.act(chat, "b1", { $: "bang", command: "ls" }, "");
+Tools.attach(chat.tools, "t2", "mac", "new", link("mac-2", () => true));
+const ran = await Chat.act(chat, "b2", { $: "bang", command: "ls" }, "");
+console.log(JSON.stringify({ alone: alone.error ?? null, ran, dead: jobs.mac.length, live: jobs["mac-2"].map((x) => x.job.input.command) }));
+process.exit(0);
+`;
+
 // B2: shell commands running like Claude Code's. A device's tails (its
 // own jobs only) give each command's last lines, in the state and in
 // "shells" messages; RED ZONE (DRAFT): sending one to the background or
@@ -1283,6 +1306,14 @@ test("!command: the user's own, from a view only, run ungated on the device name
     unknown: "No device nas is open: mac, pc.", picked: {}, there: "cd '/r/it'\\''s here' && ls", baddir: true,
     termed: {}, termjob: "echo t",
   });
+});
+
+test("!command: a killed device's dead link is not open; the command runs on the live one", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/bang-live.ts", BANG_LIVE);
+  const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ alone: "No device is open: run legion (or legion device) on one.", ran: {}, dead: 0, live: ["ls"] });
 });
 
 test("shell commands: their last lines told the views; background and stop only the user's, a device key's refused; the user's Stop ends them all", async () => {

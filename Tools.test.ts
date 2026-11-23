@@ -184,6 +184,33 @@ test("the devices line names a device's home repo, and Unii's tools say they run
   Tools.close(tools);
 });
 
+// a device killed (its socket closed, no quit) keeps its link, so a
+// reconnect of the same tab finds its jobs; only a device with a live link
+// is open
+test("only a device with a live link is open; a lost link's jobs are there when its tab is back", () => {
+  const tools = Tools.serve({} as any, {} as any);
+  let up = true;
+  const sent: any[] = [];
+  const link = (live: () => boolean) => ({ send: (x: any) => sent.push(x), live, computer: false, work: "~/w" });
+  Tools.attach(tools, "t1", "mac", "u", link(() => up));
+  Tools.attach(tools, "t2", "box", "u", link(() => false));
+  Tools.attach(tools, "t3", "pc", "u", link(() => false));
+  Tools.attach(tools, "t4", "pc", "u", link(() => true));
+  const names = () => Tools.opened(tools).map(([name]) => name);
+  expect(names()).toEqual(["mac", "pc"]);
+  expect(Tools.devices(tools).text).not.toContain("- box");
+  const run = Tools.start_job(tools, "mac", { name: "shell", input: { command: "ls" }, cwd: "main" } as any, "j1");
+  expect(typeof run).not.toBe("string");
+  up = false;
+  expect(names()).toEqual(["pc"]);
+  sent.length = 0;
+  Tools.attach(tools, "t1", "mac", "u", link(() => true));
+  expect(names()).toEqual(["mac", "pc"]);
+  expect([...tools.devices.get("mac")!.jobs.keys()]).toEqual(["j1"]);
+  expect(sent).toContainEqual({ $: "job", id: "j1", job: { name: "shell", input: { command: "ls" }, cwd: "main" } });
+  Tools.close(tools);
+});
+
 // An agent's pulse, sent to every view (Server.ts), small: its status,
 // what it does now (its stream's last line: a tool's call, its words, or
 // "thinking"), its report's last line; each line at most PULSE_LINE chars
