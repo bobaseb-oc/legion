@@ -196,8 +196,8 @@ test("O6: an approval reply: exact trimmed yes or no only", () => {
 
 // the server, in a process of its own: fetch stubbed (no network), the
 // webhook's and Chat's answers scripted; STEP: "post" files the items and
-// posts them, "reply" (a restart: same UNII_DIR) posts nothing new and
-// acts on the replies
+// posts them, "reply" (a restart: same UNII_DIR) posts each open item
+// again in a new thread and acts on the replies there only
 const SERVER = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
 const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
@@ -272,12 +272,25 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   const saved = Memory.load(chat.mem.dir, () => null).gchat;
   out.saved = saved.posted.map((p) => p.key);
   Chat.gchat_token = async () => "tok";
-  const thread = (key) => chat.mem.gchat.posted.find((p) => p.key === key).thread;
+  const old = new Map(chat.mem.gchat.posted.map((p) => [p.key, p.thread]));
   const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
   const n = chat.mem.questions.find((x) => x.fyi);
   const t = chat.mem.assigned[0];
   const d = chat.mem.decided[0];
   const at = Date.now() - 1000;
+  // the threads of the last process answer nothing (RED ZONE, PLP-2922):
+  // the restart posts each open item again in a new thread
+  const o = (name, key, text) => ({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: old.get(key) }, createTime: new Date(at).toISOString(), text });
+  script = [o("o1", "q" + q.id, "2"), o("o2", "t" + t.n, "done"), o("o3", "d" + d.id, "undo hold it")];
+  // the digest due, so the note, todo and decision (quiet: held) post too
+  chat.mem.digested = 0;
+  await pass();
+  await Bun.sleep(100);
+  out.posted = posts.length;
+  out.fresh = posts.every((p) => ![...old.values()].includes(SPACE + "/threads/" + p.tk));
+  out.old = msgs().filter((m) => m.kind === "user" && /^(Answer to|Reply to|Done:|The user reversed)/.test(m.text)).length;
+  // this process's own post of an item (its thread key, Chat.bridge's)
+  const thread = (key) => SPACE + "/threads/" + posts.find((p) => p.tk.startsWith("legion-" + key + "-"))?.tk;
   const m = (name, key, text, o = {}) => ({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread(key) }, createTime: new Date(at).toISOString(), text, ...o });
   script = [
     m("r1", "q" + q.id, "2"),
@@ -292,7 +305,7 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   await Bun.sleep(100);
   const said = () => msgs().filter((m) => m.kind === "user" && /^(Answer to|Reply to|Done:|The user reversed)/.test(m.text)).map((m) => m.text);
   out.said = said();
-  out.posted = posts.length;
+  out.later = posts.length - out.posted;
   await pass();
   await Bun.sleep(50);
   out.again = said().length;
@@ -311,7 +324,7 @@ async function run(dir: string, step: string, env: Record<string, string>): Prom
   return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), all: o + e };
 }
 
-test("the server: each item posted once, not again after a restart; replies acted on once, as a view's acts; the key never shown", async () => {
+test("the server: each item posted once a process, again in a new thread after a restart; replies in its own threads acted on once, as a view's acts; the key never shown", async () => {
   const dir = fs.mkdtempSync(os.tmpdir() + "/unii-gchat-");
   const env = { UNII_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_ };
   const a = await run(dir, "post", env);
@@ -331,7 +344,13 @@ test("the server: each item posted once, not again after a restart; replies acte
   expect(a.out.bye[0].tk.startsWith("legion-")).toBe(true);
   const b = await run(dir, "reply", env);
   expect(b.out.saved.length).toBe(5);
-  expect(b.out.posted).toBe(0);
+  // RED ZONE (PLP-2922): the restart posts the 5 open items again, each in
+  // a new thread; replies in the old threads answer nothing; then each
+  // only once, posted no more
+  expect(b.out.posted).toBe(5);
+  expect(b.out.fresh).toBe(true);
+  expect(b.out.old).toBe(0);
+  expect(b.out.later).toBe(0);
   expect(b.out.said).toEqual([
     "Answer to your question 1 (Ship it?):\nPush it",
     "Reply to your note 2 (Build is green.):\nthanks, ship it",

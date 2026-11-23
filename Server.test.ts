@@ -2251,7 +2251,9 @@ if (process.env.STEP === "post") {
   out.posted = posts;
 } else {
   const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
-  const thread = chat.mem.gchat.posted.find((p) => p.key === "q" + q.id).thread;
+  // the restart posts the question again; only that new thread answers (PLP-2922)
+  await pass();
+  const thread = chat.mem.gchat.posted.filter((p) => p.key === "q" + q.id).at(-1).thread;
   script = [{ name: SPACE + "/messages/r1", sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread }, createTime: new Date(Date.now() - 1000).toISOString(), text: "2" }];
   await pass();
   await Bun.sleep(100);
@@ -3119,3 +3121,133 @@ test("L4, O8: a GChat yes (with its fp) to a record past its until or answered n
   expect(out.states).toEqual(["open", "no"]);
   expect(out.grants).toBe(0);
 }, 30_000);
+
+// RED ZONE (PLP-2922): which item a GChat thread answers is kept in
+// memory for every kind, as L4 did for approvals. Process A posts
+// questions qA, qB and qC, a note, a todo and a super auto decision, then
+// ends; view.json is edited so qA's thread names qB and the note's names
+// the decision. Process B (a restart, same UNII_DIR) posts each open item
+// again in a NEW thread; replies in A's threads, read in B's first pass,
+// answer nothing
+const OUT_THREADS_A = OUT_HEAD + `
+const chat = opened();
+keep(chat);
+chat.mem.mode = "super";
+chat.mem.pace = "all";
+const sig = () => new AbortController().signal;
+await Tools.call(chat.tools, "main", "ask", { question: "QA-22 ship it?", options: ["Hold", "Push it"] }, sig(), "q1");
+await Tools.call(chat.tools, "main", "ask", { question: "QB-22 merge it?", options: ["Hold", "Merge"] }, sig(), "q2");
+await Tools.call(chat.tools, "main", "ask", { question: "QC-22 tag it?", options: ["Hold", "Tag"] }, sig(), "q3");
+await Tools.call(chat.tools, "main", "notify", { text: "NOTE-22 build is green" }, sig(), "q4");
+await Tools.call(chat.tools, "main", "assign", { text: "TODO-22 approve PR #9" }, sig(), "q5");
+chat.mem.tallies = { push: { n: 20, took: 20, auto: [] } };
+await Tools.call(chat.tools, "main", "ask", { question: "DEC-22 push AO-1?", options: ["Hold", "Push it"], kind: "push", pick: 1 }, sig(), "q6");
+const q = (s) => chat.mem.questions.find((x) => x.text.includes(s));
+const K = { qa: "q" + q("QA-22")?.id, qb: "q" + q("QB-22")?.id, qc: "q" + q("QC-22")?.id, n: "n" + q("NOTE-22")?.id, t: "t" + chat.mem.assigned.find((a) => a.text.includes("TODO-22"))?.n, d: "d" + chat.mem.decided.find((d) => d.question.includes("DEC-22"))?.id };
+for (let k = 0; k < 5 && !Object.values(K).every((key) => posted(chat, key) !== null); k++) await pass(chat);
+const old = Object.fromEntries(Object.entries(K).map(([k, key]) => [k, posted(chat, key)]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread }]));
+await Chat.end(chat);
+// the forged threads: qA's entry made to name qB, the note's the decision
+const file = chat.mem.dir + "/view.json";
+const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+let forged = 0;
+if (saved.gchat !== undefined && Array.isArray(saved.gchat.posted)) {
+  saved.gchat.posted = saved.gchat.posted.filter((p) => p.key !== K.qb && p.key !== K.d);
+  for (const p of saved.gchat.posted) {
+    if (p.key === K.qa) { p.key = K.qb; forged++; }
+    else if (p.key === K.n) { p.key = K.d; forged++; }
+  }
+  fs.writeFileSync(file, JSON.stringify(saved));
+}
+console.log(JSON.stringify({ K, old, forged }));
+process.exit(0);
+`;
+
+const OUT_THREADS_B = OUT_HEAD + `
+const OLD = JSON.parse(process.env.OLD ?? "{}");
+const K = JSON.parse(process.env.K ?? "{}");
+const chat = opened();
+keep(chat);
+const at = (thread, name, text) => script.push({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread ?? SPACE + "/threads/none" }, createTime: new Date(Date.now() - 1000).toISOString(), text });
+const said = () => msgs(chat).filter((m) => m.kind === "user" && /^(Answer to|Reply to|Done:|Dropped|The user reversed)/.test(m.text)).map((m) => m.text);
+const open = () => ({
+  qa: chat.mem.questions.some((x) => "q" + x.id === K.qa), qb: chat.mem.questions.some((x) => "q" + x.id === K.qb), qc: chat.mem.questions.some((x) => "q" + x.id === K.qc),
+  t: chat.mem.assigned.some((a) => "t" + a.n === K.t), d: chat.mem.decided.some((d) => "d" + d.id === K.d),
+});
+const gchats = () => (chat.mem.events ?? []).filter((e) => e.src === "gchat").map((e) => e.key);
+const out = { before: open() };
+// AC1: "1" in qA's old thread, which view.json now says is qB's; AC3: "1"
+// in qC's old thread; AC4: "done" in the todo's; undo in the note's,
+// which view.json now says is the decision's
+at(OLD.qa?.thread, "o-qa", "1");
+at(OLD.qc?.thread, "o-qc", "1");
+at(OLD.t?.thread, "o-t", "done");
+at(OLD.n?.thread, "o-n", "undo hold it");
+const first = posts.length;
+await pass(chat);
+await Bun.sleep(200);
+const mine = posts.slice(first);
+const tks = (s) => mine.filter((p) => String(p.text).includes(s)).map((p) => p.tk);
+out.ac2 = { tks: tks("QC-22"), old: OLD.qc?.tk ?? null };
+out.after = open();
+out.said = said();
+out.events = gchats();
+// the control: "2" in B's own thread of qB answers it
+const qb = tks("QB-22")[0];
+at(qb === undefined ? undefined : SPACE + "/threads/" + qb, "n-qb", "2");
+await pass(chat);
+await Bun.sleep(200);
+out.control = { open: open(), said: said() };
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let threading: Promise<{ a: any; b: any }> | null = null;
+const threads_run = (): Promise<{ a: any; b: any }> => (threading ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const a = await out_run("out-threads-a", OUT_THREADS_A, dir);
+  const b = await out_run("out-threads-b", OUT_THREADS_B, dir, { OLD: JSON.stringify(a.old ?? {}), K: JSON.stringify(a.K ?? {}) });
+  return { a, b };
+})());
+
+test("PLP-2922 harness: A posts six items and forges two threads; B finds them open; a reply in B's own thread answers", async () => {
+  const { a, b } = await threads_run();
+  expect(Object.keys(a.old).sort()).toEqual(["d", "n", "qa", "qb", "qc", "t"]);
+  expect(a.forged).toBe(2);
+  expect(b.before).toEqual({ qa: true, qb: true, qc: true, t: true, d: true });
+  expect(b.control.open.qb).toBe(false);
+  expect(b.control.said).toContain("Answer to your question " + a.K.qb.slice(1) + " (QB-22 merge it?):\nMerge");
+}, 60_000);
+
+test("PLP-2922 AC1: view.json edited so question A's thread names question B, a reply 1 there: question B still open", async () => {
+  const { b } = await threads_run();
+  expect(b.after.qb).toBe(true);
+  expect(b.after.qa).toBe(true);
+  expect(b.said).toEqual([]);
+  expect(b.events).toEqual([]);
+}, 60_000);
+
+test("PLP-2922 AC2: an open question posted before a restart: one bridge pass makes one new post of it, in a thread not the old one", async () => {
+  const { b } = await threads_run();
+  expect(b.ac2.old).not.toBeNull();
+  expect(b.ac2.tks).toHaveLength(1);
+  expect(b.ac2.tks[0]).not.toBe(b.ac2.old);
+}, 60_000);
+
+test("PLP-2922 AC3: a reply 1 in an open question's old thread after a restart: the question still open", async () => {
+  const { b } = await threads_run();
+  expect(b.after.qc).toBe(true);
+  expect(b.said).toEqual([]);
+}, 60_000);
+
+test("PLP-2922 AC4: done in a todo's old thread after a restart: the todo still assigned", async () => {
+  const { b } = await threads_run();
+  expect(b.after.t).toBe(true);
+  expect(b.said.filter((s: string) => s.startsWith("Done:"))).toEqual([]);
+}, 60_000);
+
+test("PLP-2922: view.json edited so a note's thread names a decision, undo there: the decision not reversed", async () => {
+  const { b } = await threads_run();
+  expect(b.after.d).toBe(true);
+  expect(b.said.filter((s: string) => s.startsWith("The user reversed"))).toEqual([]);
+}, 60_000);

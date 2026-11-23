@@ -148,7 +148,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
-  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; approvals: Gchat.Posted[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the approval threads this process posted (memory only)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -421,7 +421,7 @@ export namespace Chat {
     chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
     if (Chat.gchat_for(user.id, config.KEYS.gchat ?? "")) {
-      chat.bridging = { busy: false, me: null, approvals: [], timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
+      chat.bridging = { busy: false, me: null, threads: [], timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
       chat.bridging.timer!.unref?.();
     }
     mem.wait.add(() => Chat.progress(chat));
@@ -2864,9 +2864,9 @@ const LIKES = 30;
   // ------------
   // The questions pane in a Google Chat space, for the user away (Gchat.ts;
   // on with config gchat_space and GCHAT_WEBHOOK_URL). Every Gchat.EVERY
-  // while the chat is open: each open item not yet reported is posted as
-  // its pace says (Outbox.plan: approvals at once, the rest maybe in the
-  // digest; at most Gchat.POSTS a pass; one that fails, again on the
+  // while the chat is open: each open item this process has not posted is
+  // posted as its pace says (Outbox.plan: approvals at once, the rest maybe
+  // in the digest; at most Gchat.POSTS a pass; one that fails, again on the
   // next), the posted ones closed since forgotten; then, while one is open
   // and there is a token (gchat_token), the space's replies read and acted on.
 
@@ -2907,7 +2907,7 @@ const LIKES = 30;
     if (!Chat.gchat_for(chat.acct.user, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
       return;
     }
-    const b = (chat.bridging ??= { busy: false, me: null, approvals: [] });
+    const b = (chat.bridging ??= { busy: false, me: null, threads: [] });
     b.busy = true;
     try {
       const mem = chat.mem;
@@ -2917,12 +2917,13 @@ const LIKES = 30;
         g.posted = g.posted.filter(open);
         Memory.save(mem);
       }
-      b.approvals = b.approvals.filter(open);
-      // RED ZONE (R4, DRAFT awaiting the user's sign-off): an approval counts
-      // as posted only by this process (b.approvals), so a restart posts each
-      // open one again in a new thread; O4 holds for the rest (outbox, posted)
-      const posted = (x: Gchat.Item) => (x.kind === "approval" ? b.approvals : g.posted).some((p) => p.key === x.key);
-      const plan = Outbox.plan(items.filter((x) => !posted(x)), mem.outbox.filter((o) => o.kind !== "approval"), mem.pace, mem.digested, now);
+      b.threads = b.threads.filter(open);
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
+      // of any kind counts as posted only by this process (b.threads), so a
+      // restart posts each open one again in a new thread; O4 holds within
+      // a process. view.json's outbox and posted are records only, never
+      // read back to skip a post or to route a reply
+      const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), [], mem.pace, mem.digested, now);
       const nows = plan.now.slice(0, Gchat.POSTS);
       const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
       // the digest's first item carries its header, so each keeps a thread of its own
@@ -2936,10 +2937,7 @@ const LIKES = 30;
           whole &&= !digest.includes(item);
           continue;
         }
-        if (item.kind === "approval") {
-          b.approvals.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
-        }
-        // an approval's entry in view.json is a record only, never read back to route a reply
+        b.threads.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
         g.posted = [...g.posted.filter((p) => item.kind !== "approval" || p.key !== item.key), { key: item.key, tk, ...sent }];
         mem.outbox = Outbox.sent(mem.outbox, item, (mem.outbox.at(-1)?.id ?? 0) + 1, now);
         Memory.save(mem);
@@ -2949,7 +2947,7 @@ const LIKES = 30;
         mem.digested = now;
         Memory.save(mem);
       }
-      if ((g.posted.length > 0 || b.approvals.length > 0) && Chat.gchat_token !== null) {
+      if (b.threads.length > 0 && Chat.gchat_token !== null) {
         await Chat.bridged(chat, url, Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, Date.now()));
       }
     } catch (err: any) {
@@ -2967,15 +2965,14 @@ const LIKES = 30;
   // (device ""): the bridge is the user's view, the sender checked here,
   // so Chat.act's own checks (an open question, credit) apply as for the
   // web; what it refuses, or a reply not understood, said in the thread.
-  // RED ZONE (R4, DRAFT awaiting the user's sign-off): an approval's thread
-  // is only one this process posted (b.approvals), never view.json's posted
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item's
+  // thread is only one this process posted (b.threads), never view.json's posted
   export async function bridged(chat: Chat, url: string, items: Gchat.Item[]): Promise<void> {
     const g = chat.mem.gchat;
     const token = await Chat.gchat_token!();
     const b = chat.bridging!;
     b.me ??= await Google.me(token);
-    const asks = new Set(items.filter((x) => x.kind === "approval").map((x) => x.key));
-    const threads: Gchat.Gchat = { posted: [...g.posted.filter((p) => !asks.has(p.key)), ...b.approvals], acted: g.acted };
+    const threads: Gchat.Gchat = { posted: b.threads, acted: g.acted };
     if (threads.posted.length === 0) {
       return;
     }

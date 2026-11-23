@@ -57,16 +57,17 @@ How it works
   Questions pane (the GChat bridge, off by default; a Red Zone draft):
   questions, notes, todos, super auto decisions and calls waiting for
   your yes are posted through the space's incoming webhook, one thread
-  each, never twice. By default (quiet) a waiting call and a question
+  each, never twice by one server. By default (quiet) a waiting call and a question
   post at once and the rest come in a digest every 30 minutes; digest
   posts only waiting calls at once, all posts everything at once (the
   palette's "GChat: quiet/digest/all"). Your reply in its thread
   answers it (a question's option by number or your words; a todo
   `done` or `drop`; a decision `undo [what instead]` or `keep`; a
   waiting call exactly `yes` or `no`, anything else asks again), and
-  only yours counts. Which call a thread answers is known only to the
-  running server: after a restart a waiting call is posted again in a
-  new thread, and replies in older threads answer nothing (Red Zone
+  only yours counts. Which item a thread answers is known only to the
+  running server: after a restart each open item is posted again in a
+  new thread (as its pace says), and replies in older threads answer
+  nothing (Red Zone
   draft). On with config
   `gchat_space` (`spaces/...`), `gchat_user` (your id, as in
   `~/.unii/users/<id>`: only that chat is bridged; unset, none is) and the
