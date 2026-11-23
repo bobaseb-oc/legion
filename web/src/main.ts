@@ -17,6 +17,7 @@ import * as Demo from "../../Demo.ts";
 import * as Import from "../../Import.ts";
 import { theme_css } from "../../Theme.ts";
 import * as View from "../../View.ts";
+import * as Drag from "./Drag.ts";
 import * as Html from "./Html.ts";
 import * as Pages from "./Pages.ts";
 import * as Cockpit from "../../Cockpit.ts";
@@ -81,7 +82,9 @@ const BACK = $<HTMLInputElement>("#import [name=back]");
 // the page's: end: at its bottom; stick: the next draw may keep it;
 // frame: awaited (0: none); rows: the log's rows changed, to draw;
 // found: the sources read, by name; done: sessions imported before; off:
-// left out (Import.Want); step: the import's
+// left out (Import.Want); step: the import's; down: a press in the log
+// held, at x, y, scroll: its frame (Drag.ts); held: a paint waited for
+// a selection in the log
 const P = {
   id    : "",
   guest : false,
@@ -92,6 +95,11 @@ const P = {
   stick : true,
   frame : 0,
   rows  : true,
+  down  : false,
+  x     : 0,
+  y     : 0,
+  scroll: 0,
+  held  : false,
   toast : 0,
   found : new Map<string, Read>(),
   done  : {} as Import.Done,
@@ -303,6 +311,11 @@ function chat(): void {
     attach([...(ev.dataTransfer?.files ?? [])]);
   };
   document.onclick = click;
+  $("#log").addEventListener("pointerdown", drag_down);
+  addEventListener("pointermove", drag_move);
+  addEventListener("pointerup", drag_up);
+  addEventListener("pointercancel", drag_up);
+  document.addEventListener("selectionchange", () => P.held && !held() && draw(true));
   onhashchange = crew_route;
   $("#grid").onsubmit = tell;
   $("#questions").onsubmit = answer;
@@ -1145,6 +1158,14 @@ function paint(): void {
     bars();
     return;
   }
+  // a selection in the log: its rows wait, unscrolled (Drag.ts)
+  if (held()) {
+    P.frame = 0;
+    P.held = true;
+    bars();
+    return;
+  }
+  P.held = false;
   const doc = document.documentElement;
   const follow = P.stick && P.end;
   const at = P.rows && !follow ? anchor() : null;
@@ -1917,6 +1938,78 @@ function anchor(): { a: number; top: number } | null {
     }
   }
   return null;
+}
+
+// Drag
+// ====
+// A press held in the log (Drag.ts): while a selection is dragged, the
+// log's edges (under the header, over the footer) scroll it, the
+// selection's end kept under the pointer; let go, the paint it waited
+// for runs.
+
+function drag_down(ev: PointerEvent): void {
+  if (ev.button !== 0 || ev.pointerType !== "mouse") {
+    return;
+  }
+  P.down = true;
+  P.x = ev.clientX;
+  P.y = ev.clientY;
+  document.body.classList.add("dragging");
+  P.scroll ||= requestAnimationFrame(drag_scroll);
+}
+
+function drag_move(ev: PointerEvent): void {
+  if (!P.down) {
+    return;
+  }
+  P.x = ev.clientX;
+  P.y = ev.clientY;
+  if (ev.buttons === 0) {
+    drag_up();
+  }
+}
+
+function drag_up(): void {
+  if (!P.down) {
+    return;
+  }
+  P.down = false;
+  cancelAnimationFrame(P.scroll);
+  P.scroll = 0;
+  document.body.classList.remove("dragging");
+  if (P.held) {
+    draw(true);
+  }
+}
+
+// a frame of the drag: in an edge's band, the page scrolls, and the
+// selection ends at the log's text nearest the pointer
+function drag_scroll(): void {
+  P.scroll = requestAnimationFrame(drag_scroll);
+  const top = $("header").getBoundingClientRect().bottom;
+  const bottom = $("footer").getBoundingClientRect().top;
+  const px = Drag.drag_step(P.y, top, bottom);
+  const sel = getSelection();
+  if (px === 0 || sel === null || sel.isCollapsed) {
+    return;
+  }
+  scrollBy(0, px);
+  const y = Math.min(Math.max(P.y, top + 1), bottom - 1);
+  // Safari before 26: caretRangeFromPoint only
+  const at = document.caretPositionFromPoint?.(P.x, y) ?? null;
+  const r = at === null ? document.caretRangeFromPoint?.(P.x, y) ?? null : null;
+  const node = at?.offsetNode ?? r?.startContainer ?? null;
+  if (node !== null && $("#log").contains(node)) {
+    sel.extend(node, at?.offset ?? r?.startOffset ?? 0);
+  }
+}
+
+// whether the log's paint waits (Drag.drag_held)
+function held(): boolean {
+  const sel = getSelection();
+  const log = $("#log");
+  const inside = sel !== null && !log.hidden && (log.contains(sel.anchorNode) || log.contains(sel.focusNode));
+  return Drag.drag_held(P.down, sel?.isCollapsed ?? true, inside);
 }
 
 // Account
