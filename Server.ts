@@ -1011,6 +1011,13 @@ export namespace Chat {
       return;
     }
     Chat.hold(chat, () => {
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): a chat moved or
+      // ended while held is not this process's: nothing pushed, no turn
+      // (its events stay taken, so the next open parks them as read back)
+      if (Chat.chats.get(chat.acct.user) !== chat) {
+        Chat.free(chat);
+        return;
+      }
       chat.posts += 1;
       const works: Msg[] = [];
       for (const e of due) {
@@ -1023,7 +1030,7 @@ export namespace Chat {
           continue;
         }
         if (Cloud.act_get(chat.acct, act) === null) {
-          const text = Events.trusted(e) ? e.body : Google.fence("event:" + (e.restarted === true ? "restart" : e.src), e.body, e.restarted === true ? "An event read back at a restart" : "An event a device posted");
+          const text = Events.trusted(e) ? e.body : Google.fence("event:" + (e.restarted === true ? "restart" : e.src), e.body, e.restarted === true ? "An event read back at a restart" : e.src === "device" ? "An event a device posted" : "An event from " + e.src);
           const msg = Chat.push(chat, null, e.kind === "work" ? "work" : "note", text, [], false, act);
           if (e.kind === "work") {
             works.push(msg);

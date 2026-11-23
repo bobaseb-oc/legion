@@ -1963,6 +1963,9 @@ process.exit(0);
 // a device's events with no view open (AC6, AC7, AC10), then a view joins (AC8)
 const EVENT_DEVICE = EVENT_HEAD + `
 const chat = opened();
+// the posting device's own socket: keeps the chat this process's, is no view
+const sock = view();
+chat.socks.add({ ...sock, data: { ...sock.data, who: "device", device: "mac" } });
 const viewed = Chat.viewed(chat);
 const before = asks.length;
 const a6 = await Chat.act(chat, "d6", { $: "event", key: "k6", kind: "work", body: "b-ac6" }, "mac", false);
@@ -2003,7 +2006,7 @@ const first = opened();
 // the delivery act id is "event-<id>-<at>", at the event's own stored time
 const t0 = turns();
 Chat.push(first, null, "work", "BODY-AC17", [], false, "event-3-1000");
-const chat = await reopened(first, [
+let chat = await reopened(first, [
   ev({ id: 1, key: "k-ac2", state: "taken", tries: 0, body: "BODY-AC2" }),
   ev({ id: 2, key: "k-ac4", state: "taken", tries: 2, body: "BODY-AC4" }),
   ev({ id: 3, key: "k-ac17", state: "taken", tries: 0, body: "BODY-AC17", at: 1000 }),
@@ -2017,6 +2020,9 @@ const states = () => Object.fromEntries(events(chat).map((e) => [e.id, { state: 
 await Bun.sleep(400);
 const viewed = Chat.viewed(chat);
 const parked = { rec: states(), ac2: holding("BODY-AC2"), park: holding("BODY-PARK"), turns: turns() - t0 };
+// a view's socket gets its chat from Chat.open (the current one, or one
+// opened afresh from view.json if the idle one was let go)
+chat = Chat.open({ id: "u1", name: "a@b.c" });
 await Chat.join(chat, view());
 await until(() => [1, 3, 4].every((id) => events(chat).find((e) => e.id === id)?.state === "done"));
 await Bun.sleep(100);
@@ -2029,9 +2035,11 @@ process.exit(0);
 const EVENT_BATCH = EVENT_HEAD + `
 const first = opened();
 const t0 = turns();
-const chat = await reopened(first, [1, 2, 3].map((id) => ev({ id, key: "b" + id, body: "BATCH-" + id })), 3);
+let chat = await reopened(first, [1, 2, 3].map((id) => ev({ id, key: "b" + id, body: "BATCH-" + id })), 3);
 await Bun.sleep(400);
 const early = turns() - t0;
+// a view's socket gets its chat from Chat.open, as in EVENT_RESTART
+chat = Chat.open({ id: "u1", name: "a@b.c" });
 await Chat.join(chat, view());
 await until(() => events(chat).filter((e) => e.state === "done").length === 3);
 await Bun.sleep(200);
@@ -2343,4 +2351,44 @@ test("L3: an event not for main, a view open: failed, one note naming its key, i
   expect(out.held).toBe(0);
   expect(out.state).toBe("failed");
   expect(out.notes).toEqual(["Event k-to from view is not for Unii; dropped."]);
+}, 30_000);
+
+// RED ZONE (R4, DRAFT awaiting the user's sign-off): a drain whose chat is
+// no longer this process's (moved or ended while the step was held)
+// pushes nothing and starts no turn (user's call 2026-11-23)
+const EVENT_GONE = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, key: "k-gone", body: "GONE-BODY" }));
+const before = turns();
+Chat.chats.delete("u1");
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("GONE-BODY")).length;
+console.log(JSON.stringify({ held, turned: turns() - before }));
+process.exit(0);
+`;
+
+test("L3, R4: a drain for a chat no longer current pushes nothing and starts no turn", async () => {
+  const out = await event_run("event-gone", EVENT_GONE);
+  expect(out.held).toBe(0);
+  expect(out.turned).toBe(0);
+}, 30_000);
+
+// a non-user event's fence names its own source (user's call 2026-11-23)
+const EVENT_SRC = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, src: "timer", key: "k-tm", kind: "notify", body: "TIMER-BODY" }));
+Chat.drain(chat);
+await until(() => msgs(chat).some((m) => String(m.text).includes("TIMER-BODY")));
+console.log(JSON.stringify({ texts: msgs(chat).filter((m) => String(m.text).includes("TIMER-BODY")).map((m) => m.text) }));
+process.exit(0);
+`;
+
+test("L3, E4: a timer's event is fenced as event:timer and said to come from a timer, not a device", async () => {
+  const out = await event_run("event-src", EVENT_SRC);
+  expect(out.texts).toHaveLength(1);
+  expect(out.texts[0]).toContain('<untrusted source="event:timer">');
+  expect(out.texts[0]).not.toContain("a device posted");
 }, 30_000);
