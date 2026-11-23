@@ -1,0 +1,19 @@
+Drag.test.ts
+  s_b5732d3e4530a1::t_e13648056090ee 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7bb6446d04c35630ccbe080096e603cbf907554f",
+  "prompts": {},
+  "sessions": {
+    "s_b5732d3e4530a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e52da2c5-0dd3-450a-bde0-181b29c39007",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
