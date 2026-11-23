@@ -165,6 +165,10 @@ export type Question = { id: number; text: string; options?: string[]; at: numbe
 // server's own (never the agent's: Tools.todo strips them): since when
 // its status is so, whether a stall was reminded (Server.ts Chat.stalls)
 export type Todo = { text: string; status: "pending" | "doing" | "done"; since?: number; reminded?: boolean };
+// a checklist's most items, and an item's most characters (Tools.todo;
+// Memory.checklists_read checks a saved one against the same)
+export const TODOS = 20;
+export const TODO_TEXT = 120;
 // a pin of the user's on a track (Explain.ts track_add): its number
 // (never reused), text, status, when made; since and reminded as a
 // Todo's; from: the agent item it is an edited copy of

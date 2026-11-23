@@ -37,7 +37,7 @@ import * as config from "./Config.ts";
 import { COMPUTER, INT, Machine, STR, TOOLS, USER_SHELL, spec, type Job, type Spec } from "./Machine.ts";
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
-import { Memory, type Seen } from "./Memory.ts";
+import { CHECKLISTS, Memory, type Seen } from "./Memory.ts";
 import { ABOUT, ASK_KINDS, Modes, type AskKind } from "./Modes.ts";
 import PROMPT from "./prompt.txt" with { type: "text" };
 import { EFFORTS, LABELS, Pick } from "./Pick.ts";
@@ -52,6 +52,7 @@ import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
 import type { AgentHit, Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
+import { TODO_TEXT, TODOS } from "./View.ts";
 
 export type { Live };
 
@@ -130,9 +131,6 @@ const HANDOFF = 8000; // a brief handed to Claude Code, at most (Tools.handoff)
 const AUTO_TITLE = 60; // a title made from a task (Tools.titled), at most
 const REPOS = 8;
 
-// a checklist's most items, and an item's most characters (Tools.todo)
-const TODOS = 20;
-const TODO_TEXT = 120;
 const REPO  = 60;
 
 // B2: the jobs that are shell commands (an agent's shell, the user's
@@ -2053,6 +2051,18 @@ export namespace Tools {
       .map((m: any) => ({ n: m.n as number, status: m.status as Todo["status"] }));
     const pins = tools.hooks.pinned?.(who, marks, list.map((x) => x.text)) ?? [];
     agent.todo = list.length === 0 ? undefined : list;
+    // kept in view.json too, so a restart keeps it (Memory.checklists_read
+    // checks it as it loads); the newest last, the oldest past CHECKLISTS
+    // dropped
+    const kept = tools.mem.checklists;
+    delete kept[who];
+    if (list.length > 0) {
+      kept[who] = list;
+    }
+    for (const name of Object.keys(kept).slice(0, -CHECKLISTS)) {
+      delete kept[name];
+    }
+    Memory.save(tools.mem);
     tools.hooks.change();
     const box = { pending: "[ ]", doing: "[>]", done: "[x]" };
     const lines = [...list.map((x) => box[x.status] + " " + x.text), ...pins.map((p) => box[p.status] + " #" + p.n + " " + p.text + " (pinned by the user)")];
@@ -2177,12 +2187,14 @@ export namespace Tools {
     Tools.finish(tools, agent);
   }
 
-  // one not of this process is taken back from its log, idle
+  // one not of this process is taken back from its log, idle, with its
+  // checklist as view.json kept it (Tools.todo)
   export function agent(tools: Tools, name: string): Agent | null {
     const log = tools.agents.has(name) ? null : Memory.agent(tools.mem, name);
     const noted = log !== null && log.length > 0 && log[0].kind === "note" ? Tools.noted(log[0].text) : null;
     if (noted !== null) {
-      tools.agents.set(name, { name, ...noted, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+      const todo = tools.mem.checklists[name];
+      tools.agents.set(name, { name, ...noted, call: null, live: [], calls: {}, stop: false, replies: [], user: false, ...(todo === undefined ? {} : { todo }) });
     }
     return tools.agents.get(name) ?? null;
   }
