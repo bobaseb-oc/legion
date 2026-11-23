@@ -2704,6 +2704,40 @@ test("L4-AC7, O1, O2: digest, a new consent: one pass posts that call's command;
   expect(out.ac7_question).toBe(0);
 }, 30_000);
 
+// the digest: its header on its first item only; one cut short by
+// Gchat.POSTS goes on next pass, and only a whole one waits DIGEST_MS
+const OUT_DIGEST = OUT_HEAD + `
+const { DIGEST_MS } = await import(${JSON.stringify(import.meta.dir + "/Outbox.ts")});
+const { POSTS } = await import(${JSON.stringify(import.meta.dir + "/Gchat.ts")});
+const chat = opened();
+keep(chat);
+const t0 = Date.now();
+chat.mem.digested = t0;
+for (let k = 0; k < POSTS + 2; k++) {
+  await Tools.call(chat.tools, "main", "notify", { text: "NOTE-D" + k + " done" }, new AbortController().signal, "n" + k);
+}
+const heads = () => posts.filter((p) => String(p.text).startsWith("Legion digest: "));
+await pass(chat, t0 + DIGEST_MS);
+const first = { posts: posts.length, heads: heads().map((p) => p.text.split("\\n")[0]), digested: chat.mem.digested };
+await pass(chat, t0 + DIGEST_MS + 1000);
+const second = { posts: posts.length, heads: heads().map((p) => p.text.split("\\n")[0]), digested: chat.mem.digested };
+await Tools.call(chat.tools, "main", "notify", { text: "NOTE-LATE done" }, new AbortController().signal, "late");
+await pass(chat, t0 + DIGEST_MS + 2000);
+console.log(JSON.stringify({ t0, DIGEST_MS, POSTS, first, second, late: held("NOTE-LATE") }));
+process.exit(0);
+`;
+
+test("the digest: a header on its first item; cut short by POSTS, the rest next pass; only a whole one waits DIGEST_MS", async () => {
+  const out = await out_run("out-digest", OUT_DIGEST);
+  expect(out.first.posts).toBe(out.POSTS);
+  expect(out.first.heads).toEqual(["Legion digest: " + out.POSTS + " items"]);
+  expect(out.first.digested).toBe(out.t0);
+  expect(out.second.posts).toBe(out.POSTS + 2);
+  expect(out.second.heads).toEqual(["Legion digest: " + out.POSTS + " items", "Legion digest: 2 items"]);
+  expect(out.second.digested).toBe(out.t0 + out.DIGEST_MS + 1000);
+  expect(out.late).toBe(0);
+}, 30_000);
+
 // O7: the pace is the user's: set from a view, refused from a device
 const OUT_ACT = OUT_HEAD + `
 const chat = opened();

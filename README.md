@@ -87,7 +87,8 @@ How it works
   sign-in from before 2026-11-18 lacks `openid`, which says who you are,
   so sign in again or no reply counts): the server reads it once at start (one Keychain prompt; deny it and the
   bridge only posts). Keep `legion device` running while away: if no view
-  or device is left, the space is told "Legion stopped listening".
+  or device is left, the bridge goes on only while a call waits for your
+  yes, then the space is told "Legion stopped listening".
 - **Claude Code parity.** Device tools are shell, read, write, edit,
   glob and grep, each passed through the Claude Code PreToolUse and
   PostToolUse hooks in your managed, user and project settings and of
