@@ -31,6 +31,26 @@ test("the tree: a folded manager with its roll-up and a caret; rows link to thei
   expect(open[1]).not.toContain("Expand");
 });
 
+// PLP-2915: the Crew's search box finds agents by name or title, archived
+// and past ones too; each hit a link to its page (Goto, read-only)
+test("the Crew's agent search: a box, then each hit a link to its page with its title, state and date", () => {
+  const v = View.view_new();
+  const box = Html.agents_find_html(v);
+  expect(box).toContain('<form class="afind">');
+  expect(box).toContain('data-keep="agents"');
+  expect(box).not.toContain('class="ahit');
+  View.view_act(v, { $: "Agents", q: "log" });
+  expect(Html.agents_find_html(v)).toContain("Looking…");
+  View.view_hear(v, { $: "agents_found", q: "log", hits: [{ name: "Login-Fixer", title: "Fix <the> login", state: "archived", date: "2026-11-16T10:20:00.000Z" }] });
+  const html = Html.agents_find_html(v);
+  expect(html).toContain('value="log"');
+  expect(html).toContain('<a class="ahit archived" href="#crew/Login-Fixer"');
+  expect(html).toContain("Fix &lt;the&gt; login");
+  expect(html).toContain("2026-11-16 10:20");
+  View.view_hear(v, { $: "agents_found", q: "log", hits: [] });
+  expect(Html.agents_find_html(v)).toContain("No agent's name or title has “log”.");
+});
+
 // each status gets its actions: at work, stop; asking, approve and deny;
 // done, failed or stopped, dismiss
 test("the tree's inline actions follow the status", () => {
