@@ -2936,33 +2936,9 @@ const LIKES = 30;
       const digest = plan.digest.slice(0, Math.max(0, Gchat.POSTS - parts.length - nows.length));
       // the digest's first item carries its header, so each keeps a thread of its own
       const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
-      // posts GAP apart; a 429 ends the pass and holds posting (Retry-After,
-      // at least HOLD): nothing more is sent until then
-      const held = now < (b.until ?? 0);
       const fresh = [...nows, ...digest].map((item): Gchat.Part => ({ key: item.key, tk: "legion-" + item.key + "-" + now, text: (item === digest[0] ? head : "") + item.text, ...(item.fp === undefined ? {} : { fp: item.fp }), done: null, next: 0 }));
-      for (const [i, s] of (held ? [] : [...parts, ...fresh]).entries()) {
-        if (i > 0) {
-          await Chat.gchat_wait(Gchat.GAP);
-        }
-        const sent = await Gchat.gchat_post(url, s.tk, s.text, fetch, { wait: Chat.gchat_wait, from: s.next, ...(s.done === null ? {} : { done: s.done }) });
-        b.parts = b.parts.filter((p) => p.key !== s.key);
-        if ("error" in sent) {
-          const no = sent.status !== null && sent.status >= 400 && sent.status < 500 && sent.status !== 429;
-          console.error("chat " + chat.acct.user + ": gchat: " + sent.error + (no ? " (" + s.key + " not posted again)" : ""));
-          if (no) {
-            refused.add(s.key);
-            continue;
-          }
-          if (sent.done !== null) {
-            b.parts.push({ ...s, done: sent.done, next: sent.next });
-          }
-          if (sent.status === 429) {
-            b.until = now + Math.max(sent.retry ?? 0, Gchat.HOLD);
-            break;
-          }
-          continue;
-        }
-        b.threads.push({ key: s.key, tk: s.tk, ...sent, ...(s.fp === undefined ? {} : { fp: s.fp }) });
+      if (now >= (b.until ?? 0)) {
+        await Chat.bridge_post(chat, url, [...parts, ...fresh], now);
       }
       // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
       const whole = digest.length === plan.digest.length && digest.every((x) => b.threads.some((p) => p.key === x.key));
@@ -2977,6 +2953,39 @@ const LIKES = 30;
       console.error("chat " + chat.acct.user + ": gchat: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200));
     } finally {
       b.busy = false;
+    }
+  }
+
+  // a pass's posts to GChat (Chat.bridge), GAP apart, each kept as a
+  // thread once whole. A later chunk failed: the rest kept (b.parts) for
+  // the next pass. A 4xx other than 429: not tried again in this process
+  // (b.refused). A 429 ends the pass and holds posting (b.until:
+  // Retry-After, at least HOLD)
+  export async function bridge_post(chat: Chat, url: string, sends: Gchat.Part[], now: number): Promise<void> {
+    const b = chat.bridging!;
+    for (const [i, s] of sends.entries()) {
+      if (i > 0) {
+        await Chat.gchat_wait(Gchat.GAP);
+      }
+      const sent = await Gchat.gchat_post(url, s.tk, s.text, fetch, { wait: Chat.gchat_wait, from: s.next, ...(s.done === null ? {} : { done: s.done }) });
+      b.parts = (b.parts ?? []).filter((p) => p.key !== s.key);
+      if (!("error" in sent)) {
+        b.threads.push({ key: s.key, tk: s.tk, ...sent, ...(s.fp === undefined ? {} : { fp: s.fp }) });
+        continue;
+      }
+      const no = sent.status !== null && sent.status >= 400 && sent.status < 500 && sent.status !== 429;
+      console.error("chat " + chat.acct.user + ": gchat: " + sent.error + (no ? " (" + s.key + " not posted again)" : ""));
+      if (no) {
+        (b.refused ??= new Set()).add(s.key);
+        continue;
+      }
+      if (sent.done !== null) {
+        b.parts.push({ ...s, done: sent.done, next: sent.next });
+      }
+      if (sent.status === 429) {
+        b.until = now + Math.max(sent.retry ?? 0, Gchat.HOLD);
+        return;
+      }
     }
   }
 
