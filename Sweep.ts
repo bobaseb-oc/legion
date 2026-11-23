@@ -34,10 +34,15 @@ export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "
 // asking, waiting, stopped)
 export type Agents = { known: Set<string>; busy: Set<string> };
 
-// git read-only: no optional locks (no index written), no fsmonitor (a
-// repo's config never runs a command), argv only; null: it failed
+// git read-only, argv only: no optional locks (no index written), no
+// fsmonitor, hooks or signature check, no system or global config, no
+// prompt, no GIT_* from our env (an agent's shell may set them). A repo's
+// own config can still name commands (filters, gpg): sweep_runs is asked
+// before any git runs in a repo. null: it failed
 async function git(dir: string, args: string[]): Promise<string | null> {
-  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", dir, ...args], { stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+  const hard = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false"];
+  const proc = Bun.spawn(["git", ...hard, "-C", dir, ...args], { stdout: "pipe", stderr: "ignore", env: { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" } });
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
   return code === 0 ? out : null;
 }
@@ -63,10 +68,10 @@ export function sweep_inside(work: string, p: string): string | null {
 
 // a dir's bytes, its newest mtime (.git's insides aside: git writes there
 // on a read), the repos and worktrees in it (each dir holding a .git), its
-// .env files (paths within it); symlinks not followed. Async, one entry
-// at a time
-export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: number; repos: string[]; envs: string[] }> {
-  const out = { bytes: 0, mtime: 0, repos: [] as string[], envs: [] as string[] };
+// .env files (paths within it), its .gitattributes files; symlinks not
+// followed. Async, one entry at a time
+export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: number; repos: string[]; envs: string[]; attrs: string[] }> {
+  const out = { bytes: 0, mtime: 0, repos: [] as string[], envs: [] as string[], attrs: [] as string[] };
   const each = async (p: string, ingit: boolean): Promise<void> => {
     const st = await fs.promises.lstat(p).catch(() => null);
     if (st === null) {
@@ -76,6 +81,9 @@ export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: n
     out.mtime = ingit ? out.mtime : Math.max(out.mtime, st.mtimeMs);
     if (!ingit && st.isFile() && path.basename(p).startsWith(".env")) {
       out.envs.push(path.relative(dir, p));
+    }
+    if (!ingit && path.basename(p) === ".gitattributes") {
+      out.attrs.push(p);
     }
     if (!st.isDirectory()) {
       return;
@@ -102,20 +110,68 @@ export function sweep_git(dir: string): Item["git"] {
   return st === undefined ? null : st.isDirectory() ? "repo" : st.isFile() ? "worktree" : null;
 }
 
+// config keys and attributes that make git run a command (or pull in
+// config that may: include)
+const RUNS = /^(filter|gpg|include|includeif|diff|merge)\.|^core\.(fsmonitor|hookspath|pager|editor|sshcommand)=|^log\.showsignature=/;
+const DRIVER = /(^|\s)(filter|diff|merge)=/;
+
+// a repo's git dirs: its .git, or a worktree's own and its repo's
+// (commondir); null: unreadable
+function gitdirs(dir: string): string[] | null {
+  if (sweep_git(dir) === "repo") {
+    return [dir + "/.git"];
+  }
+  try {
+    const own = path.resolve(dir, /^gitdir: (.+)$/m.exec(fs.readFileSync(dir + "/.git", "utf8"))?.[1]?.trim() ?? "");
+    return [own, path.resolve(own, fs.readFileSync(own + "/commondir", "utf8").trim())];
+  } catch {
+    return null;
+  }
+}
+
+// whether git in dir might run a command its config names: a config key
+// in RUNS, or a filter=/diff=/merge= attribute (attrs: its .gitattributes
+// files, the walk's; plus info/attributes). Read as files: `git config
+// --file --no-includes` reads one and runs nothing. Unreadable: true
+export async function sweep_runs(dir: string, attrs: string[]): Promise<boolean> {
+  const dirs = gitdirs(dir);
+  if (dirs === null) {
+    return true;
+  }
+  const exists = (f: string) => fs.existsSync(f);
+  for (const f of dirs.flatMap((d) => [d + "/config", d + "/config.worktree"]).filter(exists)) {
+    const keys = await git("/", ["config", "--file", f, "--no-includes", "--list"]);
+    if (keys === null || keys.split("\n").some((l) => RUNS.test(l.toLowerCase()))) {
+      return true;
+    }
+  }
+  for (const f of [...attrs.filter((a) => a.startsWith(dir + "/")), ...dirs.map((d) => d + "/info/attributes").filter(exists)]) {
+    const text = await fs.promises.readFile(f, "utf8").catch(() => null);
+    if (text === null || text.split("\n").some((l) => DRIVER.test(l))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // nothing git would lose with it. Any: no change. A linked worktree (its
 // branches, stash and objects stay in its repo): no commit at HEAD that
 // is on no remote and on no branch (a detached HEAD's own). A repo (all
 // of it goes): no stash, no branch's commit on no remote, no other
-// worktree of it. A failed git: not clean
-export async function sweep_clean(dir: string): Promise<boolean> {
+// worktree of it. A repo whose config may run a command (sweep_runs): not
+// clean, and no git runs in it. A failed git: not clean
+export async function sweep_clean(dir: string, attrs: string[] = []): Promise<boolean> {
+  if (await sweep_runs(dir, attrs)) {
+    return false;
+  }
   const empty = async (args: string[]) => (await git(dir, args))?.trim() === "";
   if (!(await empty(["status", "--porcelain"]))) {
     return false;
   }
   if (sweep_git(dir) === "worktree") {
-    return empty(["log", "HEAD", "--not", "--remotes", "--branches", "--oneline"]);
+    return empty(["log", "--no-show-signature", "HEAD", "--not", "--remotes", "--branches", "--oneline"]);
   }
-  if (!(await empty(["stash", "list"])) || !(await empty(["log", "--branches", "--not", "--remotes", "--oneline"]))) {
+  if (!(await empty(["stash", "list"])) || !(await empty(["log", "--no-show-signature", "--branches", "--not", "--remotes", "--oneline"]))) {
     return false;
   }
   const list = await git(dir, ["worktree", "list", "--porcelain"]);
@@ -144,7 +200,7 @@ export async function sweep_candidate(work: string, p: string, agents: Agents, k
     return null;
   }
   for (const r of walk.repos) {
-    if (!(await sweep_clean(r))) {
+    if (!(await sweep_clean(r, walk.attrs))) {
       return null;
     }
   }
