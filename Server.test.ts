@@ -3249,11 +3249,11 @@ test("PLP-2922: view.json edited so a note's thread names a decision, undo there
 // PLP-2924: view.json keeps no record of what was posted (no outbox, no
 // gchat.posted), only gchat.acted. Process A posts one question (AC1),
 // passes again (AC5), posts a todo and acts on one reply in its thread
-// (one not understood: the thread is told, the todo stays open), ends; the
-// test then writes the previous version's records into view.json (AC2).
-// Process B (a restart, same UNII_DIR) loads and saves (AC2), posts the
-// todo again, then sees A's reply again in B's thread (AC4: only
-// gchat.acted stops a second act)
+// (one not understood: the thread is told, the todo stays open), ends.
+// Process B (a restart on A's view.json, same UNII_DIR) posts the todo
+// again, then sees A's reply again in B's thread (AC4: only gchat.acted
+// stops a second act), ends, and writes the previous version's records
+// into view.json. Process C (a restart) loads and saves (AC2)
 const OUT_RECORDS_A = OUT_HEAD + `
 const chat = opened();
 keep(chat);
@@ -3279,15 +3279,7 @@ out.todo = todo;
 out.name = SPACE + "/messages/r-todo";
 out.acted = [...chat.mem.gchat.acted];
 out.told = held("Not understood");
-const p = posted(chat, todo);
 await Chat.end(chat);
-// the previous version's records
-const saved = view();
-saved.gchat = { ...saved.gchat, posted: [{ key: todo, tk: p?.tk, thread: p?.thread, at: p?.at }] };
-saved.outbox = [{ id: 1, key: todo, kind: "todo", made: 1, must: false, state: "sent", via: "gchat", sent: 1 }];
-fs.writeFileSync(file, JSON.stringify(saved));
-const { gchat, outbox, ...rest } = saved;
-out.kept = rest;
 console.log(JSON.stringify(out));
 process.exit(0);
 `;
@@ -3298,10 +3290,6 @@ const chat = opened();
 keep(chat);
 const file = chat.mem.dir + "/view.json";
 const out = {};
-Memory.save(chat.mem);
-const v = JSON.parse(fs.readFileSync(file, "utf8"));
-const same = (k) => JSON.stringify(v[k]) === JSON.stringify(A.kept[k]);
-out.ac2 = { outbox: "outbox" in v, gchat: Object.keys(v.gchat ?? {}), acted: v.gchat?.acted ?? null, pace: v.pace, same: ["questions", "asked", "assigned", "decided", "digested", "pended", "evented"].filter((k) => !same(k)) };
 // B posts the open todo again; A's reply is seen in B's thread
 await pass(chat);
 out.reposted = posted(chat, A.todo) !== null;
@@ -3314,16 +3302,40 @@ reply(chat, A.todo, "r-new", "maybe later");
 await pass(chat);
 await Bun.sleep(200);
 out.control = held("Not understood");
+out.acted = [...chat.mem.gchat.acted];
+const p = posted(chat, A.todo);
+await Chat.end(chat);
+// the previous version's records, for C
+const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+saved.gchat = { ...saved.gchat, posted: [{ key: A.todo, tk: p?.tk, thread: p?.thread, at: p?.at }] };
+saved.outbox = [{ id: 1, key: A.todo, kind: "todo", made: 1, must: false, state: "sent", via: "gchat", sent: 1 }];
+fs.writeFileSync(file, JSON.stringify(saved));
+const { gchat, outbox, ...rest } = saved;
+out.kept = rest;
 console.log(JSON.stringify(out));
 process.exit(0);
 `;
 
-let recording: Promise<{ a: any; b: any }> | null = null;
-const records_run = (): Promise<{ a: any; b: any }> => (recording ??= (async () => {
+const OUT_RECORDS_C = OUT_HEAD + `
+const B = JSON.parse(process.env.B ?? "{}");
+const chat = opened();
+keep(chat);
+const file = chat.mem.dir + "/view.json";
+Memory.save(chat.mem);
+const v = JSON.parse(fs.readFileSync(file, "utf8"));
+const same = (k) => JSON.stringify(v[k]) === JSON.stringify(B.kept[k]);
+const out = { ac2: { outbox: "outbox" in v, gchat: Object.keys(v.gchat ?? {}), acted: v.gchat?.acted ?? null, pace: v.pace, same: ["questions", "asked", "assigned", "decided", "digested", "pended", "evented"].filter((k) => !same(k)) } };
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let recording: Promise<{ a: any; b: any; c: any }> | null = null;
+const records_run = (): Promise<{ a: any; b: any; c: any }> => (recording ??= (async () => {
   const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
   const a = await out_run("out-records-a", OUT_RECORDS_A, dir);
   const b = await out_run("out-records-b", OUT_RECORDS_B, dir, { A: JSON.stringify(a) });
-  return { a, b };
+  const c = await out_run("out-records-c", OUT_RECORDS_C, dir, { B: JSON.stringify(b) });
+  return { a, b, c };
 })());
 
 test("PLP-2924 AC1: the bridge posts one question: view.json holds no outbox, and its gchat no posted", async () => {
@@ -3334,9 +3346,10 @@ test("PLP-2924 AC1: the bridge posts one question: view.json holds no outbox, an
 }, 60_000);
 
 test("PLP-2924 AC2: a view.json with the previous version's gchat.posted and outbox: loads, keeps the other fields, saves neither", async () => {
-  const { a, b } = await records_run();
+  const { a, b, c } = await records_run();
   expect(a.acted).toEqual([a.name]);
-  expect(b.ac2).toEqual({ outbox: false, gchat: ["acted"], acted: [a.name], pace: "all", same: [] });
+  expect(b.acted).toEqual([a.name, "spaces/TESTSPACE/messages/r-new"]);
+  expect(c.ac2).toEqual({ outbox: false, gchat: ["acted"], acted: b.acted, pace: "all", same: [] });
 }, 60_000);
 
 test("PLP-2924 AC4: a reply acted on before a restart (gchat.acted), seen again after it: not acted on again", async () => {
