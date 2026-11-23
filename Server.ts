@@ -2916,7 +2916,7 @@ const LIKES = 30;
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
-      // a process. view.json keeps no record of what was posted (PLP-2924)
+      // a process. view.json keeps no record of what was posted
       const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), mem.pace, mem.digested, now);
       const nows = plan.now.slice(0, Gchat.POSTS);
       const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);

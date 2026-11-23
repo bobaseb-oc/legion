@@ -333,7 +333,7 @@ export namespace Memory {
     mem.assigns = Number.isInteger(saved?.assigns) ? saved!.assigns! : 0;
     mem.tracks = Memory.tracks_read(saved?.tracks);
     mem.explain = typeof saved?.explain === "object" && saved.explain !== null ? { ...explain_new(), ...saved.explain, writing: false, asking: null } : explain_new();
-    // an older view.json's gchat.posted and outbox (PLP-2924) are not read
+    // an older view.json's gchat.posted and outbox are not read
     mem.gchat = Array.isArray(saved?.gchat?.acted) ? { acted: saved.gchat.acted } : gchat_new();
     mem.pace = Outbox.pace_read(saved?.pace);
     mem.digested = Number.isFinite(saved?.digested) ? (saved?.digested ?? 0) : 0;

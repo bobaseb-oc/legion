@@ -34,7 +34,7 @@ export type Posted = { key: string; tk: string; thread: string; at: number; fp?:
 
 // the bridge's state kept in view.json: the messages acted on (their
 // names, the last ACTED), read across restarts. What was posted is never
-// kept there (PLP-2924)
+// kept there
 export type Gchat = { acted: string[] };
 
 // what gchat_replies routes by: the items this process posted and still
