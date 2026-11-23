@@ -1,0 +1,39 @@
+Gchat.ts
+  s_aeea4652c6b7ae::t_f3929cf6523822 35-43
+  s_aeea4652c6b7ae::t_4afd0218bc2102 163
+  s_aeea4652c6b7ae::t_f52619c188d0dd 65
+Server.ts
+  s_aeea4652c6b7ae::t_d5c7e4a631233e 2919-2920
+  s_aeea4652c6b7ae::t_9b35977b4ca98f 2960
+  s_545aadf9302fee::t_a28b3973081e95 2966
+Memory.ts
+  s_aeea4652c6b7ae::t_7cd649607d903c 336-337
+  s_aeea4652c6b7ae::t_b08fb75e5150af 183
+  s_aeea4652c6b7ae::t_8d45a8ffaec890 133,308,472
+Outbox.ts
+  s_aeea4652c6b7ae::t_c5dcb424043db8 3-10,24,35-36,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5cbef5fe40a04d03ab18a188dabe079a619df466",
+  "prompts": {},
+  "sessions": {
+    "s_545aadf9302fee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "SnowyPepper",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_aeea4652c6b7ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1e5f75c-f04e-4697-9f1c-b2adedfbcd80",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
