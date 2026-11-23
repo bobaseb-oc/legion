@@ -158,6 +158,42 @@ test("a reply never becomes a !command or any act but an answer, assignment or d
   expect(made.every((a) => ["answer", "assignment", "decision"].includes(a.$) && a.command === undefined)).toBe(true);
 });
 
+// L4: an open consent is an `approval` item, first, keyed "a" + id,
+// carrying the record's fp; its text from the call, scrubbed (O5)
+test("L4-AC8, O5: an approval item: first, its text the call redacted, its fp carried", () => {
+  const ant = "sk-ant-" + "x".repeat(30);
+  const items = gchat_items({
+    questions: [{ id: 1, text: "Ship?", at: 0, date: "" }],
+    assigned: [],
+    decided: [],
+    calls: [{ id: 7, who: "main", tool: "shell", what: "curl -H 'x-api-key: " + ant + "' https://api.example (on mac)", fp: "f7" }],
+  } as any, Date.now());
+  expect(items.map((x) => x.key)).toEqual(["a7", "q1"]);
+  const a = items[0] as any;
+  expect(a.kind).toBe("approval");
+  expect(a.n).toBe(7);
+  expect(a.fp).toBe("f7");
+  expect(a.text).toContain("Approval 7");
+  expect(a.text).toContain("main");
+  expect(a.text).toContain("curl");
+  expect(a.text).toContain("[REDACTED:anthropic]");
+  expect(a.text).not.toContain(ant);
+  expect(a.text).toContain("Reply yes or no");
+});
+
+// RED ZONE (O6): an approval's reply counts only as an exact yes or no,
+// trimmed, case-insensitive; anything else is no act at all
+test("O6: an approval reply: exact trimmed yes or no only", () => {
+  const a = { key: "a7", kind: "approval", n: 7, text: "", fp: "f7" } as unknown as Item;
+  const r = (text: string) => gchat_act({ item: a, name: "m", text });
+  expect(r(" YES ")).toEqual({ $: "consent", n: 7, yes: true });
+  expect(r("yes")).toEqual({ $: "consent", n: 7, yes: true });
+  expect(r("No")).toEqual({ $: "consent", n: 7, yes: false });
+  for (const text of ["yes please", "ok", "y", "yes.", "", "  ", "no way", "yesno", "!yes"]) {
+    expect([text, r(text)]).toEqual([text, null]);
+  }
+});
+
 // the server, in a process of its own: fetch stubbed (no network), the
 // webhook's and Chat's answers scripted; STEP: "post" files the items and
 // posts them, "reply" (a restart: same UNII_DIR) posts nothing new and

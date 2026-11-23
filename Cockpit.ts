@@ -683,6 +683,9 @@ const PAGE_ITEMS: Item[] = [
   { label: "Auto mode", hint: "command · a reviewer checks each change", go: { act: { $: "Mode", mode: "auto" } } },
   { label: "Super auto mode", hint: "command · as auto, and Legion takes its pick where you always would", go: { act: { $: "Mode", mode: "super" } } },
   { label: "Full mode", hint: "command · hooks only", go: { act: { $: "Mode", mode: "full" } } },
+  { label: "GChat: quiet", hint: "command · approvals and questions at once, the rest in a 30-minute digest", go: { act: { $: "Pace", pace: "quiet" } } },
+  { label: "GChat: digest", hint: "command · approvals at once, the rest in a 30-minute digest", go: { act: { $: "Pace", pace: "digest" } } },
+  { label: "GChat: all", hint: "command · every item at once", go: { act: { $: "Pace", pace: "all" } } },
 ];
 
 // what the palette offers for the words typed: each word must be in the

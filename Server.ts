@@ -54,6 +54,7 @@ import * as Routines from "./Routines.ts";
 import * as Explain from "./Explain.ts";
 import * as Gchat from "./Gchat.ts";
 import * as Notes from "./Notes.ts";
+import * as Outbox from "./Outbox.ts";
 import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
 import * as Events from "./Events.ts";
@@ -147,7 +148,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
-  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; approvals: Gchat.Posted[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the approval threads this process posted (memory only)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -420,7 +421,7 @@ export namespace Chat {
     chat.tick = setInterval(() => (Chat.ticked(chat, Date.now()), void Chat.observe(chat, Date.now())), Chat.TICKS);
     chat.tick.unref?.();
     if (Chat.gchat_for(user.id, config.KEYS.gchat ?? "")) {
-      chat.bridging = { busy: false, me: null, timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
+      chat.bridging = { busy: false, me: null, approvals: [], timer: setInterval(() => void Chat.bridge(chat, Date.now()), Gchat.EVERY) };
       chat.bridging.timer!.unref?.();
     }
     mem.wait.add(() => Chat.progress(chat));
@@ -468,7 +469,7 @@ export namespace Chat {
       return;
     }
     Chat.cloud.billing.settle(acct.user);
-    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines, chat.mem.timers)) {
+    if (chat.socks.size === 0 && !Routines.timed(chat.mem.routines, chat.mem.timers) && !Chat.approving(chat.acct.user, chat.mem.pending)) {
       clearInterval(chat.tick);
       Chat.unbridge(chat, Date.now());
       Tools.close(chat.tools);
@@ -477,10 +478,17 @@ export namespace Chat {
     }
   }
 
+  // a call waits for the user's yes and the bridge is on, so the chat
+  // stays open to post it to GChat (no view needed); it starts no turn
+  export function approving(user: string, pending: Pending.Pending[]): boolean {
+    const now = Date.now();
+    return Chat.gchat_for(user, config.KEYS.gchat ?? "") && pending.some((p) => p.kind === "consent" && p.state === "open" && p.until > now);
+  }
+
   // no turn, post, agent, summary or paid request runs (one stopped is
   // read on to its end, then billed: Billing.ts book)
   export function idle(chat: Chat): boolean {
-    return !chat.busy && chat.posts === 0 && Tools.working(chat.tools).length === 0 && chat.mem.busy.size === 0 && chat.wallet.booked() === 0;
+    return !chat.busy && chat.posts === 0 && Tools.working(chat.tools).length === 0 && (chat.tools.reviewing ?? 0) === 0 && chat.mem.busy.size === 0 && chat.wallet.booked() === 0;
   }
 
   // stops a chat for good; done at rest, its work logged where it was cut
@@ -944,8 +952,20 @@ export namespace Chat {
   // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's answer
   // to a waiting call (the consent act, behind SAYS: never a device's). A
   // live wait takes it; else a record a restart cut: a yes grants one
-  // identical re-issue (P2, the one place a grant is made), its agent told
-  export function consented(chat: Chat, n: number, yes: boolean): Answer {
+  // identical re-issue (P2, the one place a grant is made), its agent told.
+  // fp: the call as GChat showed it (O8): none still waiting is closed, one
+  // changed since is refused
+  export function consented(chat: Chat, n: number, yes: boolean, fp?: string): Answer {
+    if (fp !== undefined) {
+      const c = Tools.consents(chat.tools).find((x) => x.id === n);
+      if (c === undefined) {
+        return { error: "Call " + n + " is closed." };
+      }
+      if (c.fp !== fp) {
+        Chat.consented(chat, n, false);
+        return { error: "Call " + n + " changed since it was posted, so it was refused." };
+      }
+    }
     if (Tools.consent(chat.tools, n, yes)) {
       return {};
     }
@@ -995,13 +1015,25 @@ export namespace Chat {
   }
 
   // RED ZONE (R4, DRAFT awaiting the user's sign-off): a live approval (the
-  // user's origins only, E2) answers through Chat.consented, as before
+  // user's origins only, E2) answers through Chat.consented, as before; a
+  // GChat one with the fp its thread was posted with (O8: none, no match)
   export function approved(chat: Chat, e: Events.Event): Answer {
     e.state = "taken";
     Memory.save(chat.mem);
-    const answer = Chat.consented(chat, e.ref ?? -1, e.body === "yes");
+    const g = e.src === "gchat" ? Chat.gchat_answer(e.body) : null;
+    const answer = g === null ? Chat.consented(chat, e.ref ?? -1, e.body === "yes") : Chat.consented(chat, e.ref ?? -1, g.yes, g.fp);
     Chat.closed(chat, e);
     return answer;
+  }
+
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): a GChat approval
+  // event's body (Chat.bridged); unread, a no with an fp nothing matches
+  export function gchat_answer(body: string): { yes: boolean; fp: string } {
+    let b: any = null;
+    try {
+      b = JSON.parse(body);
+    } catch {}
+    return { yes: b?.yes === true, fp: typeof b?.fp === "string" ? b.fp : "" };
   }
 
   // a GChat reply event (Chat.bridged): its act done as a view's, once by
@@ -1318,8 +1350,9 @@ export namespace Chat {
     return {};
   }
 
-  // the chats a restart cut at work or importing, or with a routine on by
-  // the clock (its tick runs with no view: Routines.timed), opened; one that fails
+  // the chats a restart cut at work or importing, with a routine on by the
+  // clock (its tick runs with no view: Routines.timed), or a call waiting
+  // for the user with the bridge on (Chat.approving), opened; one that fails
   // to load is logged and left (its user's page gets the error), never
   // keeping the worker, which serves every other user, from starting
   export function wake(): void {
@@ -1327,7 +1360,7 @@ export namespace Chat {
     for (const id of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
       const user = Main.shard(id) === Main.index ? Cloud.user(Chat.cloud, id) : null;
       const saved = user === null ? null : Memory.saved(dir + id);
-      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? [], saved?.timers ?? []))) {
+      if (user !== null && ((saved?.work ?? []).length > 0 || fs.existsSync(dir + id + BATCH) || Routines.timed(saved?.routines ?? [], saved?.timers ?? []) || Chat.approving(id, Pending.pending_read(saved?.pending)))) {
         Main.event("waking the chat of user " + id, () => Chat.open(user));
       }
     }
@@ -1473,7 +1506,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, pace: chat.mem.pace, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools).map(({ fp, ...c }) => c), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1894,6 +1927,9 @@ export namespace Chat {
       case "pin": {
         return Chat.pin(chat, asker, msg);
       }
+      case "pace": {
+        return Chat.paced(chat, asker, msg);
+      }
       case "note": {
         return Chat.noted(chat, asker, msg);
       }
@@ -1951,6 +1987,18 @@ export namespace Chat {
     if (told === null || told.fail) {
       Chat.note(chat, "The user did " + whose + " " + said + ".");
     }
+    return {};
+  }
+
+  // how GChat posts are paced (Outbox.ts): the user's, never a device's
+  // (O7); an unknown pace is quiet. State, as a pick is: not recorded
+  export function paced(chat: Chat, device: string, msg: any): Answer {
+    if (device !== "") {
+      return { error: "Pacing is the user's: set it in a view." };
+    }
+    chat.mem.pace = Outbox.pace_read(msg.pace);
+    Memory.save(chat.mem);
+    Chat.change(chat);
     return {};
   }
 
@@ -2816,10 +2864,11 @@ const LIKES = 30;
   // ------------
   // The questions pane in a Google Chat space, for the user away (Gchat.ts;
   // on with config gchat_space and GCHAT_WEBHOOK_URL). Every Gchat.EVERY
-  // while the chat is open: each open item not yet posted is posted (at
-  // most Gchat.POSTS a pass; one that fails, again on the next), the
-  // posted ones closed since forgotten; then, while one is open and
-  // there is a token (gchat_token), the space's replies read and acted on.
+  // while the chat is open: each open item not yet reported is posted as
+  // its pace says (Outbox.plan: approvals at once, the rest maybe in the
+  // digest; at most Gchat.POSTS a pass; one that fails, again on the
+  // next), the posted ones closed since forgotten; then, while one is open
+  // and there is a token (gchat_token), the space's replies read and acted on.
 
   // RED ZONE (security review U2, widened: signed off by the user
   // 2026-11-18, option A): the user's Google access token for the poll,
@@ -2858,27 +2907,50 @@ const LIKES = 30;
     if (!Chat.gchat_for(chat.acct.user, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
       return;
     }
-    const b = (chat.bridging ??= { busy: false, me: null });
+    const b = (chat.bridging ??= { busy: false, me: null, approvals: [] });
     b.busy = true;
     try {
-      const items = Gchat.gchat_items(chat.mem, now);
+      const mem = chat.mem;
+      const items = Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, now);
       const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
       if (!g.posted.every(open)) {
         g.posted = g.posted.filter(open);
-        Memory.save(chat.mem);
+        Memory.save(mem);
       }
-      for (const item of items.filter((x) => !g.posted.some((p) => p.key === x.key)).slice(0, Gchat.POSTS)) {
+      b.approvals = b.approvals.filter(open);
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): an approval counts
+      // as posted only by this process (b.approvals), so a restart posts each
+      // open one again in a new thread; O4 holds for the rest (outbox, posted)
+      const posted = (x: Gchat.Item) => (x.kind === "approval" ? b.approvals : g.posted).some((p) => p.key === x.key);
+      const plan = Outbox.plan(items.filter((x) => !posted(x)), mem.outbox.filter((o) => o.kind !== "approval"), mem.pace, mem.digested, now);
+      const nows = plan.now.slice(0, Gchat.POSTS);
+      const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
+      // the digest's first item carries its header, so each keeps a thread of its own
+      const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
+      let whole = digest.length === plan.digest.length;
+      for (const item of [...nows, ...digest]) {
         const tk = "legion-" + item.key + "-" + now;
-        const sent = await Gchat.gchat_post(url, tk, item.text);
+        const sent = await Gchat.gchat_post(url, tk, (item === digest[0] ? head : "") + item.text);
         if ("error" in sent) {
           console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
+          whole &&= !digest.includes(item);
           continue;
         }
-        g.posted.push({ key: item.key, tk, ...sent });
-        Memory.save(chat.mem);
+        if (item.kind === "approval") {
+          b.approvals.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
+        }
+        // an approval's entry in view.json is a record only, never read back to route a reply
+        g.posted = [...g.posted.filter((p) => item.kind !== "approval" || p.key !== item.key), { key: item.key, tk, ...sent }];
+        mem.outbox = Outbox.sent(mem.outbox, item, (mem.outbox.at(-1)?.id ?? 0) + 1, now);
+        Memory.save(mem);
       }
-      if (g.posted.length > 0 && Chat.gchat_token !== null) {
-        await Chat.bridged(chat, url, Gchat.gchat_items(chat.mem, Date.now()));
+      // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
+      if (plan.due && whole) {
+        mem.digested = now;
+        Memory.save(mem);
+      }
+      if ((g.posted.length > 0 || b.approvals.length > 0) && Chat.gchat_token !== null) {
+        await Chat.bridged(chat, url, Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, Date.now()));
       }
     } catch (err: any) {
       console.error("chat " + chat.acct.user + ": gchat: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200));
@@ -2894,29 +2966,46 @@ const LIKES = 30;
   // before it acts (once, even if it fails), then sent as a view's act
   // (device ""): the bridge is the user's view, the sender checked here,
   // so Chat.act's own checks (an open question, credit) apply as for the
-  // web; what it refuses, or a reply not understood, said in the thread
+  // web; what it refuses, or a reply not understood, said in the thread.
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): an approval's thread
+  // is only one this process posted (b.approvals), never view.json's posted
   export async function bridged(chat: Chat, url: string, items: Gchat.Item[]): Promise<void> {
     const g = chat.mem.gchat;
     const token = await Chat.gchat_token!();
     const b = chat.bridging!;
     b.me ??= await Google.me(token);
-    const since = Math.min(...g.posted.map((p) => p.at));
-    const replies = Gchat.gchat_replies(await Google.replies(token, config.GCHAT_SPACE, since), b.me, config.GCHAT_SPACE, g, items);
+    const asks = new Set(items.filter((x) => x.kind === "approval").map((x) => x.key));
+    const threads: Gchat.Gchat = { posted: [...g.posted.filter((p) => !asks.has(p.key)), ...b.approvals], acted: g.acted };
+    if (threads.posted.length === 0) {
+      return;
+    }
+    const since = Math.min(...threads.posted.map((p) => p.at));
+    const replies = Gchat.gchat_replies(await Google.replies(token, config.GCHAT_SPACE, since), b.me, config.GCHAT_SPACE, threads, items);
     for (const r of replies) {
       Gchat.gchat_acted(g, r.name);
       Memory.save(chat.mem);
       const act = Gchat.gchat_act(r);
+      const posted = threads.posted.find((p) => p.key === r.item.key);
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): a reply through
-      // the inbox (one event per reply, E5), done as a view's act as before
-      const done = act === null ? { error: "Not understood: " + (r.item.kind === "todo" ? "reply done or drop." : "reply undo (and what instead), or keep.") } : await Chat.enqueue(chat, { src: "gchat", kind: "reply", key: r.name, body: r.text, to: "main" }, act);
+      // the inbox (one event per reply, E5), done as a view's act as before;
+      // an approval's exact yes or no (O6) an approval event from gchat (O9),
+      // answered with the fp its thread was posted with (O8, Chat.approved)
+      const done = act === null ? { error: Chat.unread(r.item.kind) }
+        : r.item.kind === "approval" ? await Chat.enqueue(chat, { src: "gchat", kind: "approval", key: "gchat:" + r.name, ref: act.n, body: JSON.stringify({ yes: act.yes, fp: posted?.fp, tk: posted?.tk }), to: "main" })
+        : await Chat.enqueue(chat, { src: "gchat", kind: "reply", key: r.name, body: r.text, to: "main" }, act);
       if (done.error !== undefined) {
-        const tk = g.posted.find((p) => p.key === r.item.key)?.tk;
+        const tk = posted?.tk;
         const said = tk === undefined ? null : await Gchat.gchat_post(url, tk, done.error);
         if (said !== null && "error" in said) {
           console.error("chat " + chat.acct.user + ": gchat: " + said.error);
         }
       }
     }
+  }
+
+  // what a reply not understood is told in its thread
+  export function unread(kind: Gchat.Kind): string {
+    return kind === "approval" ? "Reply yes or no." : "Not understood: " + (kind === "todo" ? "reply done or drop." : "reply undo (and what instead), or keep.");
   }
 
   // Routines

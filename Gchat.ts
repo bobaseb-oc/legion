@@ -2,9 +2,10 @@
 // =====
 // Google Chat as a second view of the questions pane, for the user away
 // from their desk (config `gchat_space`, key GCHAT_WEBHOOK_URL: off
-// unless both are set and agree). Out: each open question, note, todo
-// and super auto decision is posted once through the space's incoming
-// webhook (a bot's message, so the phone rings), one thread per item, its
+// unless both are set and agree). Out: each open approval, question,
+// note, todo and super auto decision is posted once, as its pace says
+// (Outbox.ts), through the space's incoming webhook (a bot's message, so
+// the phone rings), one thread per item, its
 // text in chunks of at most TEXT. In: the replies in an item's thread,
 // read with the user's read-only Google grant (Google.replies), routed by
 // the server (Server.ts Chat.bridge) as a view's acts. Pure but the post;
@@ -14,20 +15,21 @@
 
 import type { Message } from "./Google.ts";
 import { redact } from "./local/prime/redact.ts";
-import type { Assignment, Decided, Question } from "./View.ts";
+import type { Assignment, Decided, Question, Waiting } from "./View.ts";
 import { DECIDED_MS } from "./View.ts";
 
 // Types
 // =====
 
-// an item of the pane: its key ("q" a question, "n" a note, "t" a todo,
-// "d" a decision, then its number), its number, its text as posted
-export type Kind = "question" | "note" | "todo" | "decision";
-export type Item = { key: string; kind: Kind; n: number; text: string; options?: string[] };
+// an item of the pane: its key ("a" an approval, "q" a question, "n" a
+// note, "t" a todo, "d" a decision, then its number), its number, its
+// text as posted; an approval's fp, its call's (Pending.fp)
+export type Kind = "approval" | "question" | "note" | "todo" | "decision";
+export type Item = { key: string; kind: Kind; n: number; text: string; options?: string[]; fp?: string };
 
 // an item posted: its key, the thread's key and name (spaces/S/threads/T),
-// when Google says it was posted (ms)
-export type Posted = { key: string; tk: string; thread: string; at: number };
+// when Google says it was posted (ms); an approval's fp as posted
+export type Posted = { key: string; tk: string; thread: string; at: number; fp?: string };
 
 // the bridge's state, kept in view.json: the items posted and still open,
 // the messages acted on (their names, the last ACTED)
@@ -66,11 +68,16 @@ export function gchat_on(space: string, url: string): boolean {
   return u !== null && u.protocol === "https:" && u.host === "chat.googleapis.com" && u.pathname === "/v1/" + space + "/messages" && u.searchParams.has("key") && u.searchParams.has("token");
 }
 
-// the pane's open items, oldest first: questions and notes, todos, the
-// decisions still undoable (DECIDED_MS); each text as posted scrubbed of
-// secret-shaped strings (redact's shapes: [REDACTED:<name>]), its
-// options kept as they are (an answer by number is one)
-export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]; decided: Decided[] }, now: number): Item[] {
+// the pane's open items: the calls waiting for the user's yes first, then
+// oldest first questions and notes, todos, the decisions still undoable
+// (DECIDED_MS); each text as posted scrubbed of secret-shaped strings
+// (redact's shapes: [REDACTED:<name>]), its options kept as they are (an
+// answer by number is one)
+export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]; decided: Decided[]; calls?: Array<Waiting & { fp: string }> }, now: number): Item[] {
+  const as = (mem.calls ?? []).map((c): Item => ({
+    key: "a" + c.id, kind: "approval", n: c.id, fp: c.fp,
+    text: "Approval " + c.id + ": " + c.who + " wants to run: " + c.what + "\n\nReply yes or no in this thread (exactly one word). Or answer in Legion.",
+  }));
   const qs = mem.questions.map((q): Item => {
     const kind = q.fyi ? "note" : "question";
     const opts = (q.options ?? []).map((o, i) => (i + 1) + ". " + o).join("\n");
@@ -83,7 +90,7 @@ export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]
     key: "d" + d.id, kind: "decision", n: d.id,
     text: "Decided for you " + d.id + " (" + d.kind + "): " + d.question + "\nTaken: " + d.answer + "\n\nReply undo (and what instead) to reverse it, or keep.",
   }));
-  return [...qs, ...ts, ...ds].map((x) => ({ ...x, text: redact(x.text, []).text }));
+  return [...as, ...qs, ...ts, ...ds].map((x) => ({ ...x, text: redact(x.text, []).text }));
 }
 
 // text in chunks of at most most characters, cut at a blank line, else a
@@ -168,13 +175,20 @@ export function gchat_acted(g: Gchat, name: string): void {
   g.acted = [...g.acted.filter((x) => x !== name), name].slice(-ACTED);
 }
 
-// a reply as the act a view would send: a question's or a note's answer
-// (an option's number as its text), a todo's done or drop, a decision's
-// undo (with what instead) or keep; null: not understood
+// a reply as the act a view would send: an approval's consent, a
+// question's or a note's answer (an option's number as its text), a
+// todo's done or drop, a decision's undo (with what instead) or keep;
+// null: not understood
 export function gchat_act(r: Reply): any {
   const word = r.text.split(/\s+/)[0]!.toLowerCase().replace(/[.!:,]+$/, "");
   const rest = r.text.slice(r.text.split(/\s+/)[0]!.length).replace(/^[\s:,-]+/, "").trim();
   switch (r.item.kind) {
+    case "approval": {
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): O6, the exact
+      // word only, trimmed, any case; "yes please", "y", "ok" are no answer
+      const w = r.text.trim().toLowerCase();
+      return w === "yes" || w === "no" ? { $: "consent", n: r.item.n, yes: w === "yes" } : null;
+    }
     case "question":
     case "note": {
       const k = /^\d+$/.test(r.text) ? Number(r.text) - 1 : -1;

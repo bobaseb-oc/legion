@@ -15,6 +15,7 @@ import { topup } from "./Import.ts";
 import * as Call from "./Call.ts";
 import type { Inbox } from "./Inbox.ts";
 import type { Note } from "./Notes.ts";
+import type { Pace } from "./Outbox.ts";
 import { pending, routine_parse, when_text, type Given, type Routine, type Timer } from "./Routines.ts";
 import * as Md from "./Md.ts";
 import { LABELS, type Move, Pick } from "./Pick.ts";
@@ -76,6 +77,7 @@ export type State = {
   importing : Progress | null;
   questions?: Question[]; // the orchestrator's, open (Tools.question)
   mode?     : Perm;       // the chat's permission mode (Modes.ts)
+  pace?     : Pace;       // how GChat posts are paced (Outbox.ts)
   status?   : DeviceStatus | null; // the latest device's report (Device.device_status)
   calls?    : Waiting[];  // calls waiting for the user's yes (auto mode's reviewer couldn't check them)
   plan?     : { text: string; date: string } | null; // the orchestrator's plan waiting for the user's yes
@@ -355,6 +357,7 @@ export type Client =
   | { $: "consent"; n: number; yes: boolean } // a waiting call (auto's reviewer couldn't check it): run it, or not
   | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
+  | { $: "pace"; pace: Pace } // a view: how GChat posts are paced (the user's only: Chat.paced)
   | { $: "note"; name: string; text?: string; drop?: boolean } // a view: one of Unii's notes edited, or dropped (the user's only: Chat.noted)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
@@ -405,6 +408,7 @@ export type Act =
   | { $: "Drop"; q: number }                    // an open question dismissed
   | { $: "Decision"; n: number; undo: boolean; text?: string } // super auto's decision undone (text: the user's answer instead) or dismissed
   | { $: "Mode"; mode?: Perm }                  // the mode set; none: the next (Shift+Tab, the chip)
+  | { $: "Pace"; pace: Pace }                   // how GChat posts are paced (the palette)
   | { $: "Verdict"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved into a mode, or sent back
   | { $: "Consent"; n: number; yes: boolean }   // a waiting call: run it, or not
   | { $: "Review"; prs: string[]; how: "review" | "fix"; claude?: boolean } // PRs of the inbox, each to a Legion agent (claude: a Claude Code worker under a manager)
@@ -937,6 +941,9 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Mode": {
       return [{ $: "mode", mode: act.mode ?? Modes.next(Modes.read(v.mode)) }];
+    }
+    case "Pace": {
+      return [{ $: "pace", pace: act.pace }];
     }
     case "Verdict": {
       const text = (act.text ?? "").trim();

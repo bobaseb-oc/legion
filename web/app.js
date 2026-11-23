@@ -2016,6 +2016,9 @@ function view_act(v, act) {
     case "Mode": {
       return [{ $: "mode", mode: act.mode ?? Modes.next(Modes.read(v.mode)) }];
     }
+    case "Pace": {
+      return [{ $: "pace", pace: act.pace }];
+    }
     case "Verdict": {
       const text = (act.text ?? "").trim();
       return [{ $: "plan", yes: act.yes, ...act.mode === undefined ? {} : { mode: act.mode }, ...text === "" ? {} : { text } }];
@@ -3589,7 +3592,10 @@ var PAGE_ITEMS = [
   { label: "Plan mode", hint: "command · only reading till a plan is approved", go: { act: { $: "Mode", mode: "plan" } } },
   { label: "Auto mode", hint: "command · a reviewer checks each change", go: { act: { $: "Mode", mode: "auto" } } },
   { label: "Super auto mode", hint: "command · as auto, and Legion takes its pick where you always would", go: { act: { $: "Mode", mode: "super" } } },
-  { label: "Full mode", hint: "command · hooks only", go: { act: { $: "Mode", mode: "full" } } }
+  { label: "Full mode", hint: "command · hooks only", go: { act: { $: "Mode", mode: "full" } } },
+  { label: "GChat: quiet", hint: "command · approvals and questions at once, the rest in a 30-minute digest", go: { act: { $: "Pace", pace: "quiet" } } },
+  { label: "GChat: digest", hint: "command · approvals at once, the rest in a 30-minute digest", go: { act: { $: "Pace", pace: "digest" } } },
+  { label: "GChat: all", hint: "command · every item at once", go: { act: { $: "Pace", pace: "all" } } }
 ];
 function palette(v, q) {
   const agents = v.crew.map((c) => ({ label: c.title ?? c.name, hint: "agent " + c.name + " · " + c.status, go: { href: "#crew/" + encodeURIComponent(c.name) } }));
