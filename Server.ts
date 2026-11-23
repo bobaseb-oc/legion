@@ -3035,6 +3035,11 @@ const LIKES = 30;
     Chat.stalls(chat, now);
     const rung = Chat.rang(chat, now);
     Chat.drain(chat);
+    // RED ZONE (R4, DRAFT awaiting the user's sign-off): an unused grant
+    // past its time can't be taken; gone, so the map doesn't grow
+    if (chat.tools.grants !== undefined) {
+      Pending.prune(chat.tools.grants, now);
+    }
     // RED ZONE (R4, DRAFT awaiting the user's sign-off): a shown record no
     // live wait holds has no timer of its own: past its time, expired (P6)
     let lapsed = false;

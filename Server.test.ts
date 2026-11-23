@@ -1972,6 +1972,27 @@ test("P6: the tick expires a re-shown consent past its until, and saves it", asy
   expect((out.disk ?? []).map((p: any) => p.state)).toEqual(["expired"]);
 }, 30_000);
 
+// PLP-2921 at the tick: an unused grant (a live yes, Tools.regrant) is
+// pruned once expired, so tools.grants does not grow with each unused yes
+const GRANT_TICK = APPROVE_HEAD + `
+const Pending = await import(${JSON.stringify(import.meta.dir + "/Pending.ts")});
+const chat = opened();
+const t = Date.now();
+const rec = (who) => ({ id: 1, kind: "consent", who, tool: "shell", args: JSON.stringify(DEPLOY), fp: Pending.fp(who, "shell", DEPLOY), made: t, until: t + Pending.CONSENT_MS, state: "open" });
+const at = (dt) => { chat.tools.grants = new Map(); Pending.grant(chat.tools.grants, rec("main"), t); Chat.ticked(chat, t + Pending.GRANT_MS + dt); return [...chat.tools.grants.values()]; };
+console.log(JSON.stringify({ early: at(-1), late: at(1) }));
+process.exit(0);
+`;
+
+test("PLP-2921: Chat.ticked at t + GRANT_MS + 1 ms prunes a grant made at t; at t + GRANT_MS - 1 ms it stays", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/grant.ts", GRANT_TICK);
+  const proc = Bun.spawn([process.execPath, dir + "/grant.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.early).toEqual([{ who: "main", until: expect.any(Number) }]);
+  expect(out.late).toEqual([]);
+}, 30_000);
+
 // RED ZONE (ADR 2; DRAFT awaiting the user's sign-off): the chat's inbox
 // (Events.ts). Who sent an event is the credential's (a view, a terminal
 // key, else a device), never the payload's; a device's event waits
