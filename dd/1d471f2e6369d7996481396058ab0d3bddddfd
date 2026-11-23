@@ -1,0 +1,21 @@
+Cloud.ts
+  s_aeea4652c6b7ae::t_ae705f2b8012f6 326-331
+Server.ts
+  s_aeea4652c6b7ae::t_53fae9cccf33bf 3126-3128,3132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dd1d471f2e6369d7996481396058ab0d3bddddfd",
+  "prompts": {},
+  "sessions": {
+    "s_aeea4652c6b7ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1e5f75c-f04e-4697-9f1c-b2adedfbcd80",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
