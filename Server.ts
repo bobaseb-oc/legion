@@ -149,7 +149,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
-  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[]; until?: number }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only), no post before until (a 429's hold)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[]; until?: number; parts?: Gchat.Part[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only), no post before until (a 429's hold), items cut short (their rest to send)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -2922,33 +2922,40 @@ const LIKES = 30;
       const items = Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, now);
       const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
       b.threads = b.threads.filter(open);
+      // an item cut short (a later chunk failed) sends only its rest, in
+      // its thread; kept in memory only, as threads are
+      b.parts = (b.parts ?? []).filter(open);
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
       // a process. view.json keeps no record of what was posted
-      const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), mem.pace, mem.digested, now);
-      const nows = plan.now.slice(0, Gchat.POSTS);
-      const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
+      const plan = Outbox.plan(items.filter((x) => ![...b.threads, ...b.parts].some((p) => p.key === x.key)), mem.pace, mem.digested, now);
+      const nows = plan.now.slice(0, Math.max(0, Gchat.POSTS - b.parts.length));
+      const digest = plan.digest.slice(0, Math.max(0, Gchat.POSTS - b.parts.length - nows.length));
       // the digest's first item carries its header, so each keeps a thread of its own
       const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
       // posts GAP apart; a 429 ends the pass and holds posting (Retry-After,
       // at least HOLD): nothing more is sent until then
       const held = now < (b.until ?? 0);
-      for (const [i, item] of (held ? [] : [...nows, ...digest]).entries()) {
+      const fresh = [...nows, ...digest].map((item): Gchat.Part => ({ key: item.key, tk: "legion-" + item.key + "-" + now, text: (item === digest[0] ? head : "") + item.text, ...(item.fp === undefined ? {} : { fp: item.fp }), done: null, next: 0 }));
+      for (const [i, s] of (held ? [] : [...b.parts, ...fresh]).entries()) {
         if (i > 0) {
           await Chat.gchat_wait(Gchat.GAP);
         }
-        const tk = "legion-" + item.key + "-" + now;
-        const sent = await Gchat.gchat_post(url, tk, (item === digest[0] ? head : "") + item.text, fetch, { wait: Chat.gchat_wait });
+        const sent = await Gchat.gchat_post(url, s.tk, s.text, fetch, { wait: Chat.gchat_wait, from: s.next, ...(s.done === null ? {} : { done: s.done }) });
+        b.parts = b.parts.filter((p) => p.key !== s.key);
         if ("error" in sent) {
           console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
+          if (sent.done !== null) {
+            b.parts.push({ ...s, done: sent.done, next: sent.next });
+          }
           if (sent.status === 429) {
             b.until = now + Math.max(sent.retry ?? 0, Gchat.HOLD);
             break;
           }
           continue;
         }
-        b.threads.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
+        b.threads.push({ key: s.key, tk: s.tk, ...sent, ...(s.fp === undefined ? {} : { fp: s.fp }) });
       }
       // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
       const whole = digest.length === plan.digest.length && digest.every((x) => b.threads.some((p) => p.key === x.key));

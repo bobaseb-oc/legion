@@ -127,6 +127,9 @@ export type Sent = { thread: string; at: number };
 // Retry-After (ms), and, if a later chunk failed, the first message and
 // the chunk to go on from
 export type Failed = { error: string; status: number | null; retry: number | null; done: Sent | null; next: number };
+// a post to send, or the rest of one cut short: done its first message
+// (null: none sent yet), next the chunk to go on from
+export type Part = { key: string; tk: string; text: string; fp?: string; done: Sent | null; next: number };
 // how: the wait between chunks (GAP; a test's records it), and to go on
 // from chunk `from` of a post whose first message was `done`
 export type Pace = { wait?: (ms: number) => Promise<void>; from?: number; done?: Sent };
