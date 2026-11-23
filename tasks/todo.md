@@ -1291,3 +1291,13 @@ Review (2026-11-20):
 - Not verified: the checker on the real gateway (Haiku's judgement), false-nudge rate of the "?" guard on real replies.
 - Prefix gate (user's call 2026-11-20: deterministic, in Legion, this PR): today no gate enforces it (oc-coding-assistant gates gh pr create only on polish; pr-body.md:68 allows no prefix without a ticket). Refuse an agent's `gh pr create` whose title has no ticket key, and a `git push` / `gh stack submit` of a branch with no ticket key, unless marked ticket-less.
 - [x] Red tests for the prefix gate (refused without key, allowed with key, allowed when marked ticket-less); then green
+
+## Goal evidence + cap, worker briefs, blind verifier (from the Confluence prompting guide, 2026-11-23)
+Intent: a /goal ends on evidence or a cap, not on Unii's word or never; briefs and reports carry the guide's fields; a manager verifies claims with a second worker.
+- [x] Red: Memory.test.ts — view.json goaled round-trips; not a non-negative integer → 0
+- [x] Red: Server.test.ts GOAL — 5 unmet checks drop the goal, the 5th nudge asks for a brief; nudges carry the checker's reason, tagged; a yes notes its evidence and resets the count; the check prompt says Unii's words are not proof
+- [x] Red: Tools.test.ts — SPAWN asks for decided/ruled out; SUB_HEAD report cap + observed/inferred + not-got-to; MGR_HEAD blind verifier with CONFIRMED/WRONG/UNVERIFIABLE
+- [x] Green, then negative check (remove the cap, test fails), full `bun run test`
+- Review: full suite 874 pass, 0 fail, 1 skip. Mutants caught 6/6 (cap removed, count not kept, count not reset on a new goal, nudge without its reason, "never proof" dropped, verifier handed the report).
+- Decided (overrulable): GOAL_TRIES = 5 unmet checks in a row; the count persists in view.json (goaled) so a restart or a move does not reset it; the brief comes from Unii (it has the context), not from the server; the checker's why is capped at 300 chars and tagged "not the user's message", as the directives nudge is.
+- Not verified: the checker's judgement on the real gateway (Haiku must now name an echo: line); whether a long goal that keeps making progress hits the cap too soon.

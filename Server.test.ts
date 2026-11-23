@@ -2393,3 +2393,102 @@ test("L3, E4: a timer's event is fenced as event:timer and said to come from a t
   expect(out.texts[0]).toContain('<untrusted source="event:timer">');
   expect(out.texts[0]).not.toContain("a device posted");
 }, 30_000);
+
+// a /goal (Chat.check, Chat.checked): the checker answers "yes: <its
+// evidence>" or "no: <what is missing>", and is told Unii's own words are
+// no proof; an unmet check's nudge carries its reason, tagged as not the
+// user's; GOAL_TRIES unmet in a row drop the goal and ask Unii for a brief
+// to the user; a yes notes its evidence; a new goal counts from 0
+const GOAL = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+const answers = [];
+const systems = [];
+let checks = 0;
+let turns = 0;
+const ended = (text) => ({ send() {}, stop() {}, done: Promise.resolve({ ok: true, text, left: [] }) });
+AskAI.ask = (ask) => {
+  if (String(ask.system ?? "").startsWith("You check a goal")) {
+    checks += 1;
+    systems.push(ask.system);
+    return ended(answers.shift() ?? "no: nothing");
+  }
+  if (String(ask.server ?? "").endsWith("/main")) {
+    turns += 1;
+  }
+  return ended("working");
+};
+const until = async (f) => {
+  for (let k = 0; k < 300 && !f(); k++) await Bun.sleep(10);
+  return f();
+};
+const texts = (from, kind) => {
+  const out = [];
+  for (let i = from; i < chat.mem.count; i++) {
+    const m = Memory.message(chat.mem, i);
+    if (m && m.kind === kind) out.push(m.text);
+  }
+  return out;
+};
+const run = async (goal, said) => {
+  const from = chat.mem.count;
+  checks = 0;
+  turns = 0;
+  answers.length = 0;
+  answers.push(...said);
+  await Chat.act(chat, "goal", { $: "goal", text: goal }, "");
+  Chat.take(chat, Chat.push(chat, null, "user", "go"));
+  await until(() => chat.mem.goal === null && !chat.busy);
+  return { checks, turns, users: texts(from, "user").slice(1), notes: texts(from, "note"), goal: chat.mem.goal, goaled: chat.mem.goaled };
+};
+const capped = await run("the tests pass", Array(9).fill("no: no test output in the chat"));
+const met = await run("ship it", ["no: no PR link yet", "yes: echo 7 shows 40 pass"]);
+await Chat.act(chat, "goal", { $: "goal", text: "one" }, "");
+chat.mem.goaled = 2;
+await Chat.act(chat, "goal", { $: "goal", text: "two" }, "");
+const reset = chat.mem.goaled;
+await Chat.act(chat, "goal", { $: "goal", text: null }, "");
+console.log(JSON.stringify({ capped, met, reset, system: systems[0] ?? "" }));
+process.exit(0);
+`;
+
+test("a /goal: unmet checks nudge with their reason, at most GOAL_TRIES, then a brief; a yes notes its evidence", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/goal.ts", GOAL);
+  const proc = Bun.spawn([process.execPath, dir + "/goal.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  // the checker needs a tool's output, not Unii's word, and gives its why
+  expect(out.system).toContain("never proof");
+  expect(out.system).toMatch(/yes: /);
+  expect(out.system).toMatch(/no: /);
+  // capped: 5 checks, 5 nudges (4 to keep working, the last for a brief)
+  const { capped, met } = out;
+  expect(capped.checks).toBe(5);
+  expect(capped.turns).toBe(6);
+  expect(capped.goal).toBeNull();
+  expect(capped.goaled).toBe(0);
+  expect(capped.users).toHaveLength(5);
+  for (const nudge of capped.users) {
+    expect(nudge).toContain("[goal check]");
+    expect(nudge).toContain("no test output in the chat");
+    expect(nudge).toContain("not the user's message");
+  }
+  expect(capped.users.slice(0, 4).every((n: string) => n.includes("keep working"))).toBe(true);
+  expect(capped.users[4]).toContain("brief");
+  expect(capped.users[4]).not.toContain("keep working");
+  expect(capped.notes.some((n: string) => n.startsWith("Goal dropped after 5 unmet checks"))).toBe(true);
+  // met: the second check's yes ends it, its evidence noted
+  expect(met.checks).toBe(2);
+  expect(met.users).toHaveLength(1);
+  expect(met.users[0]).toContain("no PR link yet");
+  expect(met.notes).toContain("Goal met: echo 7 shows 40 pass.");
+  expect(met.goaled).toBe(0);
+  // a new goal counts its checks from 0
+  expect(out.reset).toBe(0);
+}, 30_000);

@@ -244,3 +244,18 @@ test("L3: view.json's evented (the last event id) and events survive a save and 
   expect((loaded({ evented: "9" }) as any).evented).toBe(0);
   expect((loaded({ evented: 1.5 }) as any).evented).toBe(0);
 });
+
+test("view.json's goaled (a goal's unmet checks in a row) survives a save and a load; not a non-negative integer, 0", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
+  const mem: any = Memory.load(dir, () => ({}) as any);
+  expect(mem.goaled).toBe(0);
+  mem.goal = "tests pass";
+  mem.goaled = 3;
+  Memory.save(mem);
+  const back: any = Memory.load(dir, () => ({}) as any);
+  expect(back.goaled).toBe(3);
+  for (const bad of ["3", 1.5, -1, null]) {
+    expect((loaded({ goaled: bad }) as any).goaled).toBe(0);
+  }
+});

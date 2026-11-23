@@ -129,11 +129,12 @@ type Kept = { parts: Array<[number, number]>; batch: boolean };
 export type Plan = { text: string; date: string };
 
 // view.json: the chat's view, the compactions' (none: the chat's)
-type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tracks?: unknown; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[]; pending?: Pending.Pending[]; pended?: number; events?: Events.Event[]; evented?: number };
+type Saved = Kept & { seen?: Kept; main: End; tree: End; pick: object | null; goal?: string | null; goaled?: number; work?: string[]; questions?: Question[]; asked?: number; mode?: Mode; plan?: Plan | null; routines?: Routine[]; routined?: number; timers?: Timer[]; timered?: number; drafts?: Draft[]; drafted?: number; assigned?: Assignment[]; assigns?: number; tracks?: unknown; tallies?: Partial<Record<AskKind, Tally>>; decided?: Decided[]; likes?: string[]; explain?: Explain; gchat?: Gchat; summaries?: Record<string, Summary>; rough?: Array<[number, number]>; pins?: number[]; pending?: Pending.Pending[]; pended?: number; events?: Events.Event[]; evented?: number };
 
 // fds: files read lately, open, oldest first; count: the pages logged
 // whole; open: those after, not whole yet; pick: the chat's, as last set;
-// goal: the user's (/goal; null: none), till met or halted (Server.ts);
+// goal: the user's (/goal; null: none), till met, halted or dropped
+// (Server.ts); goaled: its checks unmet in a row (Chat.checked);
 // questions: the orchestrator's to the user still open (Tools.question), asked:
 // the last one's number (never reused); summaries: meeting transcripts'
 // (Chat.transcript), by Doc id, never their text; mode: the chat's (Modes.ts; none
@@ -164,6 +165,7 @@ export type Memory = {
   open   : number;
   pick   : object | null;
   goal   : string | null;
+  goaled : number;
   questions: Question[];
   asked  : number;
   mode   : Mode;
@@ -296,7 +298,7 @@ export namespace Memory {
 
   export function load(dir: string, share: Memory["share"], acted: Memory["acted"] = () => {}): Memory {
     const mem: Memory = {
-      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tracks: {}, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], pending: [], pended: 0, events: [], evented: 0, work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
+      dir, fds: new Map(), count: 0, open: 0, pick: null, goal: null, goaled: 0, questions: [], asked: 0, mode: "super", plan: null, routines: [], routined: 0, timers: [], timered: 0, drafts: [], drafted: 0, assigned: [], assigns: 0, tracks: {}, tallies: {}, decided: [], likes: [], explain: explain_new(), gchat: gchat_new(), summaries: {}, pins: [], pinned: [], pending: [], pended: 0, events: [], evented: 0, work: [], nodes: new Map(), agents: new Map(), ready: [[], []], ends: { main: [0, 0], tree: [0, 0] },
       view: { parts: [], size: 0, batch: false, high: HIGH }, seen: { parts: [], size: 0, batch: false, high: SEEN },
       busy: new Map(), sides: new Map(), calls: new Map(), hold: [null, "paused"], trouble: null, done: false, wait: new Set(), share, acted,
       rough: new Map(), redoing: false, rest: { until: null },
@@ -304,6 +306,7 @@ export namespace Memory {
     const saved = Memory.saved(dir);
     mem.pick = saved?.pick ?? null;
     mem.goal = saved?.goal ?? null;
+    mem.goaled = Number.isInteger(saved?.goaled) && (saved?.goaled ?? 0) >= 0 ? (saved?.goaled ?? 0) : 0;
     mem.questions = Array.isArray(saved?.questions) ? saved.questions : [];
     mem.asked = Number(saved?.asked ?? 0) || 0;
     // a new chat (no view.json) keeps super, the default; a saved one
@@ -456,7 +459,7 @@ export namespace Memory {
   export function save(mem: Memory): void {
     const file = mem.dir + "/view.json";
     const [chat, seen] = [mem.view, mem.seen].map((view): Kept => ({ parts: view.parts.map((part) => [part.l, part.i]), batch: view.batch }));
-    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tracks: mem.tracks, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, pending: mem.pending, pended: mem.pended, events: mem.events, evented: mem.evented, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
+    fs.writeFileSync(file + ".new", JSON.stringify({ ...chat, seen, pick: mem.pick, goal: mem.goal, goaled: mem.goaled, questions: mem.questions, asked: mem.asked, mode: mem.mode, plan: mem.plan, routines: mem.routines, routined: mem.routined, timers: mem.timers, timered: mem.timered, drafts: mem.drafts, drafted: mem.drafted, assigned: mem.assigned, assigns: mem.assigns, tracks: mem.tracks, tallies: mem.tallies, decided: mem.decided, likes: mem.likes, explain: mem.explain, gchat: mem.gchat, summaries: mem.summaries, pins: mem.pins, pending: mem.pending, pended: mem.pended, events: mem.events, evented: mem.evented, work: mem.work, rough: [...mem.rough.values()].map((part) => [part.l, part.i]), ...mem.ends }), { mode: 0o600 });
     fs.renameSync(file + ".new", file);
     Disk.wrote(file);
   }
