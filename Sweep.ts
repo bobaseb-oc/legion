@@ -23,10 +23,13 @@ export const SIZE_GB = 10;
 const DEPTH = 3; // how deep under WORK a shared clone is looked for
 const MOST = 50; // the dirs one listing holds, at most: the biggest
 const ENVS = 10; // the .env files the question names per dir, at most
+// where a dir is moved before it is deleted (sweep_remove): in WORK, never listed
+export const TRASH = ".sweep-trash";
 
 // a dir listed: its real path, its bytes, its newest mtime (ms), whether
 // git's, the .env files in it (paths within it; ignored ones are deleted too)
-export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "worktree" | null; envs?: string[] };
+// dev, ino: its identity when listed (sweep_remove deletes that dir only)
+export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "worktree" | null; envs?: string[]; dev?: number; ino?: number };
 // the agents' names known (live or on disk), and those not done (at work,
 // asking, waiting, stopped)
 export type Agents = { known: Set<string>; busy: Set<string> };
@@ -55,7 +58,7 @@ export function sweep_inside(work: string, p: string): string | null {
     return null;
   }
   const rel = path.relative(root, at);
-  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) || rel.split(path.sep)[0] === "main" ? null : at;
+  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) || ["main", TRASH].includes(rel.split(path.sep)[0] ?? "") ? null : at;
 }
 
 // a dir's bytes, its newest mtime (.git's insides aside: git writes there
@@ -146,7 +149,7 @@ export async function sweep_candidate(work: string, p: string, agents: Agents, k
     }
   }
   const envs = await untracked(at, walk.envs, walk.repos);
-  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind, ...(envs.length === 0 ? {} : { envs }) };
+  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind, ...(envs.length === 0 ? {} : { envs }), dev: st.dev, ino: st.ino };
 }
 
 // of the .env files in dir (paths within it), those git cannot give back:
@@ -224,39 +227,48 @@ function linked(dir: string): string | null {
   }
 }
 
-// RED ZONE: the one delete. A dir (its real path, inside WORK, no symlink)
-// removed, then each repo outside it whose linked worktree it held pruned
-// (`git worktree prune`); a worktree by `git worktree remove` in its repo
-// (no --force), then gone from its list. null: done; else why not
+// RED ZONE: the one delete, bound to the dir listed (its dev and ino), so
+// an agent swapping a path under it (a parent for a symlink out of WORK)
+// gets nothing outside deleted. Walked first (the repos whose linked
+// worktrees it holds); then its real path and identity checked; then
+// renamed into WORK/TRASH (same file system: EXDEV, kept) and checked
+// again there: a real dir, inside the quarantine, the same dev and ino.
+// Only then removed; a mismatch is left in the quarantine (recoverable),
+// never removed. Then `git worktree prune` in each repo inside WORK whose
+// worktree went (a worktree itself: its own repo's). null: done; else why not
 export async function sweep_remove(work: string, item: Item): Promise<string | null> {
-  const at = sweep_inside(work, item.path);
-  const st = fs.lstatSync(item.path, { throwIfNoEntry: false });
-  if (at === null || at !== item.path || st === undefined || st.isSymbolicLink() || !st.isDirectory()) {
+  const root = real(work);
+  const before = await fs.promises.lstat(item.path).catch(() => null);
+  if (root === null || before === null || !before.isDirectory() || sweep_inside(work, item.path) !== item.path) {
     return "not a dir inside WORK";
   }
-  if (item.git !== "worktree") {
-    const walk = await sweep_walk(at);
-    const parents = [...new Set(walk.repos.filter((r) => sweep_git(r) === "worktree").map(linked))].filter((r): r is string => r !== null && !overlap(r, at));
-    try {
-      await fs.promises.rm(at, { recursive: true });
-    } catch (e) {
-      return "not removed: " + String((e as Error).message).slice(0, 120);
-    }
-    for (const r of parents) {
-      await git(r, ["worktree", "prune"]);
-    }
-    return null;
+  const repos = item.git === "worktree" ? [item.path] : (await sweep_walk(item.path)).repos;
+  const trash = root + "/" + TRASH;
+  const held = (r: string) => sweep_inside(work, r) === r && !overlap(r, item.path) && !overlap(r, trash);
+  const parents = [...new Set(repos.filter((r) => sweep_git(r) === "worktree").map(linked))].filter((r): r is string => r !== null && held(r));
+  const same = (st: fs.Stats | null) => st !== null && st.isDirectory() && !st.isSymbolicLink() && st.dev === item.dev && st.ino === item.ino;
+  if (sweep_inside(work, item.path) !== item.path || !same(await fs.promises.lstat(item.path).catch(() => null))) {
+    return "not the dir listed";
   }
-  const common = (await git(at, ["rev-parse", "--path-format=absolute", "--git-common-dir"]))?.trim() ?? "";
-  if (common === "") {
-    return "its repo not found";
+  const to = trash + "/" + crypto.randomUUID();
+  try {
+    await fs.promises.mkdir(trash, { recursive: true, mode: 0o700 });
+    await fs.promises.rename(item.path, to);
+  } catch (e) {
+    return "not moved: " + String((e as Error).message).slice(0, 120);
   }
-  const parent = path.dirname(common);
-  if ((await git(parent, ["worktree", "remove", at])) === null) {
-    return "git worktree remove refused it";
+  if (real(to) !== to || !same(await fs.promises.lstat(to).catch(() => null))) {
+    return "moved to " + to + " but not the dir listed: kept there, not deleted";
   }
-  const list = await git(parent, ["worktree", "list", "--porcelain"]);
-  return list !== null && !list.split("\n").includes("worktree " + at) ? null : "still in its repo's worktree list";
+  try {
+    await fs.promises.rm(to, { recursive: true });
+  } catch (e) {
+    return "not removed: " + String((e as Error).message).slice(0, 120);
+  }
+  for (const r of parents) {
+    await git(r, ["worktree", "prune"]);
+  }
+  return null;
 }
 
 // due: a day at least since the last sweep, and a Sunday 03:00 (local)
