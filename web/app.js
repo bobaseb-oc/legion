@@ -648,6 +648,7 @@ var GH_FLAGS = new Set([
 var GH_API = new Set(["--paginate", "--jq", "-q", "--template", "-t", "--include", "-i", "--silent", "--slurp", "--verbose"]);
 var PROTECTED = /^(main|master|develop|trunk|HEAD|gh-pages|release(\/.*)?|\d+(\.\d+)*\.x)$/;
 var PUSH_FLAGS = new Set(["-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose"]);
+var KEY = /(^|[^A-Za-z0-9])[A-Z][A-Z0-9]+-\d+(?![0-9])/;
 var FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
 var Modes;
 ((Modes2) => {
@@ -970,6 +971,31 @@ var Modes;
     return branch !== undefined && !PROTECTED.test(branch) && !branch.startsWith("-") && !branch.includes("..");
   }
   Modes2.feature_push = feature_push;
+  function unkeyed(command) {
+    const lexed = lex(command);
+    if (typeof lexed === "string") {
+      return null;
+    }
+    return lexed.map(unkeyed_one).find((why) => why !== null) ?? null;
+  }
+  Modes2.unkeyed = unkeyed;
+  function unkeyed_one([cmd, sub, verb, ...rest]) {
+    const need = (what, text) => KEY.test(text) ? null : what + " has no ticket key (" + text + "): name the Jira ticket, as PLP-123. No ticket: ask the user; ticket-less work is theirs to run.";
+    if (cmd === "gh" && sub === "pr" && (verb === "create" || verb === "edit")) {
+      const at = rest.findIndex((w) => w === "--title" || w === "-t");
+      const title = at >= 0 ? rest[at + 1] : rest.find((w) => w.startsWith("--title="))?.slice("--title=".length);
+      if (title === undefined) {
+        return verb === "create" ? "A PR needs --title with its ticket key (as PLP-123: …), not one from commits." : null;
+      }
+      return need("The PR title", title);
+    }
+    if (cmd === "git" && sub === "push") {
+      const places = [verb, ...rest].filter((w) => w !== undefined && !w.startsWith("-"));
+      const branches = places.slice(1).map((ref) => ref.slice(ref.indexOf(":") + 1)).filter((b) => b !== "HEAD" && b !== "");
+      return branches.map((b) => need("The branch", b)).find((why) => why !== null) ?? null;
+    }
+    return null;
+  }
   function check(words) {
     const [cmd, ...args] = words;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(cmd)) {
@@ -2672,6 +2698,23 @@ function entry_body(kind, text) {
   }
 }
 
+// web/src/Drag.ts
+var BAND = 40;
+var MOST = 60;
+function drag_step(y, top, bottom) {
+  const up = top + BAND - y;
+  const down = y - (bottom - BAND);
+  const deep = Math.max(up, down);
+  if (deep <= 0) {
+    return 0;
+  }
+  const px = Math.min(MOST, Math.ceil(deep / 4));
+  return up > down ? -px : px;
+}
+function drag_held(down, collapsed, inside) {
+  return down || inside && !collapsed;
+}
+
 // Hl.ts
 var words = (s) => new Set(s.split(" "));
 var C_LIKE = { line: ["//"], block: [["/*", "*/"]] };
@@ -4024,6 +4067,11 @@ var P = {
   stick: true,
   frame: 0,
   rows: true,
+  down: false,
+  x: 0,
+  y: 0,
+  scroll: 0,
+  held: false,
   toast: 0,
   found: new Map,
   done: {},
@@ -4193,6 +4241,11 @@ function chat() {
     attach([...ev.dataTransfer?.files ?? []]);
   };
   document.onclick = click;
+  $("#log").addEventListener("pointerdown", drag_down);
+  addEventListener("pointermove", drag_move);
+  addEventListener("pointerup", drag_up);
+  addEventListener("pointercancel", drag_up);
+  document.addEventListener("selectionchange", () => P.held && !held() && draw(true));
   onhashchange = crew_route;
   $("#grid").onsubmit = tell;
   $("#questions").onsubmit = answer;
@@ -4874,6 +4927,13 @@ function paint() {
     bars();
     return;
   }
+  if (held()) {
+    P.frame = 0;
+    P.held = true;
+    bars();
+    return;
+  }
+  P.held = false;
   const doc = document.documentElement;
   const follow = P.stick && P.end;
   const at = P.rows && !follow ? anchor() : null;
@@ -5512,6 +5572,62 @@ function anchor() {
     }
   }
   return null;
+}
+function drag_down(ev) {
+  if (ev.button !== 0 || ev.pointerType !== "mouse") {
+    return;
+  }
+  P.down = true;
+  P.x = ev.clientX;
+  P.y = ev.clientY;
+  document.body.classList.add("dragging");
+  P.scroll ||= requestAnimationFrame(drag_scroll);
+}
+function drag_move(ev) {
+  if (!P.down) {
+    return;
+  }
+  P.x = ev.clientX;
+  P.y = ev.clientY;
+  if (ev.buttons === 0) {
+    drag_up();
+  }
+}
+function drag_up() {
+  if (!P.down) {
+    return;
+  }
+  P.down = false;
+  cancelAnimationFrame(P.scroll);
+  P.scroll = 0;
+  document.body.classList.remove("dragging");
+  if (P.held) {
+    draw(true);
+  }
+}
+function drag_scroll() {
+  P.scroll = requestAnimationFrame(drag_scroll);
+  const top = $("header").getBoundingClientRect().bottom;
+  const bottom = $("footer").getBoundingClientRect().top;
+  const px = drag_step(P.y, top, bottom);
+  const sel = getSelection();
+  if (px === 0 || sel === null || sel.isCollapsed) {
+    return;
+  }
+  scrollBy(0, px);
+  const y = Math.min(Math.max(P.y, top + 1), bottom - 1);
+  const at = document.caretPositionFromPoint?.(P.x, y) ?? null;
+  const r = at === null ? document.caretRangeFromPoint?.(P.x, y) ?? null : null;
+  const node = at?.offsetNode ?? r?.startContainer ?? null;
+  if (node !== null && $("#log").contains(node)) {
+    sel.extend(node, at?.offset ?? r?.startOffset ?? 0);
+  }
+}
+function held() {
+  const sel = getSelection();
+  const log = $("#log");
+  const inside = sel !== null && !log.hidden && (log.contains(sel.anchorNode) || log.contains(sel.focusNode));
+  return drag_held(P.down, sel?.isCollapsed ?? true, inside);
 }
 function go(path) {
   if (location.pathname !== path) {
