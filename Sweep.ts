@@ -43,13 +43,20 @@ export type Agents = { known: Set<string>; busy: Set<string>; shared?: boolean }
 // fsmonitor, hooks or signature check, no system or global config, no
 // prompt, no GIT_* from our env (an agent's shell may set them). A repo's
 // own config can still name commands (filters, gpg): sweep_runs is asked
-// before any git runs in a repo. null: it failed
+// before any git runs in a candidate. Never into submodules. Killed past
+// GIT_MS (a FIFO, an endless file): null, as any failure is
+const GIT_MS = 10_000;
 async function git(dir: string, args: string[]): Promise<string | null> {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
-  const hard = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false"];
+  const hard = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false", "-c", "submodule.recurse=false", "-c", "diff.ignoreSubmodules=all"];
   const proc = Bun.spawn(["git", ...hard, "-C", dir, ...args], { stdout: "pipe", stderr: "ignore", env: { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" } });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out : null;
+  const timer = setTimeout(() => proc.kill(9), GIT_MS);
+  try {
+    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    return code === 0 && proc.signalCode === null ? out : null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function real(p: string): string | null {
@@ -88,7 +95,7 @@ export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: n
     if (st === null) {
       return;
     }
-    out.bytes += st.size;
+    out.bytes += st.blocks * 512; // LOW c: what it takes on disk (a sparse file: its blocks only)
     // L1: a name with a control character in it: the dir is never listed
     out.mtime = /[\x00-\x1f\x7f]/.test(path.basename(p)) ? Infinity : ingit ? out.mtime : Math.max(out.mtime, st.mtimeMs);
     // L4: ENVS + 1 at most (one more: "and more"), so git's argv stays small
@@ -136,34 +143,67 @@ const DRIVER = /(^|\s)(filter|diff|merge)=/;
 // a repo's git dirs: its .git, or a worktree's own and its repo's
 // (commondir); null: unreadable
 function gitdirs(dir: string): string[] | null {
+  let dirs: string[];
   if (sweep_git(dir) === "repo") {
-    return [dir + "/.git"];
+    dirs = [dir + "/.git"];
+  } else {
+    try {
+      const own = path.resolve(dir, /^gitdir: (.+)$/m.exec(fs.readFileSync(dir + "/.git", "utf8"))?.[1]?.trim() ?? "");
+      // a linked worktree's: and its repo's (commondir); a submodule's: its own
+      const common = fs.existsSync(own + "/commondir") ? [path.resolve(own, fs.readFileSync(own + "/commondir", "utf8").trim())] : [];
+      dirs = [own, ...common];
+    } catch {
+      return null;
+    }
   }
+  // H2-bis: every submodule's git dir under modules/, however deep
+  const modules = (d: string): string[] => {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(d + "/modules");
+    } catch {
+      return [];
+    }
+    return names.map((n) => d + "/modules/" + n).filter((m) => fs.lstatSync(m, { throwIfNoEntry: false })?.isDirectory() === true).flatMap((m) => (fs.existsSync(m + "/HEAD") ? [m, ...modules(m)] : modules(m)));
+  };
+  return dirs.flatMap((d) => [d, ...modules(d)]);
+}
+
+// LOW a: a config or attributes file read only if a regular file (no
+// FIFO, no symlink) under 1 MB; missing: nothing to read; else unsafe
+const FILE_MOST = 2 ** 20;
+function readable(f: string): "none" | "ok" | "bad" {
   try {
-    const own = path.resolve(dir, /^gitdir: (.+)$/m.exec(fs.readFileSync(dir + "/.git", "utf8"))?.[1]?.trim() ?? "");
-    return [own, path.resolve(own, fs.readFileSync(own + "/commondir", "utf8").trim())];
+    const st = fs.lstatSync(f, { throwIfNoEntry: false });
+    return st === undefined ? "none" : st.isFile() && st.size < FILE_MOST ? "ok" : "bad";
   } catch {
-    return null;
+    return "bad";
   }
 }
 
 // whether git in dir might run a command its config names: a config key
 // in RUNS, or a filter=/diff=/merge= attribute (attrs: its .gitattributes
-// files, the walk's; plus info/attributes). Read as files: `git config
-// --file --no-includes` reads one and runs nothing. Unreadable: true
+// files, the walk's; plus info/attributes), in its git dirs and every
+// submodule's. Read as files: `git config --file --no-includes` reads one
+// and runs nothing. Unreadable, odd or too big: true
 export async function sweep_runs(dir: string, attrs: string[]): Promise<boolean> {
   const dirs = gitdirs(dir);
   if (dirs === null) {
     return true;
   }
-  const exists = (f: string) => fs.existsSync(f);
+  const files = [...dirs.flatMap((d) => [d + "/config", d + "/config.worktree", d + "/info/attributes"]), ...attrs.filter((a) => a.startsWith(dir + "/"))];
+  const kinds = files.map(readable);
+  if (kinds.includes("bad")) {
+    return true;
+  }
+  const exists = (f: string) => kinds[files.indexOf(f)] === "ok";
   for (const f of dirs.flatMap((d) => [d + "/config", d + "/config.worktree"]).filter(exists)) {
     const keys = await git("/", ["config", "--file", f, "--no-includes", "--list"]);
     if (keys === null || keys.split("\n").some((l) => RUNS.test(l.toLowerCase()))) {
       return true;
     }
   }
-  for (const f of [...attrs.filter((a) => a.startsWith(dir + "/")), ...dirs.map((d) => d + "/info/attributes").filter(exists)]) {
+  for (const f of [...attrs.filter((a) => a.startsWith(dir + "/")), ...dirs.map((d) => d + "/info/attributes")].filter(exists)) {
     const text = await fs.promises.readFile(f, "utf8").catch(() => null);
     if (text === null || text.split("\n").some((l) => DRIVER.test(l))) {
       return true;
@@ -183,7 +223,7 @@ export async function sweep_clean(dir: string, attrs: string[] = []): Promise<bo
     return false;
   }
   const empty = async (args: string[]) => (await git(dir, args))?.trim() === "";
-  if (!(await empty(["status", "--porcelain"]))) {
+  if (!(await empty(["status", "--porcelain", "--ignore-submodules=all"]))) {
     return false;
   }
   if (sweep_git(dir) === "worktree") {
@@ -216,6 +256,13 @@ export async function sweep_candidate(work: string, p: string, agents: Agents, k
   const walk = await sweep_walk(at);
   if (now - walk.mtime < AGE) {
     return null;
+  }
+  // H2-bis: every repo in it (and each one's submodules) checked before
+  // any git runs in any of them: a parent's status reads its submodules
+  for (const r of walk.repos) {
+    if (await sweep_runs(r, walk.attrs)) {
+      return null;
+    }
   }
   for (const r of walk.repos) {
     if (!(await sweep_clean(r, walk.attrs))) {
@@ -327,9 +374,20 @@ export async function sweep_remove(work: string, item: Item): Promise<string | n
   if (sweep_inside(work, item.path) !== item.path || !same(await fs.promises.lstat(item.path).catch(() => null))) {
     return "not the dir listed";
   }
-  const to = trash + "/" + crypto.randomUUID();
+  // the quarantine must be WORK's own before anything moves into it: named
+  // exactly TRASH (no case variant beside it), a real dir (no symlink),
+  // ours, writable by no one else; made here if there is none
+  if (fs.readdirSync(root).some((n) => n !== TRASH && n.toLowerCase() === TRASH)) {
+    return "quarantine refused: a case variant of " + TRASH + " is in WORK; nothing moved";
+  }
+  await fs.promises.mkdir(trash, { mode: 0o700 }).catch(() => undefined);
+  const q = fs.lstatSync(trash, { throwIfNoEntry: false });
+  if (q === undefined || q.isSymbolicLink() || !q.isDirectory() || q.uid !== process.getuid?.() || (q.mode & 0o022) !== 0 || real(trash) !== trash) {
+    return "quarantine refused: " + trash + " is not a private dir of ours; nothing moved";
+  }
+  const id = crypto.randomUUID();
+  const to = trash + "/" + id;
   try {
-    await fs.promises.mkdir(trash, { recursive: true, mode: 0o700 });
     await fs.promises.rename(item.path, to);
   } catch (e) {
     return "not moved: " + String((e as Error).message).slice(0, 120);
@@ -337,10 +395,15 @@ export async function sweep_remove(work: string, item: Item): Promise<string | n
   if (real(to) !== to || !same(await fs.promises.lstat(to).catch(() => null))) {
     return "moved to " + to + " but not the dir listed: kept there, not deleted";
   }
-  try {
-    await fs.promises.rm(to, { recursive: true });
-  } catch (e) {
-    return "not removed: " + String((e as Error).message).slice(0, 120);
+  // deleted by rm (fts: no symlink followed) from inside the quarantine,
+  // checked again to be the one made above; a changed one: kept, not deleted
+  const now = fs.lstatSync(trash, { throwIfNoEntry: false });
+  if (now === undefined || now.isSymbolicLink() || now.dev !== q.dev || now.ino !== q.ino) {
+    return "quarantine changed: " + to + " kept, not deleted";
+  }
+  const rm = Bun.spawn(["/bin/rm", "-rf", "--", id], { cwd: trash, stdout: "ignore", stderr: "ignore" });
+  if ((await rm.exited) !== 0) {
+    return "not removed: rm failed; kept in " + to;
   }
   for (const r of parents) {
     await git(r, ["worktree", "prune"]);
