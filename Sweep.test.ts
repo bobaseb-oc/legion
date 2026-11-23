@@ -346,7 +346,7 @@ test("L1: a path or a .env name with a control character is never listed", async
   const { work, out } = fresh();
   const bad = repo(work + "/rv/bad\nname", out);
   fs.mkdirSync(work + "/Ada");
-  fs.writeFileSync(work + "/Ada/.env\n- /etc yes", "x");
+  fs.writeFileSync(work + "/Ada/.env\n- forged line", "x");
   fs.mkdirSync(work + "/Bob");
   age(work, 8);
   const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now());
