@@ -2986,13 +2986,13 @@ function agents_find_html(v) {
   const l = v.lookup;
   const form = `<form class="afind"><input name="q" data-keep="agents" maxlength="${FIND}" value="${esc2(l?.q ?? "")}" placeholder="Find an agent by name or title, archived ones too" aria-label="find an agent" autocomplete="off"></form>`;
   if (l === null) {
-    return form;
+    return [form];
   }
   if (l.hits === null || l.hits.length === 0) {
-    return form + `<div class="meta">${esc2(l.hits === null ? "Looking…" : view_agents_note(v))}</div>`;
+    return [form, `<div class="meta">${esc2(l.hits === null ? "Looking…" : view_agents_note(v))}</div>`];
   }
   const hits = l.hits.map((h) => `<a class="ahit ${h.state}"${focus_href(h.name)}><span class="t">${esc2(h.title ?? h.name)}</span><span class="meta">${esc2(h.name + " · " + h.state + " · " + minute(h.date))}</span></a>`);
-  return form + `<div class="ahits">${hits.join("")}</div>`;
+  return [form, `<div class="ahits">${hits.join("")}</div>`];
 }
 function tree_html(v, now) {
   return view_tree(v, now).map((r) => {
@@ -5138,7 +5138,7 @@ function crew_bars() {
   }
   markup($("#crew .needs"), needs_html(v));
   markup($("#crew .card"), [focus_html(v), lane_html(v, Date.now())].filter((h) => h !== ""));
-  markup($("#crew .tree"), [agents_find_html(v), ...tree_html(v, Date.now())]);
+  markup($("#crew .tree"), [...agents_find_html(v), ...tree_html(v, Date.now())]);
   const grid = v.page === null;
   document.body.classList.toggle("gridmode", grid);
   $("#grid").hidden = !grid;
