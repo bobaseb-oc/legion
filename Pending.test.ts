@@ -153,3 +153,22 @@ test("keep: every open record, then the newest closed ones, PENDS in all", () =>
   expect(ids.slice(5)).toEqual(Array.from({ length: 45 }, (_, k) => 16 + k));
   expect(Pending.keep([open[0], closed[0]])).toHaveLength(2);
 });
+
+// PLP-2920: the load keeps by keep's rule, not the first PENDS: many old
+// closed records before them never push out an open consent
+test("PLP-2920 AC1, AC2: pending_read of 55 closed then 5 open keeps all 5 open, PENDS at most", () => {
+  const closed = Array.from({ length: 55 }, (_, k) => rec({ id: k + 1, made: T + k, state: "no" }));
+  const open = Array.from({ length: 5 }, (_, k) => rec({ id: 56 + k, made: T + 56 + k }));
+  const out = Pending.pending_read([...closed, ...open]);
+  expect(out.filter((p: any) => p.state === "open").map((p: any) => p.id)).toEqual([56, 57, 58, 59, 60]);
+  expect(out.length).toBeLessThanOrEqual(Pending.PENDS);
+  expect(out).toEqual(Pending.keep([...closed, ...open]));
+});
+
+test("PLP-2920 AC3: pending_read of 60 closed keeps the 50 newest by made, not the first 50", () => {
+  // newest last in the list (ids 11..60) and, reversed, newest first (ids 1..50)
+  const closed = Array.from({ length: 60 }, (_, k) => rec({ id: k + 1, made: T + k, state: "yes" }));
+  expect(Pending.pending_read(closed).map((p: any) => p.id)).toEqual(Array.from({ length: 50 }, (_, k) => 11 + k));
+  const reversed = Array.from({ length: 60 }, (_, k) => rec({ id: k + 1, made: T + 60 - k, state: "yes" }));
+  expect(Pending.pending_read(reversed).map((p: any) => p.id)).toEqual(Array.from({ length: 50 }, (_, k) => 1 + k));
+});

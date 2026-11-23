@@ -176,6 +176,18 @@ test("P8, L1-AC8: view.json's pending records are checked as they load; a forged
   expect(none.pended).toBe(0);
 });
 
+// PLP-2920: the chat's load keeps every open consent, even after 55 closed
+test("PLP-2920 AC1, AC2: view.json with 55 closed then 5 open records loads all 5 open, PENDS at most", async () => {
+  const Pending = await import("./Pending.ts");
+  const args = { device: "mac", command: "make deploy" };
+  const rec = (id: number, state: string) => ({ id, kind: "consent", who: "main", tool: "shell", args: Pending.canon(args), fp: Pending.fp("main", "shell", args), made: id, until: id + Pending.CONSENT_MS, state });
+  const closed = Array.from({ length: 55 }, (_, k) => rec(k + 1, "no"));
+  const open = Array.from({ length: 5 }, (_, k) => rec(56 + k, "open"));
+  const mem: any = loaded({ pending: [...closed, ...open] });
+  expect(mem.pending.filter((p: any) => p.state === "open").map((p: any) => p.id)).toEqual([56, 57, 58, 59, 60]);
+  expect(mem.pending).toHaveLength(Pending.PENDS);
+});
+
 test("L1-AC16: view.json's pended (the last approval id) survives a save and a load; not an integer, 0", () => {
   const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
