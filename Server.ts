@@ -2864,9 +2864,9 @@ const LIKES = 30;
   // ------------
   // The questions pane in a Google Chat space, for the user away (Gchat.ts;
   // on with config gchat_space and GCHAT_WEBHOOK_URL). Every Gchat.EVERY
-  // while the chat is open: each open item not yet reported is posted as
-  // its pace says (Outbox.plan: approvals at once, the rest maybe in the
-  // digest; at most Gchat.POSTS a pass; one that fails, again on the
+  // while the chat is open: each open item this process has not posted is
+  // posted as its pace says (Outbox.plan: approvals at once, the rest maybe
+  // in the digest; at most Gchat.POSTS a pass; one that fails, again on the
   // next), the posted ones closed since forgotten; then, while one is open
   // and there is a token (gchat_token), the space's replies read and acted on.
 
@@ -2918,7 +2918,7 @@ const LIKES = 30;
         Memory.save(mem);
       }
       b.threads = b.threads.filter(open);
-      // RED ZONE (R4, PLP-2922; DRAFT awaiting the user's sign-off): an item
+      // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
       // a process. view.json's outbox and posted are records only, never
@@ -2965,7 +2965,7 @@ const LIKES = 30;
   // (device ""): the bridge is the user's view, the sender checked here,
   // so Chat.act's own checks (an open question, credit) apply as for the
   // web; what it refuses, or a reply not understood, said in the thread.
-  // RED ZONE (R4, PLP-2922; DRAFT awaiting the user's sign-off): an item's
+  // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item's
   // thread is only one this process posted (b.threads), never view.json's posted
   export async function bridged(chat: Chat, url: string, items: Gchat.Item[]): Promise<void> {
     const g = chat.mem.gchat;

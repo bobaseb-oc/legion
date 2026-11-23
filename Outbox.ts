@@ -5,7 +5,8 @@
 // posts questions at once and holds notes, todos and decisions for the
 // digest, "digest" holds questions too, "all" posts each at once (O2);
 // the digest is due at most once per DIGEST_MS (O3). The outbox is the
-// record of what was reported: an item sent is never planned again (O4).
+// record of what was reported; plan skips an item it holds sent (O4), but
+// the bridge passes none (a restart posts again: Server.ts Chat.bridge).
 // No text is kept: an item's is rebuilt from live state (Gchat.gchat_items).
 
 import type { Item } from "./Gchat.ts";
