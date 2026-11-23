@@ -3023,3 +3023,32 @@ test("L4-AC29: an open consent, the bridge on, no view or socket: once idle, the
   expect(out.socks).toBe(0);
   expect(out.kept).toBe(true);
 }, 30_000);
+
+// O8 at Chat.consented itself: a GChat answer (an fp given) to a record
+// closed or past its until is told closed, and grants nothing
+const OUT_CLOSED = OUT_HEAD + `
+const first = opened();
+void Tools.call(first.tools, "main", "shell", DEPLOY, first.halt.signal, "x1");
+void Tools.call(first.tools, "main", "shell", LINT, first.halt.signal, "x2");
+const listed = await until(() => Chat.state(first).calls.length === 2);
+await Chat.end(first);
+const chat = opened();
+const rec = (cmd) => (chat.mem.pending ?? []).find((p) => p.kind === "consent" && Tools.shown(p.tool, JSON.parse(p.args)).startsWith(cmd + " ")) ?? null;
+const d = rec("make deploy"), l = rec("make lint");
+d.until = Date.now() - 1000;
+const no = Chat.consented(chat, l.id, false);
+const expired = Chat.consented(chat, d.id, true, d.fp);
+const closed = Chat.consented(chat, l.id, true, l.fp);
+console.log(JSON.stringify({ listed, no, expired, closed, states: [d.state, l.state], grants: chat.tools.grants?.size ?? 0 }));
+process.exit(0);
+`;
+
+test("L4, O8: a GChat yes (with its fp) to a record past its until or answered no: 'is closed', no grant", async () => {
+  const out = await out_run("out-closed", OUT_CLOSED);
+  expect(out.listed).toBe(true);
+  expect(out.no).toEqual({});
+  expect(out.expired.error).toMatch(/is closed/);
+  expect(out.closed.error).toMatch(/is closed/);
+  expect(out.states).toEqual(["open", "no"]);
+  expect(out.grants).toBe(0);
+}, 30_000);
