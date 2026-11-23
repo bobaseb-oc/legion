@@ -200,11 +200,13 @@ export type Tools = {
   seen?   : Map<string, Set<string>>; // the repo instruction files each caller has had, by hash (Tools.instructions)
   grants? : Map<string, Pending.Grant>; // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's live yes to a re-shown call, by its fp (Tools.regrant)
   ending? : boolean; // the chat ends (Chat.end): a wait cut stays open on disk
+  reviewing?: number; // the reviewer's checks running (Tools.review): the chat is not idle (Chat.idle), billed or not
 };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
-// number, who calls, its tool, what it does (shown), its answer
-type Consent = { id: number; who: string; tool: string; what: string; answer: (yes: boolean) => void };
+// number, who calls, its tool, what it does (shown), its fp (Pending.fp),
+// its answer
+type Consent = { id: number; who: string; tool: string; what: string; fp: string; answer: (yes: boolean) => void };
 
 // RED ZONE (risk-adjusted reviewer, DRAFT awaiting the user's sign-off):
 // a sub-agent's call the reviewer refused at medium risk, in super mode,
@@ -666,7 +668,13 @@ export namespace Tools {
     if (Pending.take((tools.grants ??= new Map()), who, name, args, Date.now())) {
       return null;
     }
-    const verdict = await Tools.reviewed(tools, who, name, args, signal);
+    tools.reviewing = (tools.reviewing ?? 0) + 1;
+    let verdict: Awaited<ReturnType<typeof Tools.reviewed>>;
+    try {
+      verdict = await Tools.reviewed(tools, who, name, args, signal);
+    } finally {
+      tools.reviewing -= 1;
+    }
     if (verdict !== null) {
       const refused = verdict.allow ? null : "Refused by auto mode's reviewer: " + verdict.reason;
       const risk = Modes.risk(Modes.floor(name, args), verdict.allow ? "low" : verdict.risk);
@@ -865,7 +873,7 @@ export namespace Tools {
       const no = () => answer(false, tools.ending === true ? null : "no");
       const timer = setTimeout(() => answer(false, "expired"), Math.max(0, (shown?.until ?? now + Pending.CONSENT_MS) - now));
       timer.unref?.();
-      list.set(id, { id, who, tool: name, what, answer: (yes: boolean) => answer(yes, yes ? "yes" : "no") });
+      list.set(id, { id, who, tool: name, what, fp, answer: (yes: boolean) => answer(yes, yes ? "yes" : "no") });
       signal.addEventListener("abort", no, { once: true });
       tools.hooks.change();
       if (signal.aborted) {
@@ -875,12 +883,13 @@ export namespace Tools {
   }
 
   // the calls waiting for the user's yes, oldest first: those live, and
-  // the open records a restart cut (shown from their hashed args, P8)
-  export function consents(tools: Tools): Waiting[] {
-    const live: Waiting[] = [...(tools.consents?.values() ?? [])].map(({ answer, ...c }) => c);
+  // the open records a restart cut (shown from their hashed args, P8),
+  // each with its fp
+  export function consents(tools: Tools): Array<Waiting & { fp: string }> {
+    const live = [...(tools.consents?.values() ?? [])].map(({ answer, ...c }) => c);
     const now = Date.now();
     const cut = (tools.mem?.pending ?? []).filter((p) => p.kind === "consent" && p.state === "open" && p.until > now && tools.consents?.has(p.id) !== true);
-    return [...live, ...cut.map((p) => ({ id: p.id, who: p.who, tool: p.tool, what: Tools.shown(p.tool, JSON.parse(p.args)) }))].sort((a, b) => a.id - b.id);
+    return [...live, ...cut.map((p) => ({ id: p.id, who: p.who, tool: p.tool, what: Tools.shown(p.tool, JSON.parse(p.args)), fp: p.fp }))].sort((a, b) => a.id - b.id);
   }
 
   // the user's yes or no to a waiting call; false: none waits by that number

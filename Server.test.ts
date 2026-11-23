@@ -2557,4 +2557,468 @@ test("a /goal: unmet checks nudge with their reason, at most GOAL_TRIES, then a 
   expect(met.goaled).toBe(0);
   // a new goal counts its checks from 0
   expect(out.reset).toBe(0);
+
+// L4: the outbox (Outbox.ts) paces GChat posts: an approval posts at the
+// first bridge pass, whatever the pace (O1); under "quiet" a question at
+// once, a note only in the digest (O2, O3); nothing twice (O4). L1's
+// APPROVE_HEAD harness (the reviewer answers "maybe?", so the call waits
+// for the user) and Gchat.test.ts's stubbed fetch (no network)
+const OUT_HEAD = APPROVE_HEAD + `
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+const SPACE = "spaces/TESTSPACE";
+const posts = [];
+let script = [];
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  if (u.host === "chat.googleapis.com" && init.method === "POST") {
+    const tk = u.searchParams.get("threadKey");
+    posts.push({ tk, text: JSON.parse(init.body).text });
+    return Response.json({ name: SPACE + "/messages/w" + posts.length, createTime: new Date(Date.now() - 60_000).toISOString(), thread: { name: SPACE + "/threads/" + tk }, sender: { name: "users/999", type: "BOT" } });
+  }
+  if (u.host === "chat.googleapis.com") {
+    return Response.json({ messages: [...script].reverse() });
+  }
+  if (u.host === "openidconnect.googleapis.com" && u.pathname === "/v1/userinfo") {
+    return Response.json({ sub: "111" });
+  }
+  return new Response("no", { status: 404 });
+};
+Chat.gchat_token = async () => "tok";
+// a device's own socket keeps the chat this process's, and is no view
+const keep = (chat) => chat.socks.add({ send: () => {}, close: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+const pass = (chat, now) => (Chat.chats.set("u1", chat), Chat.bridge(chat, now ?? Date.now()));
+const held = (s) => posts.filter((p) => String(p.text).includes(s)).length;
+const msgs = (chat) => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
+const posted = (chat, key) => (chat.mem.gchat?.posted ?? []).find((p) => p.key === key) ?? null;
+const reply = (chat, key, name, text, o = {}) => script.push({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: posted(chat, key)?.thread ?? SPACE + "/threads/none" }, createTime: new Date(Date.now() - 1000).toISOString(), text, ...o });
+const live = (chat, args, id) => {
+  const box = { done: null };
+  box.p = Tools.call(chat.tools, "main", "shell", args, new AbortController().signal, id).then((o) => (box.done = o));
+  return box;
+};
+const id_of = (chat, cmd) => Chat.state(chat).calls.find((c) => c.what.startsWith(cmd + " "))?.id ?? -1;
+`;
+
+const OUT_PACE = OUT_HEAD + `
+const { DIGEST_MS } = await import(${JSON.stringify(import.meta.dir + "/Outbox.ts")}).catch(() => ({ DIGEST_MS: 30 * 60_000 }));
+const chat = opened();
+keep(chat);
+const t0 = Date.now();
+// the digest clock starts at t0 (view.json "digested", Task 12)
+chat.mem.digested = t0;
+const out = {};
+// quiet (the default): a consent, a note, a question
+const deploy = live(chat, DEPLOY, "p1");
+await until(() => Chat.state(chat).calls.length === 1);
+await Tools.call(chat.tools, "main", "notify", { text: "NOTE-AC2 build is green" }, new AbortController().signal, "p2");
+await Tools.call(chat.tools, "main", "ask", { question: "QUESTION-AC5 ship it?", options: ["Hold", "Push it"] }, new AbortController().signal, "p3");
+await pass(chat, t0 + 1000);
+out.ac1 = held("make deploy");
+out.ac2 = held("NOTE-AC2");
+out.ac5 = held("QUESTION-AC5");
+await pass(chat, t0 + DIGEST_MS + 2000);
+out.ac3 = held("NOTE-AC2");
+// O4: sent once, never again, even once gchat.posted no longer holds it
+const nkey = chat.mem.questions.find((q) => q.fyi && q.text.includes("NOTE-AC2"));
+if (chat.mem.gchat !== undefined) chat.mem.gchat.posted = chat.mem.gchat.posted.filter((p) => p.key !== "n" + nkey?.id);
+let t = t0 + DIGEST_MS + 2000;
+for (let k = 0; k < 10; k++) {
+  t += DIGEST_MS + 1000;
+  await pass(chat, t);
+}
+out.ac4 = held("NOTE-AC2");
+out.ac1_again = held("make deploy");
+await Chat.act(chat, "c1", { $: "consent", n: Chat.state(chat).calls[0]?.id ?? -1, yes: false }, "");
+await Promise.race([deploy.p, Bun.sleep(1000)]);
+// all: a note at once
+chat.mem.pace = "all";
+await Tools.call(chat.tools, "main", "notify", { text: "NOTE-AC6 tests pass" }, new AbortController().signal, "p4");
+await pass(chat, t + 1000);
+out.ac6 = held("NOTE-AC6");
+// digest: a consent at once, a question waits
+chat.mem.pace = "digest";
+const lint = live(chat, LINT, "p5");
+await until(() => Chat.state(chat).calls.length === 1);
+await Tools.call(chat.tools, "main", "ask", { question: "QUESTION-AC7 merge it?", options: ["Hold", "Merge"] }, new AbortController().signal, "p6");
+await pass(chat, t + 2000);
+out.ac7 = held("make lint");
+out.ac7_question = held("QUESTION-AC7");
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+const OUT_ENV = { UNII_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/TESTSPACE/messages?key=FAKEKEY&token=FAKETOKEN-not-real", UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1" };
+const out_runs = new Map<string, Promise<any>>();
+// one spawned process per script (and per dir, for two steps on one dir)
+const out_run = (name: string, script: string, dir?: string, env: Record<string, string> = {}): Promise<any> => {
+  const id = name + (dir ?? "");
+  let run = out_runs.get(id);
+  if (run === undefined) {
+    run = (async () => {
+      const d = dir ?? fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+      fs.writeFileSync(d + "/" + name + ".ts", script);
+      const proc = Bun.spawn([process.execPath, d + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: d, UNII_WORK: d + "/work", ...OUT_ENV, ...env }, stdout: "pipe", stderr: "inherit" });
+      return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+    })();
+    out_runs.set(id, run);
+  }
+  return run;
+};
+
+test("L4-AC1, O1: quiet, a new open consent: one bridge pass posts that call's command once", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac1).toBe(1);
+}, 30_000);
+
+test("L4-AC2, O2: quiet, a new note: a pass before DIGEST_MS posts no note", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac2).toBe(0);
+}, 30_000);
+
+test("L4-AC3, O3: that queued note: a pass after DIGEST_MS posts it once", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac2).toBe(0);
+  expect(out.ac3).toBe(1);
+}, 30_000);
+
+test("L4-AC4, O4: the note sent, ten more passes (gchat.posted no longer holding it): posted once in all; the approval too", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac4).toBe(1);
+  expect(out.ac1_again).toBe(1);
+}, 30_000);
+
+test("L4-AC5, O2: quiet, a new question: one pass posts it once", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac5).toBe(1);
+}, 30_000);
+
+test("L4-AC6, O2: all, a new note: one pass posts it once", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac6).toBe(1);
+}, 30_000);
+
+test("L4-AC7, O1, O2: digest, a new consent: one pass posts that call's command; the question waits", async () => {
+  const out = await out_run("out-pace", OUT_PACE);
+  expect(out.ac7).toBe(1);
+  expect(out.ac7_question).toBe(0);
+}, 30_000);
+
+// O7: the pace is the user's: set from a view, refused from a device
+const OUT_ACT = OUT_HEAD + `
+const chat = opened();
+const before = Chat.state(chat).pace ?? null;
+const device = await Chat.act(chat, "d1", { $: "pace", pace: "all" }, "mac", false);
+const after_device = { state: Chat.state(chat).pace ?? null, mem: chat.mem.pace ?? null };
+const view = await Chat.act(chat, "v1", { $: "pace", pace: "all" }, "");
+console.log(JSON.stringify({ before, device, after_device, view, after_view: Chat.state(chat).pace ?? null }));
+process.exit(0);
+`;
+
+test("L4-AC10, O7: a device socket's pace act has an error; the pace is unchanged (quiet)", async () => {
+  const out = await out_run("out-act", OUT_ACT);
+  expect(out.before).toBe("quiet");
+  expect(typeof out.device?.error).toBe("string");
+  expect(out.device.error).toMatch(/in a view/);
+  expect(out.after_device).toEqual({ state: "quiet", mem: "quiet" });
+}, 30_000);
+
+test("L4-AC11: a view's pace act: Chat.state(chat).pace is all", async () => {
+  const out = await out_run("out-act", OUT_ACT);
+  expect(out.view?.error).toBeUndefined();
+  expect(out.after_view).toBe("all");
+}, 30_000);
+
+// a consent open on disk and no work (no routine): Chat.wake opens that
+// chat, so an approval cut by a restart reaches GChat with no view
+const OUT_WAKE = OUT_HEAD + `
+Cloud.session(Chat.cloud, { id: "u1", name: "a@b.c" });
+const chat = opened();
+void Tools.call(chat.tools, "main", "shell", DEPLOY, chat.halt.signal, "w1");
+await until(() => Chat.state(chat).calls.length === 1);
+await Chat.end(chat);
+const ended = !Chat.chats.has("u1");
+const open = (disk(chat) ?? []).filter((p) => p.state === "open").length;
+const routines = (chat.mem.routines ?? []).length;
+Chat.wake();
+console.log(JSON.stringify({ ended, open, routines, woken: Chat.chats.has("u1") }));
+process.exit(0);
+`;
+
+test("L4-AC13: a user dir whose view.json has an open consent and no work: Chat.wake opens that chat", async () => {
+  const out = await out_run("out-wake", OUT_WAKE);
+  expect(out.ended).toBe(true);
+  expect(out.open).toBe(1);
+  expect(out.routines).toBe(0);
+  expect(out.woken).toBe(true);
+}, 30_000);
+
+// RED ZONE (Task 14, DRAFT awaiting the user's sign-off): a reply in an
+// approval's GChat thread answers it only through the unchanged gate
+// (Gchat.gchat_replies) and only as an exact yes or no (O6); it becomes an
+// L3 approval event from gchat (O9) and is answered through
+// Chat.consented, the view's path. "Live": the wait in this process
+const OUT_LIVE = OUT_HEAD + `
+const chat = opened();
+keep(chat);
+const out = {};
+const events = () => (chat.mem.events ?? []).filter((e) => e.kind === "approval").map((e) => ({ src: e.src, key: e.key, ref: e.ref }));
+const d = live(chat, DEPLOY, "l1");
+await until(() => id_of(chat, "make deploy") > 0);
+const n1 = id_of(chat, "make deploy");
+await pass(chat);
+out.n1 = n1;
+out.posted = posted(chat, "a" + n1) !== null;
+const tk = posted(chat, "a" + n1)?.tk ?? null;
+// AC9: "ok" is no answer: the thread is told, the consent stays
+let before = posts.length;
+reply(chat, "a" + n1, "r-ok", "ok");
+await pass(chat);
+await Bun.sleep(100);
+out.ac9 = { told: posts.slice(before).filter((p) => tk !== null && p.tk === tk && String(p.text).includes("Reply yes or no.")).length, listed: Chat.state(chat).calls.map((c) => c.id).includes(n1), settled: d.done !== null, events: events().length };
+// AC14: " YES " (padded) answers it
+reply(chat, "a" + n1, "r-yes", " YES ");
+await pass(chat);
+await Promise.race([d.p, Bun.sleep(1000)]);
+out.ac14 = { settled: d.done !== null, listed: Chat.state(chat).calls.map((c) => c.id).includes(n1), text: d.done?.text ?? null };
+out.ac25 = events();
+// AC16: "no" refuses it
+const l = live(chat, LINT, "l2");
+await until(() => id_of(chat, "make lint") > 0);
+const n2 = id_of(chat, "make lint");
+await pass(chat);
+reply(chat, "a" + n2, "r-no", "no");
+await pass(chat);
+await Promise.race([l.p, Bun.sleep(1000)]);
+out.ac16 = { settled: l.done !== null, text: l.done?.text ?? null, listed: Chat.state(chat).calls.map((c) => c.id).includes(n2) };
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+test("L4-AC9, O6: ok in an approval thread: the thread gets \"Reply yes or no.\", the consent still listed", async () => {
+  const out = await out_run("out-live", OUT_LIVE);
+  expect(out.posted).toBe(true);
+  expect(out.ac9).toEqual({ told: 1, listed: true, settled: false, events: 0 });
+}, 30_000);
+
+test("L4-AC14, O6, O9: a live consent answered \" YES \" in its thread: the call resolves, calls no longer lists it", async () => {
+  const out = await out_run("out-live", OUT_LIVE);
+  expect(out.ac14.settled).toBe(true);
+  expect(out.ac14.listed).toBe(false);
+  expect(String(out.ac14.text).toLowerCase()).not.toContain("refused");
+}, 30_000);
+
+test("L4-AC16, O6: a live consent answered no in its thread: the result says refused", async () => {
+  const out = await out_run("out-live", OUT_LIVE);
+  expect(out.ac16.settled).toBe(true);
+  expect(String(out.ac16.text).toLowerCase()).toContain("refused");
+  expect(out.ac16.listed).toBe(false);
+}, 30_000);
+
+test("L4-AC25, O9: a counted yes: one approval event from gchat, keyed by that message", async () => {
+  const out = await out_run("out-live", OUT_LIVE);
+  const yes = out.ac25.filter((e: any) => e.key === "gchat:spaces/TESTSPACE/messages/r-yes");
+  expect(yes).toEqual([{ src: "gchat", key: "gchat:spaces/TESTSPACE/messages/r-yes", ref: out.n1 }]);
+  expect(out.ac25.filter((e: any) => String(e.key).includes("r-ok"))).toEqual([]);
+}, 30_000);
+
+// "Re-shown": process A opens one consent per case and ends; process B
+// (a restart, same UNII_DIR) lists them, posts them to GChat, reads the
+// replies, and the agent re-issues each identical call
+const CASES = [28, 15, 17, 18, 19, 20, 21, 22, 23, 24, 27, 30, 31];
+// RED ZONE (user's decision, 2026-11-23): which record a GChat thread
+// answers is kept in memory, for posts of this process only. Process A
+// posts each consent, ends; process B (a restart, same UNII_DIR) posts
+// each open record again in a NEW thread; only a reply in that new thread
+// may answer. A's threads (OLD) answer nothing (AC27), even when view.json
+// is edited to point one at another record (forged thread)
+const OUT_SHOWN_A = OUT_HEAD + `
+const chat = opened();
+keep(chat);
+for (const k of ${JSON.stringify(CASES)}) void Tools.call(chat.tools, "main", "shell", { device: "mac", command: "make deploy-" + k }, chat.halt.signal, "a" + k);
+const listed = await until(() => Chat.state(chat).calls.length === ${CASES.length});
+const n = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, id_of(chat, "make deploy-" + k)]));
+// a pass may post only some: pass until each case is posted
+for (let k = 0; k < 5 && !${JSON.stringify(CASES)}.every((c) => posted(chat, "a" + n[c]) !== null); k++) await pass(chat);
+const old = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, posted(chat, "a" + n[k])]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread }]));
+await Chat.end(chat);
+// the forged thread: view.json's posted entry of deploy-30's thread made
+// to name deploy-31's record (its key and fp), deploy-31's own entry gone
+const file = chat.mem.dir + "/view.json";
+const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+const r31 = (saved.pending ?? []).find((p) => p.id === n[31]);
+let forged = false;
+if (saved.gchat !== undefined && Array.isArray(saved.gchat.posted)) {
+  saved.gchat.posted = saved.gchat.posted.filter((p) => p.key !== "a" + n[31]);
+  for (const p of saved.gchat.posted) if (p.key === "a" + n[30]) { p.key = "a" + n[31]; p.fp = r31?.fp; forged = true; }
+  fs.writeFileSync(file, JSON.stringify(saved));
+}
+console.log(JSON.stringify({ listed, n, old, forged, open: (disk(chat) ?? []).filter((p) => p.state === "open").length }));
+process.exit(0);
+`;
+
+const OUT_SHOWN_B = OUT_HEAD + `
+const OLD = JSON.parse(process.env.OLD ?? "{}");
+const chat = opened();
+keep(chat);
+const C = (k) => ({ device: "mac", command: "make deploy-" + k });
+const n = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, id_of(chat, "make deploy-" + k)]));
+const rec = (k) => (chat.mem.pending ?? []).find((p) => p.id === n[k]) ?? null;
+// B's own post of case k: a thread other than A's
+const fresh = (k) => (chat.mem.gchat?.posted ?? []).filter((p) => p.key === "a" + n[k] && p.tk !== OLD[k]?.tk).at(-1) ?? null;
+const at = (thread, name, text, o = {}) => script.push({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread ?? SPACE + "/threads/none" }, createTime: new Date(Date.now() - 1000).toISOString(), text, ...o });
+const here = (k, name, text, o) => at(fresh(k)?.thread, name, text, o);
+const before = posts.length;
+await pass(chat);
+const first = posts.slice(before);
+for (let k = 0; k < 5 && !${JSON.stringify(CASES)}.every((c) => fresh(c) !== null); k++) await pass(chat);
+const out = { n, shown: Object.values(n).every((id) => id > 0), posted: ${JSON.stringify(CASES)}.filter((k) => fresh(k) !== null) };
+// AC28: one new post of deploy-28's command, in a thread not A's
+out.ac28 = { posts: first.filter((p) => String(p.text).includes("make deploy-28 ")).map((p) => p.tk), old: OLD[28]?.tk ?? null };
+// AC21: answered no in a view after its post
+out.view_no = await Chat.act(chat, "v21", { $: "consent", n: n[21], yes: false }, "");
+// AC22: its until passed (in memory, before the reply pass)
+if (rec(22) !== null) rec(22).until = Date.now() - 1000;
+// AC23: its fp changed after its post
+if (rec(23) !== null) rec(23).fp = "0".repeat(64);
+here(15, "r15", "yes");
+here(17, "r17", "yes please");
+here(18, "r18", "ok");
+here(19, "r19", "yes", { sender: { name: "users/999", type: "HUMAN" } });
+here(20, "r20", "yes", { sender: { name: "users/111", type: "BOT" } });
+here(21, "r21", "yes");
+here(22, "r22", "yes");
+here(23, "r23", "yes");
+here(24, "r24a", "yes");
+// AC27: a yes in A's old thread; forged: a yes in deploy-30's old thread,
+// which view.json now says is deploy-31's
+at(OLD[27]?.thread, "r27", "yes");
+at(OLD[30]?.thread, "r30", "yes");
+await pass(chat);
+await Bun.sleep(200);
+out.ac23 = rec(23)?.state ?? null;
+for (const k of [15, 17, 18, 19, 20, 21, 22, 24, 27, 31]) out["ac" + k] = await made(chat, C(k), "b" + k);
+// AC24: a second yes in the same thread, the grant already used
+here(24, "r24b", "yes");
+await pass(chat);
+await Bun.sleep(200);
+out.ac24_again = await made(chat, C(24), "c24");
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let showing: Promise<{ a: any; b: any }> | null = null;
+const shown_run = (): Promise<{ a: any; b: any }> => (showing ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const a = await out_run("out-shown-a", OUT_SHOWN_A, dir);
+  const b = await out_run("out-shown-b", OUT_SHOWN_B, dir, { OLD: JSON.stringify(a.old ?? {}) });
+  return { a, b };
+})());
+
+// the re-issued call waited for the user again: no grant
+const no_grant = (r: any, k: number) => {
+  expect(r.waited).toBe(true);
+  expect(r.calls.map((c: any) => c.what)).toEqual(expect.arrayContaining([expect.stringContaining("make deploy-" + k)]));
+};
+
+test("L4 re-shown harness: process A posts its consents; process B lists them and posts each again in a thread of its own", async () => {
+  const { a, b } = await shown_run();
+  expect(a.listed).toBe(true);
+  expect(a.open).toBe(CASES.length);
+  expect(Object.keys(a.old).map(Number).sort((x, y) => x - y)).toEqual([...CASES].sort((x, y) => x - y));
+  expect(a.forged).toBe(true);
+  expect(b.shown).toBe(true);
+  expect(b.posted).toEqual(CASES);
+  // case 28 has the lowest id, so it is in B's first pass whatever a pass's limit
+  expect(b.n[28]).toBe(1);
+}, 60_000);
+
+test("L4-AC15, O9, O10: a re-shown consent answered yes in GChat: the identical re-issue is not reviewed, not refused", async () => {
+  const { b } = await shown_run();
+  expect(b.ac15.waited).toBe(false);
+  expect(b.ac15.reviewed).toBe(0);
+  expect(typeof b.ac15.text).toBe("string");
+  expect(b.ac15.text.toLowerCase()).not.toContain("refused");
+}, 60_000);
+
+test("L4-AC17, O6: \"yes please\" grants nothing: the re-issue waits", async () => {
+  const { b } = await shown_run();
+  no_grant(b.ac17, 17);
+}, 60_000);
+
+test("L4-AC18, O6: \"ok\" grants nothing: the re-issue waits", async () => {
+  const { b } = await shown_run();
+  no_grant(b.ac18, 18);
+}, 60_000);
+
+test("L4-AC19, gate: a yes from users/999 grants nothing", async () => {
+  const { b } = await shown_run();
+  no_grant(b.ac19, 19);
+}, 60_000);
+
+test("L4-AC20, gate: a BOT-typed yes from me grants nothing", async () => {
+  const { b } = await shown_run();
+  no_grant(b.ac20, 20);
+}, 60_000);
+
+test("L4-AC21, O8: a consent answered no in a view, then a GChat yes: no grant", async () => {
+  const { b } = await shown_run();
+  expect(b.view_no).toEqual({});
+  no_grant(b.ac21, 21);
+}, 60_000);
+
+test("L4-AC22, O8: a record past its until, then a GChat yes: no grant", async () => {
+  const { b } = await shown_run();
+  no_grant(b.ac22, 22);
+}, 60_000);
+
+test("L4-AC23, O8: a record whose fp changed after the post, then a GChat yes: the record is closed no", async () => {
+  const { b } = await shown_run();
+  expect(b.ac23).toBe("no");
+}, 60_000);
+
+test("L4-AC24, O10: a second yes in the same thread after the grant was used: no new grant", async () => {
+  const { b } = await shown_run();
+  expect(b.ac24.waited).toBe(false);
+  no_grant(b.ac24_again, 24);
+}, 60_000);
+
+test("L4-AC27, O8: a yes in the thread process A posted, after the restart: no grant, the re-issue waits", async () => {
+  const { a, b } = await shown_run();
+  expect(a.old[27]?.thread).toBeDefined();
+  no_grant(b.ac27, 27);
+}, 60_000);
+
+test("L4-AC28, O1: an open consent re-shown after a restart: one bridge pass makes one new post of its command, in a thread not the old one", async () => {
+  const { b } = await shown_run();
+  expect(b.ac28.old).not.toBeNull();
+  expect(b.ac28.posts).toHaveLength(1);
+  expect(b.ac28.posts[0]).not.toBe(b.ac28.old);
+}, 60_000);
+
+test("L4, O8 (forged thread): view.json's posted entry edited to point an old thread at another open record: a yes there does not grant that call", async () => {
+  const { a, b } = await shown_run();
+  expect(a.forged).toBe(true);
+  no_grant(b.ac31, 31);
+}, 60_000);
+
+// the user's rule: a chat with an open consent record and the bridge on
+// is kept open when idle (no view, no socket), so its approval is posted
+const OUT_KEEP = OUT_HEAD + `
+const chat = opened();
+void Tools.call(chat.tools, "main", "shell", DEPLOY, chat.halt.signal, "k1");
+const listed = await until(() => Chat.state(chat).calls.length === 1);
+// the chat's memory settles (as UNVIEWED waits after an open)
+await Bun.sleep(100);
+const socks = chat.socks.size;
+Chat.free(chat);
+await Bun.sleep(200);
+console.log(JSON.stringify({ listed, socks, kept: Chat.chats.get("u1") === chat }));
+process.exit(0);
+`;
+
+test("L4-AC29: an open consent, the bridge on, no view or socket: once idle, the chat is still among the process's chats", async () => {
+  const out = await out_run("out-keep", OUT_KEEP);
+  expect(out.listed).toBe(true);
+  expect(out.socks).toBe(0);
+  expect(out.kept).toBe(true);
 }, 30_000);
