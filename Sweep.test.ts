@@ -406,6 +406,104 @@ test("Info: no sweep at all when WORK holds a kept dir (Legion's DIR, HOME); a d
   expect(await Sweep.sweep_list(work, agents, [work], Date.now())).toEqual([]);
 });
 
+test("H2-bis: a filter planted only in a submodule's git dir never runs, and its parent is not listed", async () => {
+  const { work, out } = fresh();
+  const marker = out + "/ran";
+  const sub = repo(out + "/subsrc", out);
+  const parent = repo(work + "/rv/parent", out);
+  git(parent, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sub");
+  git(parent, "commit", "-q", "-m", "sub");
+  git(parent, "push", "-q", "origin", "main");
+  const mod = parent + "/.git/modules/sub";
+  git(mod, "config", "filter.evil.clean", "sh -c 'touch " + marker + "; cat'");
+  fs.mkdirSync(mod + "/info", { recursive: true });
+  fs.writeFileSync(mod + "/info/attributes", "* filter=evil\n");
+  age(work, 8);
+  if (fs.existsSync(marker)) {
+    fs.rmSync(marker);
+  }
+  const items = await Sweep.sweep_list(work, { known: new Set(), busy: new Set(), shared: true }, [], Date.now());
+  expect(fs.existsSync(marker)).toBe(false);
+  expect(listed(items)).toEqual([]);
+});
+
+test("quarantine: a pre-made symlink, a case variant or a writable-by-others dir: the apply is refused, nothing moves", async () => {
+  for (const make of ["symlink", "case", "mode"]) {
+    const { work, out } = fresh();
+    fs.mkdirSync(work + "/Ada");
+    fs.writeFileSync(work + "/Ada/f", "x");
+    fs.mkdirSync(out + "/elsewhere");
+    if (make === "symlink") {
+      fs.symlinkSync(out + "/elsewhere", work + "/.sweep-trash");
+    } else if (make === "case") {
+      fs.mkdirSync(work + "/.SWEEP-TRASH");
+    } else {
+      fs.mkdirSync(work + "/.sweep-trash");
+      fs.chmodSync(work + "/.sweep-trash", 0o777);
+    }
+    age(work + "/Ada", 8);
+    const [ada] = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
+    expect(await Sweep.sweep_remove(work, ada!)).toContain("quarantine");
+    expect(fs.readFileSync(work + "/Ada/f", "utf8")).toBe("x");
+    expect(fs.readdirSync(out + "/elsewhere")).toEqual([]);
+  }
+});
+
+test("quarantine: swapped for a symlink while the delete runs: nothing outside WORK is deleted", async () => {
+  const { work, out } = fresh();
+  fs.mkdirSync(work + "/Ada/deep", { recursive: true });
+  for (let k = 0; k < 2000; k++) {
+    fs.writeFileSync(work + "/Ada/deep/f" + k, "x");
+  }
+  age(work + "/Ada", 8);
+  const [ada] = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
+  let swapped = false;
+  const removing = Sweep.sweep_remove(work, ada!);
+  const watch = (): void => {
+    const trash = work + "/.sweep-trash";
+    const names = fs.existsSync(trash) && !fs.lstatSync(trash).isSymbolicLink() ? fs.readdirSync(trash) : [];
+    if (names.length > 0 && !swapped) {
+      // the attack: the same names, outside WORK, behind a link
+      names.forEach((n) => fs.mkdirSync(out + "/fake/" + n + "/deep", { recursive: true }));
+      names.forEach((n) => fs.writeFileSync(out + "/fake/" + n + "/deep/precious", "keep"));
+      fs.renameSync(trash, work + "/trash-old");
+      fs.symlinkSync(out + "/fake", trash);
+      swapped = true;
+    } else if (!swapped) {
+      setImmediate(watch);
+    }
+  };
+  setImmediate(watch);
+  await removing;
+  for (const n of fs.existsSync(out + "/fake") ? fs.readdirSync(out + "/fake") : []) {
+    expect(fs.readFileSync(out + "/fake/" + n + "/deep/precious", "utf8")).toBe("keep");
+  }
+});
+
+test("LOW a: a FIFO as a repo's config: no hang, the repo is not listed", async () => {
+  const { work, out } = fresh();
+  const r = repo(work + "/rv/fifo", out);
+  fs.renameSync(r + "/.git/config", r + "/.git/config.real");
+  expect(Bun.spawnSync(["mkfifo", r + "/.git/config"]).exitCode).toBe(0);
+  age(work, 8);
+  const t0 = Date.now();
+  const items = await Sweep.sweep_list(work, { known: new Set(), busy: new Set(), shared: true }, [], Date.now());
+  expect(listed(items)).toEqual([]);
+  expect(Date.now() - t0).toBeLessThan(12_000);
+}, 20_000);
+
+test("LOW c: a sparse file counts by the blocks it uses, not its length", async () => {
+  const { work } = fresh();
+  fs.mkdirSync(work + "/Ada");
+  const fd = fs.openSync(work + "/Ada/sparse", "w");
+  fs.ftruncateSync(fd, 2 ** 30);
+  fs.closeSync(fd);
+  age(work + "/Ada", 8);
+  const [ada] = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
+  expect(ada!.bytes).toBeLessThan(2 ** 20);
+  expect((await Sweep.sweep_walk(work)).bytes).toBeLessThan(2 ** 20);
+});
+
 test("M1: another user's agent dirs are never listed; shared clones only when this server has one user", async () => {
   const { work, out } = fresh();
   fs.mkdirSync(work + "/Ada");
@@ -604,19 +702,25 @@ test("M2: a GChat yes in a pre-restart or view.json-forged thread applies nothin
 
 const TWO = HEAD + `
 agent("Ada");
+// the users the server knows: its account store (Cloud sessions), not dirs
+Cloud.session(Chat.cloud, { id: "u1", name: "a@b.c" });
 const alone = Chat.sweep_agents(chat).shared;
+Cloud.session(Chat.cloud, { id: "u2", name: "c@d.e" });
 const two = Chat.open({ id: "u2", name: "c@d.e" });
 Chat.chats.set("u2", two);
 fs.mkdirSync(two.mem.dir + "/docs/agent", { recursive: true });
 fs.writeFileSync(two.mem.dir + "/docs/agent/Bob.jsonl", JSON.stringify({ kind: "note", text: "n", date: "2026-01-01T00:00:00.000Z" }) + "\\n");
 const mine = Chat.sweep_agents(chat);
-console.log(JSON.stringify({ alone, shared: mine.shared, ada: mine.known.has("Ada"), bob: mine.known.has("Bob") }));
+// an agent removing the other user's dir does not make the server one user's
+fs.rmSync(two.mem.dir, { recursive: true });
+const hidden = Chat.sweep_agents(chat).shared;
+console.log(JSON.stringify({ alone, shared: mine.shared, hidden, ada: mine.known.has("Ada"), bob: mine.known.has("Bob") }));
 process.exit(0);
 `;
 
 test("M1: with two users the sweep lists no shared clones, and one user's chat never knows the other's agents", async () => {
   const out = await run("two", TWO);
-  expect(out).toMatchObject({ alone: true, shared: false, ada: true, bob: false });
+  expect(out).toMatchObject({ alone: true, shared: false, hidden: false, ada: true, bob: false });
 }, 30_000);
 
 const LAPSE = HEAD + `
