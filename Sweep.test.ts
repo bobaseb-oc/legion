@@ -528,25 +528,79 @@ test("AC1, AC2, AC5, AC7: one question lists both dirs; a device's yes is refuse
   expect(out.open).toBe(0);
 }, 30_000);
 
+// M2 (PLP-2922 merged): the sweep question goes to GChat like any other;
+// a reply routes only by the threads this process posted (memory only).
+// STEP post: process A lists and posts. Then B, a restart on the same
+// dir, lists again and posts; a yes in A's thread (pre-restart) or in a
+// thread forged into view.json's record applies nothing; a yes in B's
+// own thread applies the listing. fetch stubbed as Server.test.ts's
+// EVENT_GCHAT (no network)
 const GCHAT = HEAD + `
-const Gchat = await import(${JSON.stringify(import.meta.dir + "/Gchat.ts")});
-agent("Fay");
-await tick(Date.now());
-const q = sweeps()[0];
-const posted = Gchat.gchat_items({ questions: chat.mem.questions, assigned: [], decided: [] }, Date.now()).filter((x) => x.n === q.id).length;
-const one = await Chat.apply(chat, { $: "answer", q: q.id, text: "1", id: "gchat-a1" }, "", true);
-const yes = await Chat.apply(chat, { $: "answer", q: q.id, text: "yes", id: "gchat-a2" }, "", true);
-const kept = fs.existsSync(work + "/Fay");
-const open = sweeps().some((x) => x.id === q.id);
-const mine = await answer(q.id, "yes");
-console.log(JSON.stringify({ posted, one: "error" in one, yes: "error" in yes, kept, open, mine, gone: !fs.existsSync(work + "/Fay") }));
+const SPACE = "spaces/TESTSPACE";
+let script = [];
+let posts = 0;
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  if (u.host === "chat.googleapis.com" && init.method === "POST") {
+    posts++;
+    const tk = u.searchParams.get("threadKey");
+    return Response.json({ name: SPACE + "/messages/w" + posts, createTime: new Date(Date.now() - 60_000).toISOString(), thread: { name: SPACE + "/threads/" + tk }, sender: { name: "users/999", type: "BOT" } });
+  }
+  if (u.host === "chat.googleapis.com") {
+    return Response.json({ messages: [...script].reverse() });
+  }
+  if (u.host === "openidconnect.googleapis.com" && u.pathname === "/v1/userinfo") {
+    return Response.json({ sub: "111" });
+  }
+  return new Response("no", { status: 404 });
+};
+chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+Chat.gchat_token = async () => "tok";
+const pass = async () => { Chat.chats.set("u1", chat); await Chat.bridge(chat, Date.now()); await Bun.sleep(100); };
+const thread = (q) => chat.bridging?.threads.find((p) => p.key === "q" + q.id)?.thread ?? null;
+const yes = async (t, name) => {
+  script = [{ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: t }, createTime: new Date(Date.now() - 1000).toISOString(), text: "yes" }];
+  await pass();
+  await pass();
+};
+if (process.env.STEP === "post") {
+  agent("Fay");
+  await tick(Date.now());
+  await pass();
+  console.log(JSON.stringify({ thread: thread(sweeps()[0]) }));
+} else {
+  await tick(Date.now());
+  const q = sweeps()[0];
+  // view.json's record, hand-edited: a thread of its own for this question
+  chat.mem.gchat.posted.push({ key: "q" + q.id, tk: "forged", thread: SPACE + "/threads/forged", at: Date.now() - 60_000 });
+  await pass();
+  const mine = thread(q);
+  await yes(process.env.OLD, "r1");
+  const old = fs.existsSync(work + "/Fay");
+  await yes(SPACE + "/threads/forged", "r2");
+  const forged = fs.existsSync(work + "/Fay");
+  await yes(mine, "r3");
+  console.log(JSON.stringify({ mine: mine !== null, old, forged, applied: !fs.existsSync(work + "/Fay") }));
+}
 process.exit(0);
 `;
 
-test("M2: the sweep question is never posted to GChat, and a GChat answer applies nothing (till PLP-2922)", async () => {
-  const out = await run("gchat", GCHAT);
-  expect(out).toMatchObject({ posted: 0, one: true, yes: true, kept: true, open: true, mine: {}, gone: true });
-}, 30_000);
+test("M2: a GChat yes in a pre-restart or view.json-forged thread applies nothing; one in this process's own thread applies the listing", async () => {
+  const dir = fs.mkdtempSync(ROOT + "/sweep-gchat-");
+  fs.mkdirSync(dir + "/work");
+  fs.writeFileSync(dir + "/gchat.ts", GCHAT);
+  const space = "spaces/TESTSPACE";
+  const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
+  const step = async (s: string, old = ""): Promise<any> => {
+    const env = { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work", UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", STEP: s, OLD: old };
+    const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env, stdout: "pipe", stderr: "inherit" });
+    return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  };
+  const a = await step("post");
+  expect(typeof a.thread).toBe("string");
+  const b = await step("reply", a.thread);
+  expect(b).toEqual({ mine: true, old: true, forged: true, applied: true });
+}, 60_000);
 
 const TWO = HEAD + `
 agent("Ada");
