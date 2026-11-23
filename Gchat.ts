@@ -3,7 +3,8 @@
 // Google Chat as a second view of the questions pane, for the user away
 // from their desk (config `gchat_space`, key GCHAT_WEBHOOK_URL: off
 // unless both are set and agree). Out: each open approval, question,
-// note, todo and super auto decision is posted once, as its pace says
+// note, todo and super auto decision is posted once a process (a restart
+// posts it again, in a new thread), as its pace says
 // (Outbox.ts), through the space's incoming webhook (a bot's message, so
 // the phone rings), one thread per item, its
 // text in chunks of at most TEXT. In: the replies in an item's thread,
@@ -31,7 +32,8 @@ export type Item = { key: string; kind: Kind; n: number; text: string; options?:
 // when Google says it was posted (ms); an approval's fp as posted
 export type Posted = { key: string; tk: string; thread: string; at: number; fp?: string };
 
-// the bridge's state, kept in view.json: the items posted and still open,
+// the bridge's state, kept in view.json: the items posted and still open
+// (a record only: Server.ts routes replies by its own memory's posts),
 // the messages acted on (their names, the last ACTED)
 export type Gchat = { posted: Posted[]; acted: string[] };
 

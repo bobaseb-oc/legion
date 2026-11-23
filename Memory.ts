@@ -180,9 +180,9 @@ export type Memory = {
   assigns : number;
   explain: Explain; // the Tracks page's observer cards (Explain.ts, Server.ts Chat.observe)
   tracks : Record<string, Track>; // the user's pins per track (RED ZONE DRAFT: Server.ts Chat.track, Memory.tracks_read)
-  gchat  : Gchat;   // the GChat bridge: items posted, replies acted on (Gchat.ts, Server.ts Chat.bridge)
+  gchat  : Gchat;   // the GChat bridge: items posted (a record only, never read to route a reply), replies acted on (Gchat.ts, Server.ts Chat.bridge)
   pace   : Outbox.Pace;  // how GChat posts are paced (Outbox.ts), the user's (Server.ts "pace")
-  outbox : Outbox.Out[]; // the items reported to GChat, never posted again (Outbox.sent)
+  outbox : Outbox.Out[]; // the items reported to GChat (Outbox.sent), a record only: a restart posts the open ones again
   digested: number;      // when the last digest was due (ms; 0: never)
   pending: Pending.Pending[]; // RED ZONE (R4, DRAFT awaiting the user's sign-off): approvals waiting or answered (Pending.ts); none says yes
   pended : number;            // the last approval's number (never reused)

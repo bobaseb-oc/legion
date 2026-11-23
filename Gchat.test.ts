@@ -282,6 +282,8 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   // the restart posts each open item again in a new thread
   const o = (name, key, text) => ({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: old.get(key) }, createTime: new Date(at).toISOString(), text });
   script = [o("o1", "q" + q.id, "2"), o("o2", "t" + t.n, "done"), o("o3", "d" + d.id, "undo hold it")];
+  // the digest due, so the note, todo and decision (quiet: held) post too
+  chat.mem.digested = 0;
   await pass();
   await Bun.sleep(100);
   out.posted = posts.length;
