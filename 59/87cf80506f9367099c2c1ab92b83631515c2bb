@@ -1,0 +1,21 @@
+Server.test.ts
+  s_868d95331b06cc::t_7260e70e76f912 1966-1968,2009,2023-2025,2038,2041-2042,2355-2394
+Server.ts
+  s_868d95331b06cc::t_f7cc5bdf2eb0e1 1014-1020,1033
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5987cf80506f9367099c2c1ab92b83631515c2bb",
+  "prompts": {},
+  "sessions": {
+    "s_868d95331b06cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eeac8f45-7e1c-40d2-96b4-abd9a2ecf629",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
