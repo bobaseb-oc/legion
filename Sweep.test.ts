@@ -461,6 +461,23 @@ test("AC1, AC2, AC5, AC7: one question lists both dirs; a device's yes is refuse
   expect(out.open).toBe(0);
 }, 30_000);
 
+const TWO = HEAD + `
+agent("Ada");
+const alone = Chat.sweep_agents(chat).shared;
+const two = Chat.open({ id: "u2", name: "c@d.e" });
+Chat.chats.set("u2", two);
+fs.mkdirSync(two.mem.dir + "/docs/agent", { recursive: true });
+fs.writeFileSync(two.mem.dir + "/docs/agent/Bob.jsonl", JSON.stringify({ kind: "note", text: "n", date: "2026-01-01T00:00:00.000Z" }) + "\\n");
+const mine = Chat.sweep_agents(chat);
+console.log(JSON.stringify({ alone, shared: mine.shared, ada: mine.known.has("Ada"), bob: mine.known.has("Bob") }));
+process.exit(0);
+`;
+
+test("M1: with two users the sweep lists no shared clones, and one user's chat never knows the other's agents", async () => {
+  const out = await run("two", TWO);
+  expect(out).toMatchObject({ alone: true, shared: false, ada: true, bob: false });
+}, 30_000);
+
 const LAPSE = HEAD + `
 agent("Cy");
 const now = Date.now();
