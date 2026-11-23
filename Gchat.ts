@@ -80,9 +80,7 @@ export function gchat_items(mem: { questions: Question[]; assigned: Assignment[]
     key: "a" + c.id, kind: "approval", n: c.id, fp: c.fp,
     text: "Approval " + c.id + ": " + c.who + " wants to run: " + c.what + "\n\nReply yes or no in this thread (exactly one word). Or answer in Legion.",
   }));
-  // the work sweep's question (Server.ts Chat.sweep) never posted: its yes
-  // deletes, and a GChat thread is bound through view.json till PLP-2922
-  const qs = mem.questions.filter((q) => q.sweep === undefined).map((q): Item => {
+  const qs = mem.questions.map((q): Item => {
     const kind = q.fyi ? "note" : "question";
     const opts = (q.options ?? []).map((o, i) => (i + 1) + ". " + o).join("\n");
     const how = q.fyi ? "Reply in this thread to answer Legion." : "Reply in this thread to answer" + (opts === "" ? "." : " (an option's number or your words).");

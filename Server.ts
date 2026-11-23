@@ -2130,9 +2130,9 @@ export namespace Chat {
       return { error: "No open question " + n + "." };
     }
     if (q.sweep !== undefined) {
-      // M2: not from GChat till PLP-2922 binds its threads in memory (a
-      // reply there rides view.json's thread map); PLP-2922 can lift this
-      return id.startsWith("gchat-") ? { error: "Answer the work sweep in Legion, not in Google Chat." } : Chat.swept(chat, q, text, Date.now());
+      // a GChat answer too: PLP-2922 routes a reply only by the threads
+      // this process posted, never by view.json (Sweep.test.ts M2)
+      return Chat.swept(chat, q, text, Date.now());
     }
     const refused = text === "" ? null : await Chat.afford(chat);
     if (refused !== null) {
