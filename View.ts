@@ -122,6 +122,14 @@ export const FIND   = 200;
 export const FOUND  = 50;
 export const SHOWN  = 200;
 
+// an agent found by its name or title (Tools.find): its state, archived
+// (dismissed) and past (known only from its log, as from before a
+// restart) besides the crew's; its last entry's date (ISO)
+export type AgentHit = { name: string; title?: string; state: Status | "archived" | "past"; date: string };
+// a search of the agents asked (the Crew page's box, /agents): its query,
+// its hits (null: not yet answered)
+export type Lookup = { q: string; hits: AgentHit[] | null };
+
 // an agent of the chat, at work or done (till dismissed): who started it
 // ("main": Unii), what it is, its model, how it is, since when its run
 // began (ms since 1970)
@@ -233,6 +241,7 @@ export type View = State & {
   roots     : Part[] | null; // the tree's roots (the Memory page's map), as last asked
   mapped    : Set<string>; // the map's lines open ("id+n")
   recall    : Recall | null; // the last search of the chat (the Memory page)
+  lookup    : Lookup | null; // the last search of the agents (the Crew page, /agents)
   seek      : number | null; // a message to bring in sight in the chat (Seek), once drawn
   notes : string[];
   tab   : string;
@@ -273,6 +282,7 @@ export type Server =
   | { $: "undo"; id: string; agent: string } // to one device: the agent's last turn undone (Device.device_undo)
   | { $: "handoff"; id: string; agent: string; brief: string } // to one device: Claude Code opened on the agent's work (Device.device_handoff)
   | { $: "recalled"; q: string; hits: Hit[]; more: boolean } // a search's hits (Memory.find), to the view that asked
+  | { $: "agents_found"; q: string; hits: AgentHit[] } // a search of the agents' hits (Tools.find), to the view that asked
   | Looked;                                 // to views: what a device showed
 
 // the files pane and git tab (K4): what a view asks a device to show, and
@@ -352,7 +362,8 @@ export type Client =
   | { $: "track"; name: string; op: "add" | "edit" | "move" | "drop"; n?: number; i?: number; was?: string; text?: string; to?: number } // a view: a track's checklist edited (the user's only: Chat.track)
   | { $: "decision"; n: number; undo: boolean; text?: string } // a view: super auto's decision n undone (text: the user's answer) or dismissed (the user's only: Chat.decision)
   | { $: "timer"; n: number } // a view: an agent's pending timer n closed (the user's only: Chat.untimed)
-  | { $: "search"; q: string }; // a read: the chat's messages holding q (Memory.find), answered "recalled"
+  | { $: "search"; q: string } // a read: the chat's messages holding q (Memory.find), answered "recalled"
+  | { $: "agents"; q: string }; // a read: the agents whose name or title holds q (Tools.find), answered "agents_found"
 
 // an act not answered: with its id, the socket it went by, what its
 // answer does, what a message said (shown while offline: view_tail)
@@ -421,6 +432,7 @@ export type Act =
   | { $: "Map"; id: number; n: number }         // a map line opened into its two (asked once), or folded
   | { $: "Seek"; id: number }                   // message id brought in sight in the chat, its blocks opened
   | { $: "Search"; q: string }                  // the chat searched (the Memory page's box)
+  | { $: "Agents"; q: string }                  // the agents searched by name or title (the Crew page's box, /agents)
   | { $: "Explain"; q: string }                 // a question about the Tracks page (its box, /tracks, /explain)
   | { $: "Track"; name: string; op: "add" | "edit" | "move" | "drop"; n?: number; i?: number; was?: string; text?: string; to?: number } // a track's checklist edited (the Tracks page: Server.ts Chat.track)
   | { $: "Shell"; op: "bg" | "stop"; job?: string } // B2: a shell command (none: each in sight in the foreground) sent to the background (Ctrl+B), or stopped (Esc, Stop)
@@ -640,6 +652,7 @@ export function view_new(): View {
     roots     : null,
     mapped    : new Set(),
     recall    : null,
+    lookup    : null,
     seek      : null,
     notes     : [],
     tab       : crypto.randomUUID(),
@@ -732,6 +745,13 @@ export function view_hear(v: View, msg: Server): Client[] {
       // an older search's answer: dropped
       if (v.recall?.q === msg.q) {
         v.recall = { q: msg.q, hits: msg.hits, more: msg.more };
+      }
+      return [];
+    }
+    case "agents_found": {
+      // an older search's answer: dropped
+      if (v.lookup?.q === msg.q) {
+        v.lookup = { q: msg.q, hits: msg.hits };
       }
       return [];
     }
@@ -1007,6 +1027,11 @@ export function view_act(v: View, act: Act): Client[] {
       const q = act.q.trim().slice(0, FIND);
       v.recall = q === "" ? null : { q, hits: null, more: false };
       return q === "" ? [] : [{ $: "search", q }];
+    }
+    case "Agents": {
+      const q = act.q.trim().slice(0, FIND);
+      v.lookup = q === "" ? null : { q, hits: null };
+      return q === "" ? [] : [{ $: "agents", q }];
     }
     case "List": {
       if (v.dirs.has(act.path)) {
@@ -1862,6 +1887,26 @@ export function view_recall_note(v: View): string {
   }
   const more = r.more ? ["The newest " + FOUND + " shown: search for more words to reach older ones."] : [];
   return ["“" + r.q + "”:", ...r.hits.map(hit_text), ...more, "/seek #id shows one in the chat."].join("\n");
+}
+
+// an agent found, as /agents lists it: its name, title, state, date
+export function agent_hit_text(h: AgentHit): string {
+  return [h.name, ...(h.title === undefined ? [] : [h.title]), h.state, minute(h.date)].join(" · ");
+}
+
+// the last search of the agents (/agents), as the Crew page shows it
+export function view_agents_note(v: View): string {
+  const l = v.lookup;
+  if (l === null) {
+    return "";
+  }
+  if (l.hits === null) {
+    return "Looking for agents named “" + l.q + "”…";
+  }
+  if (l.hits.length === 0) {
+    return "No agent's name or title has “" + l.q + "”.";
+  }
+  return ["Agents for “" + l.q + "”:", ...l.hits.map(agent_hit_text), "/tab <name> opens one."].join("\n");
 }
 
 // a path named in the chat (an inline code's text), its :line dropped, for

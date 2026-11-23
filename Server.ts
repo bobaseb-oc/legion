@@ -1603,6 +1603,17 @@ export namespace Chat {
         void Chat.search(chat, sock, q);
         return {};
       }
+      // the user's search of the agents by name or title (the Crew page,
+      // /agents): answered at once, to that view, as agents_found; each
+      // agent's log read at its ends only (Tools.find)
+      case "agents": {
+        const q = typeof msg.q === "string" ? msg.q.trim() : "";
+        if (q === "" || q.length > FIND) {
+          return { error: q === "" ? "Search for what?" : "A search is " + FIND + " characters at most." };
+        }
+        Chat.send(sock, { $: "agents_found", q, hits: Tools.find(chat.tools, q) });
+        return {};
+      }
       // what the view has in sight: those it hears the deltas and
       // entries of from now (its focus asks for its log: "agent")
       case "watch": {

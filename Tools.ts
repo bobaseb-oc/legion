@@ -51,7 +51,7 @@ import * as Notes from "./Notes.ts";
 import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
-import type { Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
+import type { AgentHit, Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
 
 export type { Live };
 
@@ -124,6 +124,7 @@ export type Role = { $: "sub"; tier: Tier; effort: string | null; model: string 
 // an agent's label (Tools.labels): its goal, the repos its work touches
 export type Label = { title?: string; repos?: string[] };
 const TITLE = 80;
+const FINDS = 20; // the agents a search finds, at most (Tools.find)
 const FILES = 40; // the files an agent touched, kept at most (Tools.touched)
 const HANDOFF = 8000; // a brief handed to Claude Code, at most (Tools.handoff)
 const AUTO_TITLE = 60; // a title made from a task (Tools.titled), at most
@@ -1496,6 +1497,28 @@ export namespace Tools {
       const label = { ...(a.title === undefined ? {} : { title: a.title }), ...(a.repos === undefined ? {} : { repos: a.repos }), ...(a.todo === undefined ? {} : { todo: a.todo.map((t) => ({ text: t.text, status: t.status })) }), ...(a.spent === undefined ? {} : { spent: a.spent }), ...(a.files === undefined ? {} : { files: a.files }) };
       return { name: a.name, parent: a.parent, tier, model, status, since: a.since ?? 0, ...label };
     });
+  }
+
+  // the agents whose name or title holds q, any case (the user's search,
+  // Server.ts "agents"): this process's and those only on disk (from
+  // before a restart: past), dismissed ones too (archived); each read by
+  // its log's ends (Memory.agent_ends), newest activity first, FINDS at most
+  export function find(tools: Tools, q: string): AgentHit[] {
+    const has = (text: string | undefined) => text !== undefined && text.toLowerCase().includes(q.toLowerCase());
+    const names = new Set([...tools.agents.keys(), ...Memory.agent_names(tools.mem)].filter(Memory.agent_name));
+    const hits = [...names].flatMap((name): AgentHit[] => {
+      const a = tools.agents.get(name);
+      const ends = Memory.agent_ends(tools.mem, name);
+      const task = ends?.head[1]?.kind === "user" ? Tools.titled(ends.head[1].text) : undefined;
+      const title = a?.title ?? task;
+      if (!has(name) && !has(title) || a === undefined && ends === null) {
+        return [];
+      }
+      const state = a === undefined ? "past" : a.hidden ? "archived" : Tools.status(tools, a);
+      const date = ends?.date || new Date(a?.since ?? 0).toISOString();
+      return [{ name, ...(title === undefined ? {} : { title }), state, date }];
+    });
+    return hits.sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0)).slice(0, FINDS);
   }
 
   // how an agent is, as the crew tells it
