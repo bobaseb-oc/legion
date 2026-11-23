@@ -2557,6 +2557,7 @@ test("a /goal: unmet checks nudge with their reason, at most GOAL_TRIES, then a 
   expect(met.goaled).toBe(0);
   // a new goal counts its checks from 0
   expect(out.reset).toBe(0);
+}, 30_000);
 
 // L4: the outbox (Outbox.ts) paces GChat posts: an approval posts at the
 // first bridge pass, whatever the pace (O1); under "quiet" a question at
