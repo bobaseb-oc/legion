@@ -323,6 +323,12 @@ export namespace Cloud {
     return cloud.db.query(sql).get(Date.now(), session) !== null;
   }
 
+  // how many users have signed in here (their sessions' ids): the work
+  // sweep's "one user on this server" (Server.ts Chat.sweep_agents)
+  export function users(cloud: Cloud): number {
+    return (cloud.db.query("select count(distinct id) n from sessions").get() as { n: number }).n;
+  }
+
   export function session(cloud: Cloud, user: User): string {
     const token = Cloud.random();
     Cloud.login(cloud, user, Cloud.hash(token));

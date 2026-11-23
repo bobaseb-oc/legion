@@ -3123,12 +3123,13 @@ const LIKES = 30;
   // user's dir), and those not done or failed (never listed). M1: WORK is
   // the server's, agent names unique per user only, so another user's
   // agents' dirs are never this chat's to list; shared clones only on a
-  // server with one user dir (Sweep.Agents shared)
+  // server with one user, by the account store (Cloud.users: who signed
+  // in), not by the dirs under DIR/users, which an agent can delete
+  // (Sweep.Agents shared)
   export function sweep_agents(chat: Chat): Sweep.Agents {
     const tools = chat.tools;
     const busy = [...tools.agents.values()].filter((a) => !["done", "failed"].includes(Tools.status(tools, a))).map((a) => a.name);
-    const users = fs.readdirSync(config.DIR + "/users", { withFileTypes: true }).filter((e) => e.isDirectory()).length;
-    return { known: new Set([...tools.agents.keys(), ...Memory.agent_names(chat.mem)]), busy: new Set(busy), shared: users === 1 };
+    return { known: new Set([...tools.agents.keys(), ...Memory.agent_names(chat.mem)]), busy: new Set(busy), shared: Cloud.users(Chat.cloud) === 1 };
   }
 
   // RED ZONE: the user's answer to the sweep question (a view's only:
