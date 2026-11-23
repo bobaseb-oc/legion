@@ -98,8 +98,9 @@ export function explain_snapshot(s: Snapshot): string {
     ...(s.goal === null ? [] : ["Goal: " + line(s.goal)]),
     ...(s.plan === null ? [] : ["Plan: " + cut(s.plan, 4 * LINE)]),
     ...list("The user lately said to Legion:", s.said),
-    ...(s.crew.length === 0 ? [] : ["Agents:", ...s.crew.flatMap(agent)]),
+    // the tracks before the agents: a long crew is cut at SNAP, never them
     ...((s.tracks ?? []).length === 0 ? [] : ["Tracks:", ...s.tracks!.map((t) => "- " + t.name + ": " + t.items + " items, " + t.pins + " pinned")]),
+    ...(s.crew.length === 0 ? [] : ["Agents:", ...s.crew.flatMap(agent)]),
     ...list("Open questions for the user:", s.questions),
     ...list("Waiting on the user (todos):", s.todos),
     ...(s.routines.length === 0 ? [] : ["Routines on: " + line(s.routines.join(", "))]),
