@@ -7,10 +7,10 @@
 // never WORK/main nor the user's own dirs; an agent's dir (WORK/<Name>)
 // whose agent is done or gone, or a git repo or worktree found up to
 // DEPTH deep; untouched for AGE (its newest mtime, .git's insides aside);
-// every repo in it clean (no change, no stash, no commit on no remote; a
-// repo other worktrees hang on is kept). At apply each is checked again
-// (sweep_check): changed since the listing, kept. This is the pure part:
-// it reads the disk and runs git read-only; only sweep_remove deletes.
+// every repo in it clean (sweep_clean). The biggest MOST are listed. At
+// apply each is checked again (sweep_check): changed since the listing,
+// kept. This is the pure part: it reads the disk (async: a 20 GB WORK
+// never holds the server) and runs git read-only; only sweep_remove deletes.
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -21,19 +21,22 @@ export const AGE = 7 * DAY;
 // WORK past this: the sweep runs early (once a day at most)
 export const SIZE_GB = 10;
 const DEPTH = 3; // how deep under WORK a shared clone is looked for
-const MOST = 50; // the dirs one listing holds, at most
+const MOST = 50; // the dirs one listing holds, at most: the biggest
+const ENVS = 10; // the .env files the question names per dir, at most
 
-// a dir listed: its real path, its bytes, its newest mtime (ms), whether git's
-export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "worktree" | null };
+// a dir listed: its real path, its bytes, its newest mtime (ms), whether
+// git's, the .env files in it (paths within it; ignored ones are deleted too)
+export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "worktree" | null; envs?: string[] };
 // the agents' names known (live or on disk), and those not done (at work,
 // asking, waiting, stopped)
 export type Agents = { known: Set<string>; busy: Set<string> };
 
 // git read-only: no optional locks (no index written), no fsmonitor (a
 // repo's config never runs a command), argv only; null: it failed
-function git(dir: string, args: string[]): string | null {
-  const run = Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
-  return run.exitCode === 0 ? run.stdout.toString() : null;
+async function git(dir: string, args: string[]): Promise<string | null> {
+  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", dir, ...args], { stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  return code === 0 ? out : null;
 }
 
 function real(p: string): string | null {
@@ -56,31 +59,37 @@ export function sweep_inside(work: string, p: string): string | null {
 }
 
 // a dir's bytes, its newest mtime (.git's insides aside: git writes there
-// on a read), the repos in it (each dir holding a .git); symlinks not followed
-export function sweep_walk(dir: string): { bytes: number; mtime: number; repos: string[] } {
-  const out = { bytes: 0, mtime: 0, repos: [] as string[] };
-  const each = (p: string, ingit: boolean): void => {
-    const st = fs.lstatSync(p, { throwIfNoEntry: false });
-    if (st === undefined) {
+// on a read), the repos and worktrees in it (each dir holding a .git), its
+// .env files (paths within it); symlinks not followed. Async, one entry
+// at a time
+export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: number; repos: string[]; envs: string[] }> {
+  const out = { bytes: 0, mtime: 0, repos: [] as string[], envs: [] as string[] };
+  const each = async (p: string, ingit: boolean): Promise<void> => {
+    const st = await fs.promises.lstat(p).catch(() => null);
+    if (st === null) {
       return;
     }
     out.bytes += st.size;
     out.mtime = ingit ? out.mtime : Math.max(out.mtime, st.mtimeMs);
+    if (!ingit && st.isFile() && path.basename(p).startsWith(".env")) {
+      out.envs.push(path.relative(dir, p));
+    }
     if (!st.isDirectory()) {
       return;
     }
-    let names: string[] = [];
-    try {
-      names = fs.readdirSync(p);
-    } catch {
+    const names = await fs.promises.readdir(p).catch(() => null);
+    if (names === null) {
       out.mtime = Infinity; // unreadable: never old enough
+      return;
     }
     if (!ingit && names.includes(".git")) {
       out.repos.push(p);
     }
-    names.forEach((e) => each(p + "/" + e, ingit || e === ".git"));
+    for (const e of names) {
+      await each(p + "/" + e, ingit || e === ".git");
+    }
   };
-  each(dir, false);
+  await each(dir, false);
   return out;
 }
 
@@ -90,17 +99,23 @@ export function sweep_git(dir: string): Item["git"] {
   return st === undefined ? null : st.isDirectory() ? "repo" : st.isFile() ? "worktree" : null;
 }
 
-// nothing in it git would lose: no change, no stash, no commit on no
-// remote; a repo: no other worktree of it. A failed git: not clean
-export function sweep_clean(dir: string): boolean {
-  const checks = [["status", "--porcelain"], ["stash", "list"], ["log", "--branches", "--not", "--remotes", "--oneline"]];
-  if (!checks.every((args) => git(dir, args)?.trim() === "")) {
+// nothing git would lose with it. Any: no change. A linked worktree (its
+// branches, stash and objects stay in its repo): no commit at HEAD that
+// is on no remote and on no branch (a detached HEAD's own). A repo (all
+// of it goes): no stash, no branch's commit on no remote, no other
+// worktree of it. A failed git: not clean
+export async function sweep_clean(dir: string): Promise<boolean> {
+  const empty = async (args: string[]) => (await git(dir, args))?.trim() === "";
+  if (!(await empty(["status", "--porcelain"]))) {
     return false;
   }
-  if (sweep_git(dir) !== "repo") {
-    return true;
+  if (sweep_git(dir) === "worktree") {
+    return empty(["log", "HEAD", "--not", "--remotes", "--branches", "--oneline"]);
   }
-  const list = git(dir, ["worktree", "list", "--porcelain"]);
+  if (!(await empty(["stash", "list"])) || !(await empty(["log", "--branches", "--not", "--remotes", "--oneline"]))) {
+    return false;
+  }
+  const list = await git(dir, ["worktree", "list", "--porcelain"]);
   return list !== null && list.split("\n").filter((l) => l.startsWith("worktree ")).length === 1;
 }
 
@@ -109,55 +124,52 @@ const overlap = (a: string, b: string): boolean => a === b || a.startsWith(b + "
 // p as a candidate (p a real path), or null: inside WORK, no kept dir in
 // it or around it, no busy agent's, an agent's dir or a git one, old,
 // every repo in it clean
-export function sweep_candidate(work: string, p: string, agents: Agents, keep: string[], now: number): Item | null {
+export async function sweep_candidate(work: string, p: string, agents: Agents, keep: string[], now: number): Promise<Item | null> {
   const at = sweep_inside(work, p);
   const st = fs.lstatSync(p, { throwIfNoEntry: false });
   if (at === null || at !== p || st === undefined || !st.isDirectory() || keep.some((k) => overlap(at, real(k) ?? k))) {
     return null;
   }
   const rel = path.relative(real(work) ?? work, at).split(path.sep);
-  const top = rel[0]!;
+  const top = rel[0] ?? "";
   const kind = sweep_git(at);
   if (agents.busy.has(top) || kind === null && !(rel.length === 1 && agents.known.has(top))) {
     return null;
   }
-  const walk = sweep_walk(at);
+  const walk = await sweep_walk(at);
   if (now - walk.mtime < AGE) {
     return null;
   }
-  if (!walk.repos.every(sweep_clean)) {
-    return null;
+  for (const r of walk.repos) {
+    if (!(await sweep_clean(r))) {
+      return null;
+    }
   }
-  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind };
+  return { path: at, bytes: walk.bytes, mtime: walk.mtime, git: kind, ...(walk.envs.length === 0 ? {} : { envs: walk.envs }) };
 }
 
-// the candidates in WORK, by path, MOST at most: its entries, and below
-// those neither git nor an agent's, DEPTH deep
-export function sweep_list(work: string, agents: Agents, keep: string[], now: number): Item[] {
+// the candidates in WORK, the biggest MOST, biggest first: its entries,
+// and below those neither git nor an agent's, DEPTH deep
+export async function sweep_list(work: string, agents: Agents, keep: string[], now: number): Promise<Item[]> {
   const root = real(work);
   if (root === null) {
     return [];
   }
   const out: Item[] = [];
-  const look = (dir: string, depth: number): void => {
-    let entries: fs.Dirent[] = [];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
+  const look = async (dir: string, depth: number): Promise<void> => {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const e of entries.filter((x) => x.isDirectory())) {
       const p = dir + "/" + e.name;
-      const item = sweep_candidate(root, p, agents, keep, now);
+      const item = await sweep_candidate(root, p, agents, keep, now);
       if (item !== null) {
         out.push(item);
       } else if (depth < DEPTH && sweep_git(p) === null && !(depth === 0 && agents.known.has(e.name))) {
-        look(p, depth + 1);
+        await look(p, depth + 1);
       }
     }
   };
-  look(root, 0);
-  return out.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0)).slice(0, MOST);
+  await look(root, 0);
+  return out.sort((x, y) => y.bytes - x.bytes || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0)).slice(0, MOST);
 }
 
 // what the user's yes covers: each dir's path, size, time and kind, in order
@@ -166,37 +178,59 @@ export function sweep_fp(items: Item[]): string {
 }
 
 // at apply: still a candidate, nothing newer in it than when listed
-export function sweep_check(work: string, item: Item, agents: Agents, keep: string[], now: number): boolean {
-  const again = sweep_candidate(work, item.path, agents, keep, now);
+export async function sweep_check(work: string, item: Item, agents: Agents, keep: string[], now: number): Promise<boolean> {
+  const again = await sweep_candidate(work, item.path, agents, keep, now);
   return again !== null && again.mtime <= item.mtime && again.git === item.git;
 }
 
+// the repo a linked worktree belongs to, from its .git file ("gitdir:
+// <repo>/.git/worktrees/<name>", that dir's commondir); null: not one
+function linked(dir: string): string | null {
+  try {
+    const gitdir = /^gitdir: (.+)$/m.exec(fs.readFileSync(dir + "/.git", "utf8"))?.[1]?.trim();
+    if (gitdir === undefined) {
+      return null;
+    }
+    const from = path.resolve(dir, gitdir);
+    const common = path.resolve(from, fs.readFileSync(from + "/commondir", "utf8").trim());
+    return path.basename(common) === ".git" ? path.dirname(common) : null;
+  } catch {
+    return null;
+  }
+}
+
 // RED ZONE: the one delete. A dir (its real path, inside WORK, no symlink)
-// removed; a worktree by `git worktree remove` in its repo (no --force),
-// then gone from its list. null: done; else why not
-export function sweep_remove(work: string, item: Item): string | null {
+// removed, then each repo outside it whose linked worktree it held pruned
+// (`git worktree prune`); a worktree by `git worktree remove` in its repo
+// (no --force), then gone from its list. null: done; else why not
+export async function sweep_remove(work: string, item: Item): Promise<string | null> {
   const at = sweep_inside(work, item.path);
   const st = fs.lstatSync(item.path, { throwIfNoEntry: false });
   if (at === null || at !== item.path || st === undefined || st.isSymbolicLink() || !st.isDirectory()) {
     return "not a dir inside WORK";
   }
   if (item.git !== "worktree") {
+    const walk = await sweep_walk(at);
+    const parents = [...new Set(walk.repos.filter((r) => sweep_git(r) === "worktree").map(linked))].filter((r): r is string => r !== null && !overlap(r, at));
     try {
-      fs.rmSync(at, { recursive: true });
-      return null;
+      await fs.promises.rm(at, { recursive: true });
     } catch (e) {
       return "not removed: " + String((e as Error).message).slice(0, 120);
     }
+    for (const r of parents) {
+      await git(r, ["worktree", "prune"]);
+    }
+    return null;
   }
-  const common = git(at, ["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim() ?? "";
+  const common = (await git(at, ["rev-parse", "--path-format=absolute", "--git-common-dir"]))?.trim() ?? "";
   if (common === "") {
     return "its repo not found";
   }
   const parent = path.dirname(common);
-  if (git(parent, ["worktree", "remove", at]) === null) {
+  if ((await git(parent, ["worktree", "remove", at])) === null) {
     return "git worktree remove refused it";
   }
-  const list = git(parent, ["worktree", "list", "--porcelain"]);
+  const list = await git(parent, ["worktree", "list", "--porcelain"]);
   return list !== null && !list.split("\n").includes("worktree " + at) ? null : "still in its repo's worktree list";
 }
 
@@ -213,9 +247,10 @@ export function sweep_size(n: number): string {
   return n >= 2 ** 30 ? (n / 2 ** 30).toFixed(1) + " GB" : n >= 2 ** 20 ? (n / 2 ** 20).toFixed(1) + " MB" : n >= 2 ** 10 ? (n / 2 ** 10).toFixed(1) + " KB" : n + " bytes";
 }
 
-// the question put to the user
+// the question put to the user, each dir's .env files named
 export function sweep_text(items: Item[]): string {
   const total = items.reduce((n, x) => n + x.bytes, 0);
-  const lines = items.map((x) => "- " + x.path + " (" + sweep_size(x.bytes) + (x.git === null ? "" : ", git " + x.git) + ")");
-  return "Work sweep: " + items.length + " work dirs untouched for 7 days or more, " + sweep_size(total) + " in all. Delete them? Answer yes to delete exactly these; each is checked again first, and one changed since is kept. No answer in 24 h: nothing is deleted.\n" + lines.join("\n");
+  const envs = (x: Item) => (x.envs === undefined ? "" : "; holds " + x.envs.slice(0, ENVS).join(", ") + (x.envs.length > ENVS ? " and " + (x.envs.length - ENVS) + " more .env files" : ""));
+  const lines = items.map((x) => "- " + x.path + " (" + sweep_size(x.bytes) + (x.git === null ? "" : ", git " + x.git) + envs(x) + ")");
+  return "Work sweep: " + items.length + " work dirs untouched for 7 days or more, " + sweep_size(total) + " in all. Delete them? Answer yes to delete exactly these, with every file in them (ignored ones, .env files, too); each is checked again first, and one changed since is kept. No answer in 24 h: nothing is deleted. A no: these are not asked again for 7 days.\n" + lines.join("\n");
 }
