@@ -680,3 +680,60 @@ test("AC23 (pinned): the observer call's input (Chat.observe in the server) has 
   expect(out.item).toBe(false);
   expect(out.pin).toBe(false);
 }, WAIT);
+
+// RED ZONE (user authority over agents; DRAFT awaiting the user's
+// sign-off): an agent's own checklist survives a server restart. Process
+// A sets two agents' lists (one then cleared) beside a user pin; process
+// B, on the same dir, takes the agent back from its log (Tools.agent) and
+// shows the list on its track, the pin unchanged
+const SAVE_A = PRE(false) + `
+const w = await start("build it", true);
+const v = await start("help out", true);
+await track("a1", { name: w, op: "add", text: "Ship it" });
+const set = await todo(w, { items: [{ text: "write tests", status: "done" }, { text: "fix it", status: "doing" }] });
+await todo(v, { items: [{ text: "gone soon", status: "pending" }] });
+const cleared = await todo(v, { items: [] });
+const saved = JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? null;
+console.log(JSON.stringify({ w, v, set, cleared, saved, pins: pins(w) }));
+process.exit(0);
+`;
+const SAVE_B = (w: string, v: string) => PRE(false) + `
+const before = chat.tools.agents.has(${JSON.stringify(w)});
+const back = Tools.agent(chat.tools, ${JSON.stringify(w)});
+const other = Tools.agent(chat.tools, ${JSON.stringify(v)});
+const t = view(${JSON.stringify(w)});
+console.log(JSON.stringify({ before, todo: back?.todo ?? null, other: other?.todo ?? null, items: t?.items.map((x) => ({ text: x.text, status: x.status })) ?? null, pins: pins(${JSON.stringify(w)}) }));
+process.exit(0);
+`;
+
+async function server_in(dir: string, file: string, script: string): Promise<any> {
+  fs.writeFileSync(dir + "/" + file, script);
+  const proc = Bun.spawn([process.execPath, dir + "/" + file], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+}
+
+let saving: Promise<{ a: any; b: any }> | null = null;
+const save_run = () => (saving ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const a = await server_in(dir, "save-a.ts", SAVE_A);
+  const b = await server_in(dir, "save-b.ts", SAVE_B(a.w, a.v));
+  return { a, b };
+})());
+
+test("checklists: a todo is saved to view.json, a cleared one is not", async () => {
+  const { a } = await save_run();
+  expect(a.set).toMatchObject({ fail: false });
+  expect(a.cleared).toMatchObject({ fail: false, text: "Checklist cleared." });
+  expect(Object.keys(a.saved ?? {})).toEqual([a.w]);
+  expect(a.saved[a.w].map((x: any) => ({ text: x.text, status: x.status }))).toEqual([{ text: "write tests", status: "done" }, { text: "fix it", status: "doing" }]);
+}, WAIT);
+
+test("checklists: after a restart the agent taken back from its log has its list, its track shows it, the pin unchanged", async () => {
+  const { a, b } = await save_run();
+  expect(b.before).toBe(false);
+  expect(b.todo?.map((x: any) => x.text)).toEqual(["write tests", "fix it"]);
+  expect(b.other).toBeNull();
+  expect(b.items).toEqual([{ text: "write tests", status: "done" }, { text: "fix it", status: "doing" }]);
+  expect(b.pins).toEqual(a.pins);
+  expect(keyed(b.pins)).toEqual([{ n: 1, text: "Ship it", status: "pending" }]);
+}, WAIT);
