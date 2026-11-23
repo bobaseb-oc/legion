@@ -435,7 +435,7 @@ globalThis.fetch = async (url, init = {}) => {
     posts.push(tk.split("-").slice(0, 2).join("-") + " " + JSON.parse(init.body).text.slice(0, 5));
     const s = script.shift() ?? 200;
     return s === 200 ? Response.json({ createTime: new Date().toISOString(), thread: { name: SPACE + "/threads/" + tk } })
-      : new Response("no", { status: s, headers: s === 429 ? { "retry-after": "30" } : {} });
+      : new Response("no", { status: s, headers: s === 429 && process.env.STEP !== "hold" ? { "retry-after": "30" } : {} });
   }
   return new Response("no", { status: 404 });
 };
@@ -456,6 +456,9 @@ if (process.env.STEP === "429") {
   await ask("One?", "t1"); await ask("Two?", "t2"); await ask("Three?", "t3");
   out.passes = [await pass(0), await pass(10_000), await pass(16_000), await pass(31_000)];
   out.waits = waits;
+} else if (process.env.STEP === "hold") {
+  await ask("One?", "t1");
+  out.passes = [await pass(0), await pass(14_000), await pass(15_000)];
 } else if (process.env.STEP === "part") {
   // an item longer than one message (a question's own text is capped
   // below that, so set in memory)
@@ -491,6 +494,12 @@ test("the bridge: a 429 ends the pass and holds posting for max(Retry-After, 15 
   expect(out.waits).toEqual([1100, 1100]);
   expect(err).toContain("HTTP 429");
   expect(err).not.toContain("FAKETOKEN");
+}, 30_000);
+
+test("the bridge: a 429 without Retry-After holds posting for 15 s", async () => {
+  const { out } = await limits("hold", [429]);
+  expect(out.passes).toEqual([1, 1, 2]);
+  expect(out.posts.map((p: string) => p.split(" ")[0])).toEqual(["legion-q1", "legion-q1"]);
 }, 30_000);
 
 test("the bridge: an item cut short by a later chunk sends only the rest, in the same thread", async () => {
