@@ -1,0 +1,21 @@
+Outbox.ts
+  s_aeea4652c6b7ae::t_e64e69c2433e56 8-9
+Server.ts
+  s_aeea4652c6b7ae::t_b2f742945c2ee1 2867-2869,2921,2968
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31cf3ff025ccc7ef4a16cd531a93a6efe60d2256",
+  "prompts": {},
+  "sessions": {
+    "s_aeea4652c6b7ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1e5f75c-f04e-4697-9f1c-b2adedfbcd80",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
