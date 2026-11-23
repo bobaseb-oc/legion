@@ -1827,11 +1827,13 @@ saved.pending = [
 saved.pended = 5;
 fs.writeFileSync(file, JSON.stringify(saved));
 const chat = opened();
+// read with no await since Chat.open: only its own save can have written this
+const ondisk = Object.fromEntries((disk(chat) ?? []).map((p) => [p.id, p.state]));
 const shown = Chat.state(chat).calls;
 const appeals = Tools.appeals(chat.tools);
 const states = Object.fromEntries((chat.mem.pending ?? []).map((p) => [p.id, p.state]));
 const forged = await made(chat, DEPLOY, "f1");
-console.log(JSON.stringify({ shown, appeals, states, forged }));
+console.log(JSON.stringify({ shown, appeals, states, ondisk, forged }));
 process.exit(0);
 `;
 
@@ -1906,6 +1908,16 @@ test("L1-AC8, L1-AC9, L1-AC10, L1-AC11, P6, P7, P8: at open a bad fp is dropped,
   expect(out.states[3]).toBe("expired");
   expect(out.states[4]).toBe("cut");
   expect(out.appeals).toEqual([]);
+}, 30_000);
+
+test("PLP-2919 AC1, P6: an open consent made 24 h + 1 s ago is saved expired in view.json when the chat opens", async () => {
+  const out = await forged_run();
+  expect(out.ondisk[3]).toBe("expired");
+}, 30_000);
+
+test("PLP-2919 AC2, P7: an open appeal is saved cut in view.json when the chat opens", async () => {
+  const out = await forged_run();
+  expect(out.ondisk[4]).toBe("cut");
 }, 30_000);
 
 // the exit path (a supervised restart's SIGTERM, a lone server's): it
