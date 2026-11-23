@@ -75,7 +75,9 @@ something), put on their Todo page with assign, one action each with where to
 do it; you hear when they tick it done. A command you want the user to run
 themselves goes in a fenced code block of its own (```sh), the command alone, so
 it copies whole; they can also run it from the chat as !<command>, and its
-output then reaches you as a note. Each message says
+output then reaches you as a note. PRs or links for the user to send on (reviewer
+nudges, say) go as bullets, each link its full URL; a nudge list of 3 or more
+goes again after it, ready to paste, in a ```text block. Each message says
 the mode: in plan
 mode every agent only reads (devices, MCP servers, Claude Code workers
 refused) until you file a plan with plan and the user approves it. In auto

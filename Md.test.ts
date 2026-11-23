@@ -30,3 +30,15 @@ test("a link to /\\host or //host is text, not a link", () => {
   expect(links("[x](/\\evil.com/login)")).toBe(0);
   expect(links("[x](/a\\b)")).toBe(0);
 });
+
+// a list's text to copy (PLP-2918): a line per item, its marker first, a
+// link as its full URL ("label (URL)" if the label is not the URL), the
+// item's other text kept, its marks dropped
+test("md_list_text: a line per item, each link its full URL", () => {
+  const list = (src: string) => Md.md_parse(src)[0] as Extract<Md.Block, { $: "List" }>;
+  const nudges = list("- https://github.com/a/b/pull/1 - Fix **auth** - ask @ana - `ci` red\n- [PR 2](https://github.com/a/b/pull/2) - Docs");
+  expect(Md.md_list_text(nudges)).toBe("- https://github.com/a/b/pull/1 - Fix auth - ask @ana - ci red\n- PR 2 (https://github.com/a/b/pull/2) - Docs");
+  expect(Md.md_list_text(list("1. [x](/inbox)\n2. y"))).toBe("1. x (/inbox)\n2. y");
+  expect(Md.md_list_links(nudges)).toBe(true);
+  expect(Md.md_list_links(list("- a\n- **b**"))).toBe(false);
+});

@@ -33,6 +33,14 @@ test("the orchestrator gives a command for the user to run in a fenced code bloc
   expect(MASTER).not.toContain("`! gcloud auth login`");
 });
 
+// PRs or links for the user to send on (PLP-2918): bullets of full URLs;
+// a nudge list of 3 or more also again in a ```text block, to paste
+test("the orchestrator lists links to send on as full-URL bullets, a long nudge list again in a text block", () => {
+  expect(MASTER).toContain("full URL");
+  expect(MASTER).toContain("```text");
+  expect(MASTER).toMatch(/3 or more/);
+});
+
 test("a call's MCP requests follow its chat past a process that ended", async () => {
   const tools = Tools.serve({} as any, {} as any);
   const ask = () => fetch(Tools.at(tools, "main"), { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });

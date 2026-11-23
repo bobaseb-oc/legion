@@ -448,7 +448,12 @@ header > .imping { display: flex; flex-direction: column; justify-content: cente
 .copy { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; color: var(--mid); background: var(--paper); border-radius: 6px; opacity: 0; user-select: none; }
 .copy:hover { color: var(--ink); background: var(--hover); }
 .msg pre > .copy { top: 7px; right: 7px; bottom: auto; }
-.msg:hover > .copy, .msg pre:hover > .copy { opacity: 1; }
+/* a list of links (Html.ts): Copy at its top right, in room of its own
+   so it covers no item's line end; last in a message, no margin under */
+.msg .list { position: relative; padding-right: 32px; }
+.msg .list:last-child > :is(ul, ol) { margin-bottom: 0; }
+.msg .list > .copy { top: 0; bottom: auto; }
+.msg:hover > .copy, .msg pre:hover > .copy, .msg .list:hover > .copy { opacity: 1; }
 /* a touch screen has no hover: Copy always shows, in room of its own (it
    had covered the next row's first line and a code block's line end) */
 @media (hover: none) {

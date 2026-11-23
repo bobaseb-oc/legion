@@ -1306,6 +1306,15 @@ function span_mark(m) {
 function md_flat(s) {
   return span_parse(s).map((span) => span.x).join("");
 }
+function md_list_text(b) {
+  const link = (s) => s.$ !== "Link" || s.x === s.k ? s.x : s.x + " (" + s.k + ")";
+  const line = (item, i) => (b.k ? i + 1 + ". " : "- ") + item.map(link).join("");
+  return b.x.map(line).join(`
+`);
+}
+function md_list_links(b) {
+  return b.x.some((item) => item.some((s) => s.$ === "Link"));
+}
 function md_plain(s) {
   const paras = s.replace(/\r/g, "").split(/\n(?:[ \t]*\n)+/);
   const kept = paras.filter((p) => p.trim() !== "");
@@ -3140,7 +3149,8 @@ function block_html(b) {
     case "List": {
       const tag = b.k ? "ol" : "ul";
       const items = b.x.map((item) => `<li>${spans_html(item)}</li>`);
-      return `<${tag}>${items.join("")}</${tag}>`;
+      const list = `<${tag}>${items.join("")}</${tag}>`;
+      return md_list_links(b) ? `<div class="list">${copy_html(md_list_text(b))}${list}</div>` : list;
     }
     case "Tabl": {
       const rows = b.x.map((row, i) => {

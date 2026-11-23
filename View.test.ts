@@ -99,6 +99,14 @@ test("view_code: the last code block Legion wrote", () => {
   expect(View.view_code(v)).toBe("bun run test");
 });
 
+// a nudge list repeated ready to paste (PLP-2918: a ```text block) is a
+// code block /copy copies
+test("view_code: a text block of nudges is the one /copy copies", () => {
+  const v = View.view_new();
+  View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "- https://github.com/a/b/pull/1 - Fix\n\n```text\n- https://github.com/a/b/pull/1 - Fix - ask @ana\n```" } } });
+  expect(View.view_code(v)).toBe("- https://github.com/a/b/pull/1 - Fix - ask @ana");
+});
+
 const crew = (name: string, parent: string, tier: View.Crew["tier"], status: View.Crew["status"], since = 0): View.Crew => ({ name, parent, tier, model: tier === "manager" ? "sonnet-5.5" : "haiku-5.5", status, since });
 
 // the crew: each agent under who started it, the ones failed first, then

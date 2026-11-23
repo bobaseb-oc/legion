@@ -127,6 +127,20 @@ export function md_flat(s: string): string {
   return span_parse(s).map((span) => span.x).join("");
 }
 
+// a list's text to copy: a line per item, its marker first ("- ", or
+// its number), its marks dropped, a link its full URL ("label (URL)" if
+// the label is not the URL: a PR list to send on, Html.ts)
+export function md_list_text(b: Extract<Block, { $: "List" }>): string {
+  const link = (s: Span) => s.$ !== "Link" || s.x === s.k ? s.x : s.x + " (" + s.k + ")";
+  const line = (item: Span[], i: number) => (b.k ? i + 1 + ". " : "- ") + item.map(link).join("");
+  return b.x.map(line).join("\n");
+}
+
+// whether a list holds a link
+export function md_list_links(b: Extract<Block, { $: "List" }>): boolean {
+  return b.x.some((item) => item.some((s) => s.$ === "Link"));
+}
+
 export function md_plain(s: string): Block[] {
   const paras = s.replace(/\r/g, "").split(/\n(?:[ \t]*\n)+/);
   const kept = paras.filter((p) => p.trim() !== "");
