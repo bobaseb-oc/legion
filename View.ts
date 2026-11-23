@@ -159,7 +159,7 @@ export type DeviceStatus = { device: string; dir: string; branch: string | null;
 // Harvest id) or failed (why)
 export type Draft = { n: number; project_id: number; task_id: number; project: string; task: string; date: string; hours: number; notes: string; why: string; by: string; state: "draft" | "sending" | "sent" | "failed"; harvest?: number; error?: string };
 
-export type Question = { id: number; text: string; options?: string[]; at: number; date: string; fyi?: true; kind?: AskKind; pick?: number; prod?: boolean }; // fyi: a note (notify), no answer awaited; kind, pick (of its options), prod: for super auto (Modes.decides)
+export type Question = { id: number; text: string; options?: string[]; at: number; date: string; fyi?: true; kind?: AskKind; pick?: number; prod?: boolean; sweep?: string }; // sweep: the work sweep listing's fingerprint (Server.ts Chat.sweep); fyi: a note (notify), no answer awaited; kind, pick (of its options), prod: for super auto (Modes.decides)
 
 // an item of an agent's checklist (Tools.todo): what, and how far; the
 // server's own (never the agent's: Tools.todo strips them): since when

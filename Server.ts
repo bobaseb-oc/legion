@@ -57,6 +57,7 @@ import * as Notes from "./Notes.ts";
 import * as Outbox from "./Outbox.ts";
 import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
+import * as Sweep from "./Sweep.ts";
 import * as Events from "./Events.ts";
 import { Google } from "./Google.ts";
 import { Price } from "./Price.ts";
@@ -155,6 +156,7 @@ type Chat = {
   edits?: number[]; // when the user's track edits were taken, the last minute's (Chat.track: Explain.EDITS)
   jots?: Map<string, string[]>; // the track notes waiting to be sent, by agent (Chat.tracked: Explain.NOTE_GAP)
   nudged?: Map<string, number[]>; // when each agent's stall reminders went, the last hour's (Chat.stalls: Explain.REMINDS)
+  sweeps?: { base: number; last: number | null; sized: number; listing: { q: number; fp: string; items: Sweep.Item[]; until: number } | null; snoozed: Map<string, number>; running: Promise<void> | null }; // the work sweep (Chat.sweep): its first tick, last run, last size check; the listing asked, the paths a no snoozed (till when), all in memory only; its run going
 };
 
 // a chat as it moves to another process (Chat.move): its user (an id:
@@ -2127,6 +2129,11 @@ export namespace Chat {
     if (q === undefined) {
       return { error: "No open question " + n + "." };
     }
+    if (q.sweep !== undefined) {
+      // a GChat answer too: PLP-2922 routes a reply only by the threads
+      // this process posted, never by view.json (Sweep.test.ts M2)
+      return Chat.swept(chat, q, text, Date.now());
+    }
     const refused = text === "" ? null : await Chat.afford(chat);
     if (refused !== null) {
       return refused;
@@ -3037,11 +3044,122 @@ const LIKES = 30;
         lapsed = true;
       }
     }
-    if (due.length > 0 || rung || lapsed) {
+    const swept = Chat.sweep(chat, now);
+    if (due.length > 0 || rung || lapsed || swept) {
       Memory.save(chat.mem);
       Chat.change(chat);
     }
     return due.length;
+  }
+
+  // RED ZONE (deletes the user's work, DRAFT awaiting the user's sign-off;
+  // PLP-2923): WORK past this, the sweep runs early (Sweep.sweep_due); its
+  // size measured once an hour at most
+  export let SWEEP_BYTES = Sweep.SIZE_GB * 2 ** 30;
+  const SIZED = 3600e3;
+
+  // the tick's work sweep: a listing unanswered for a day lapses (nothing
+  // deleted), a sweep question no listing holds (a restart's) goes; then
+  // the run (Chat.sweep_run) started, never awaited here, one at a time
+  // (s.running). Whether the questions changed
+  export function sweep(chat: Chat, now: number): boolean {
+    const s = (chat.sweeps ??= { base: now, last: null, sized: -Infinity, listing: null, snoozed: new Map(), running: null });
+    const n = chat.mem.questions.length;
+    if (s.listing !== null && now >= s.listing.until) {
+      s.listing = null;
+      Tools.notify(chat.tools, "main", { text: "Work sweep: no answer in 24 h; nothing was deleted." });
+    }
+    const held = (q: Question) => q.sweep === undefined || q.id === s.listing?.q;
+    chat.mem.questions = chat.mem.questions.filter(held);
+    if (s.running === null) {
+      const run = Chat.sweep_run(chat, now).catch((e: unknown) => console.error("chat " + chat.acct.user + ": work sweep: " + String(e)));
+      s.running = run.finally(() => {
+        s.running = null;
+      });
+    }
+    return chat.mem.questions.length !== n;
+  }
+
+  // when due (Sweep.sweep_due; WORK's size read async, once a SIZED at
+  // most), the candidates not snoozed by a no asked of the user as one
+  // yes/no question, the listing held in memory only (never read back
+  // from view.json)
+  export async function sweep_run(chat: Chat, now: number): Promise<void> {
+    const s = chat.sweeps;
+    if (s === undefined) {
+      return;
+    }
+    const early = (s.last === null || now - s.last >= Sweep.DAY) && now - s.sized >= SIZED;
+    s.sized = early ? now : s.sized;
+    const bytes = early ? (await Sweep.sweep_walk(config.WORK)).bytes : 0;
+    if (!Sweep.sweep_due(s.base, s.last, now, bytes, Chat.SWEEP_BYTES)) {
+      return;
+    }
+    s.last = now;
+    s.snoozed = new Map([...s.snoozed].filter(([, until]) => now < until));
+    const items = (await Sweep.sweep_list(config.WORK, Chat.sweep_agents(chat), [chat.mem.dir, config.DIR, os.homedir()], now)).filter((x) => !s.snoozed.has(x.path));
+    chat.mem.questions = chat.mem.questions.filter((q) => q.sweep === undefined);
+    s.listing = null;
+    if (items.length > 0) {
+      const fp = Sweep.sweep_fp(items);
+      const q: Question = { id: (chat.mem.asked += 1), text: Sweep.sweep_text(items), options: ["yes", "no"], at: chat.mem.count, date: new Date(now).toISOString(), sweep: fp };
+      chat.mem.questions.push(q);
+      s.listing = { q: q.id, fp, items, until: now + Sweep.DAY };
+    }
+    Memory.save(chat.mem);
+    Chat.change(chat);
+  }
+
+  // the agents the sweep knows: this chat's own (live, or a log in its
+  // user's dir), and those not done or failed (never listed). M1: WORK is
+  // the server's, agent names unique per user only, so another user's
+  // agents' dirs are never this chat's to list; shared clones only on a
+  // server with one user, by the account store (Cloud.users: who signed
+  // in), not by the dirs under DIR/users, which an agent can delete
+  // (Sweep.Agents shared)
+  export function sweep_agents(chat: Chat): Sweep.Agents {
+    const tools = chat.tools;
+    const busy = [...tools.agents.values()].filter((a) => !["done", "failed"].includes(Tools.status(tools, a))).map((a) => a.name);
+    return { known: new Set([...tools.agents.keys(), ...Memory.agent_names(chat.mem)]), busy: new Set(busy), shared: Cloud.users(Chat.cloud) === 1 };
+  }
+
+  // RED ZONE: the user's answer to the sweep question (a view's only:
+  // SAYS). Only the live listing's question, its fingerprint the same,
+  // within its day: a yes removes each listed dir that passes its re-check
+  // (Sweep.sweep_check), the rest named as skipped; anything else deletes
+  // nothing, a no snoozes the listed paths for Sweep.AGE (memory only: a
+  // restart forgets it, so they may be asked again, never deleted unasked).
+  // The listing claimed at once, so a second yes finds none. The outcome
+  // a note to the user
+  export async function swept(chat: Chat, q: Question, text: string, now: number): Promise<Answer> {
+    const s = chat.sweeps;
+    const l = s?.listing ?? null;
+    chat.mem.questions = chat.mem.questions.filter((x) => x !== q);
+    const live = s !== undefined && l !== null && l.q === q.id && l.fp === q.sweep && now < l.until && Sweep.sweep_fp(l.items) === l.fp;
+    if (live) {
+      s.listing = null;
+    }
+    let said = "Work sweep: that listing is no longer held; nothing was deleted.";
+    if (live && text.toLowerCase() !== "yes") {
+      l.items.forEach((x) => s.snoozed.set(x.path, now + Sweep.AGE));
+      said = "Work sweep: nothing was deleted; these are not asked again for 7 days.";
+    } else if (live) {
+      const agents = Chat.sweep_agents(chat);
+      const removed: Sweep.Item[] = [];
+      const skipped: string[] = [];
+      for (const item of l.items) {
+        const why = (await Sweep.sweep_check(config.WORK, item, agents, [chat.mem.dir, config.DIR, os.homedir()], now)) ? await Sweep.sweep_remove(config.WORK, item) : "changed since the listing";
+        if (why === null) {
+          removed.push(item);
+        } else {
+          skipped.push(item.path + " (" + why + ")");
+        }
+      }
+      said = "Work sweep: Removed " + removed.length + " dirs (" + Sweep.sweep_size(removed.reduce((b, x) => b + x.bytes, 0)) + ")." + (skipped.length === 0 ? "" : " Skipped: " + skipped.join("; ") + ".");
+    }
+    Tools.notify(chat.tools, "main", { text: said });
+    Chat.change(chat);
+    return {};
   }
 
   // the agents' timers due (Routines.ts), gone from the list, each a
