@@ -279,6 +279,7 @@ const tool = (who, name, args, id) => Tools.call(chat.tools, who, name, args, go
 const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
 // a pass of the bridge's timer, on the chat kept open (no view is
 // connected here, so Chat.free would let it go)
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
 const out = { dflt: Chat.gchat_token !== null };
 if (process.env.STEP === "post" || process.env.STEP === "off") {

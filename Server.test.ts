@@ -2303,6 +2303,7 @@ Chat.chats.set("u1", chat);
 chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
 AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
 Chat.gchat_token = async () => "tok";
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
 const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
 const out = {};
@@ -2683,6 +2684,7 @@ globalThis.fetch = async (url, init = {}) => {
 Chat.gchat_token = async () => "tok";
 // a device's own socket keeps the chat this process's, and is no view
 const keep = (chat) => chat.socks.add({ send: () => {}, close: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = (chat, now) => (Chat.chats.set("u1", chat), Chat.bridge(chat, now ?? Date.now()));
 const held = (s) => posts.filter((p) => String(p.text).includes(s)).length;
 const msgs = (chat) => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));

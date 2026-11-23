@@ -149,7 +149,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
-  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[]; until?: number }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only), no post before until (a 429's hold)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -2883,6 +2883,8 @@ const LIKES = 30;
   // device reads it (Google.store: one prompt a process, held in memory;
   // a refused read held, so the bridge posts but reads no reply until a
   // restart); off, null: no poll, never a read
+  // the wait between two GChat posts (Gchat.GAP); a test's records it
+  export let gchat_wait = (ms: number): Promise<void> => Bun.sleep(ms);
   export let gchat_token: (() => Promise<string>) | null = Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "") ? () => Google.token(Google.store()) : null;
 
   // the chat let go with the bridge on: the space told, in a thread of its
@@ -2929,23 +2931,32 @@ const LIKES = 30;
       const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
       // the digest's first item carries its header, so each keeps a thread of its own
       const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
-      let whole = digest.length === plan.digest.length;
-      for (const item of [...nows, ...digest]) {
+      // posts GAP apart; a 429 ends the pass and holds posting (Retry-After,
+      // at least HOLD): nothing more is sent until then
+      const held = now < (b.until ?? 0);
+      for (const [i, item] of (held ? [] : [...nows, ...digest]).entries()) {
+        if (i > 0) {
+          await Chat.gchat_wait(Gchat.GAP);
+        }
         const tk = "legion-" + item.key + "-" + now;
-        const sent = await Gchat.gchat_post(url, tk, (item === digest[0] ? head : "") + item.text);
+        const sent = await Gchat.gchat_post(url, tk, (item === digest[0] ? head : "") + item.text, fetch, { wait: Chat.gchat_wait });
         if ("error" in sent) {
           console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
-          whole &&= !digest.includes(item);
+          if (sent.status === 429) {
+            b.until = now + Math.max(sent.retry ?? 0, Gchat.HOLD);
+            break;
+          }
           continue;
         }
         b.threads.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
       }
       // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
+      const whole = digest.length === plan.digest.length && digest.every((x) => b.threads.some((p) => p.key === x.key));
       if (plan.due && whole) {
         mem.digested = now;
         Memory.save(mem);
       }
-      if (b.threads.length > 0 && Chat.gchat_token !== null) {
+      if (b.threads.length > 0 && Chat.gchat_token !== null && now >= (b.until ?? 0)) {
         await Chat.bridged(chat, url, Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, Date.now()));
       }
     } catch (err: any) {

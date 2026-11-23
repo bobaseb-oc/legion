@@ -654,6 +654,7 @@ globalThis.fetch = async (url, init = {}) => {
 };
 chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
 Chat.gchat_token = async () => "tok";
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = async () => { Chat.chats.set("u1", chat); await Chat.bridge(chat, Date.now()); await Bun.sleep(100); };
 const thread = (q) => chat.bridging?.threads.find((p) => p.key === "q" + q.id)?.thread ?? null;
 const yes = async (t, name) => {
