@@ -80,6 +80,24 @@ test("P5, L1-AC13: a grant made at t is taken before t + GRANT_MS, missed at t +
   expect(Pending.take(late, "main", "shell", ARGS, T + Pending.GRANT_MS + 1)).toBe(false);
 });
 
+test("PLP-2921: prune drops a grant made at t once t + GRANT_MS is reached, as take misses it", () => {
+  for (const at of [T + Pending.GRANT_MS, T + Pending.GRANT_MS + 1]) {
+    const grants = new Map();
+    Pending.grant(grants, rec(), T);
+    Pending.prune(grants, at);
+    expect(grants.size).toBe(0);
+  }
+});
+
+test("PLP-2921: prune keeps a grant made at t at t + GRANT_MS - 1 ms, unchanged and still takeable", () => {
+  const grants = new Map();
+  Pending.grant(grants, rec(), T);
+  Pending.grant(grants, rec({ who: "Wkr" }), T - Pending.GRANT_MS);
+  Pending.prune(grants, T + Pending.GRANT_MS - 1);
+  expect([...grants.values()]).toEqual([{ who: "main", until: T + Pending.GRANT_MS }]);
+  expect(Pending.take(grants, "main", "shell", ARGS, T + Pending.GRANT_MS - 1)).toBe(true);
+});
+
 test("P6, L1-AC9: at restart an open consent made 24 h + 1 s ago is expired; a newer one stays open", () => {
   const old = rec({ id: 1, made: T - Pending.CONSENT_MS - 1000, until: T - 1000 });
   const fresh = rec({ id: 2, made: T - 1000, until: T - 1000 + Pending.CONSENT_MS });
