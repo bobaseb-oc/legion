@@ -129,6 +129,7 @@ test("symlinks: one in WORK pointing outside is never listed nor removed; the ou
   const forged: Sweep.Item = { path: work + "/Eve", bytes: 4, mtime: 0, git: null };
   expect(Sweep.sweep_remove(work, forged)).not.toBeNull();
   expect(Sweep.sweep_remove(work, { ...forged, path: work + "/../out/precious" })).not.toBeNull();
+  expect(Sweep.sweep_remove(work, { ...forged, path: out + "/precious" })).not.toBeNull();
   expect(Sweep.sweep_remove(work, { ...forged, path: work })).not.toBeNull();
   expect(fs.readFileSync(out + "/precious/keep.txt", "utf8")).toBe("keep");
   expect(fs.existsSync(work)).toBe(true);
@@ -149,6 +150,10 @@ test("AC5: a listed dir touched or made dirty since the listing fails its re-che
   age(r, 8);
   const ok = items.map((x) => [x.path, Sweep.sweep_check(work, x, agents, [], Date.now())]);
   expect(ok).toEqual([[work + "/Ada", false], [work + "/Bob", true], [r, false]]);
+  // touched again yet still older than AGE: newer than listed, so kept
+  fs.writeFileSync(work + "/Bob/later", "z");
+  age(work + "/Bob", 7.5);
+  expect(Sweep.sweep_check(work, items[1]!, agents, [], Date.now())).toBe(false);
   expect(Sweep.sweep_check(work, items[1]!, { ...agents, busy: new Set(["Bob"]) }, [], Date.now())).toBe(false);
 });
 
@@ -285,12 +290,13 @@ const forged = await answer(999, "yes");
 const afterforged = fs.existsSync(work + "/Cy");
 Chat.ticked(chat, now + DAY + 60e3);
 const lapsed = !sweeps().some((x) => x.id === q.id);
+const lapsenote = chat.mem.questions.some((x) => x.fyi && x.text.includes("no answer in 24 h"));
 const afterlapse = fs.existsSync(work + "/Cy");
 const late = await answer(q.id, "yes");
 const afterlate = fs.existsSync(work + "/Cy");
 const next = sweeps().map((x) => x.id);
 const no = next.length === 1 ? await answer(next[0], "no") : null;
-console.log(JSON.stringify({ forged, afterforged, lapsed, afterlapse, late: late !== null && "error" in late, afterlate, next: next.length, no, afterno: fs.existsSync(work + "/Cy"), open: sweeps().length }));
+console.log(JSON.stringify({ forged, afterforged, lapsed, lapsenote, afterlapse, late: late !== null && "error" in late, afterlate, next: next.length, no, afterno: fs.existsSync(work + "/Cy"), open: sweeps().length }));
 process.exit(0);
 `;
 
@@ -299,6 +305,7 @@ test("AC8: unanswered for 24 h the question lapses and every dir stays; a forged
   expect(out.forged).toEqual({});
   expect(out.afterforged).toBe(true);
   expect(out.lapsed).toBe(true);
+  expect(out.lapsenote).toBe(true);
   expect(out.afterlapse).toBe(true);
   expect(out.late).toBe(true);
   expect(out.afterlate).toBe(true);
