@@ -355,6 +355,22 @@ test("a code block has a Copy button with its whole text, escaped", () => {
   expect(html).not.toContain("<img");
 });
 
+// a list holding a link (PR nudges to send on, PLP-2918) has a Copy
+// button with its lines, each link its full URL, escaped; one without
+// links has none
+test("a list with a link has a Copy button with its lines and full URLs, escaped; one without has none", () => {
+  const html = Html.block_html({ $: "List", k: false, x: [
+    [{ $: "Link", x: "PR 1", k: "https://github.com/a/b/pull/1?x=1&y=2" }, { $: "Text", x: ' - "<b>" - ask @ana' }],
+    [{ $: "Text", x: "plain" }],
+  ] });
+  expect(html).toContain('<button class="copy" data-copy="- PR 1 (https://github.com/a/b/pull/1?x=1&amp;y=2) - &quot;&lt;b&gt;&quot; - ask @ana\n- plain" title="Copy">');
+  expect(html).toContain("<ul>");
+  expect(html).not.toContain("<b>");
+  const none = Html.block_html({ $: "List", k: true, x: [[{ $: "Text", x: "a" }], [{ $: "Bold", x: "b" }]] });
+  expect(none).not.toContain("data-copy");
+  expect(none).toBe("<ol><li>a</li><li><strong>b</strong></li></ol>");
+});
+
 // B2: a shell command running shows over the composer as Claude Code's:
 // its command, who and where, its time (ticking: data-since), its last
 // lines, Background and Stop, the keys; the background list each one

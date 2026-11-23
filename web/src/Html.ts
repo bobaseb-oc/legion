@@ -419,7 +419,9 @@ export function block_html(b: Md.Block): string {
     case "List": {
       const tag = b.k ? "ol" : "ul";
       const items = b.x.map((item) => `<li>${spans_html(item)}</li>`);
-      return `<${tag}>${items.join("")}</${tag}>`;
+      const list = `<${tag}>${items.join("")}</${tag}>`;
+      // a list of links (PRs to send on): Copy, its lines with full URLs
+      return Md.md_list_links(b) ? `<div class="list">${copy_html(Md.md_list_text(b))}${list}</div>` : list;
     }
     case "Tabl": {
       const rows = b.x.map((row, i) => {

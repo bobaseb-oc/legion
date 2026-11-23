@@ -648,6 +648,7 @@ var GH_FLAGS = new Set([
 var GH_API = new Set(["--paginate", "--jq", "-q", "--template", "-t", "--include", "-i", "--silent", "--slurp", "--verbose"]);
 var PROTECTED = /^(main|master|develop|trunk|HEAD|gh-pages|release(\/.*)?|\d+(\.\d+)*\.x)$/;
 var PUSH_FLAGS = new Set(["-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose"]);
+var KEY = /(^|[^A-Za-z0-9])[A-Z][A-Z0-9]+-\d+(?![0-9])/;
 var FIND_WRITES = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
 var Modes;
 ((Modes2) => {
@@ -970,6 +971,31 @@ var Modes;
     return branch !== undefined && !PROTECTED.test(branch) && !branch.startsWith("-") && !branch.includes("..");
   }
   Modes2.feature_push = feature_push;
+  function unkeyed(command) {
+    const lexed = lex(command);
+    if (typeof lexed === "string") {
+      return null;
+    }
+    return lexed.map(unkeyed_one).find((why) => why !== null) ?? null;
+  }
+  Modes2.unkeyed = unkeyed;
+  function unkeyed_one([cmd, sub, verb, ...rest]) {
+    const need = (what, text) => KEY.test(text) ? null : what + " has no ticket key (" + text + "): name the Jira ticket, as PLP-123. No ticket: ask the user; ticket-less work is theirs to run.";
+    if (cmd === "gh" && sub === "pr" && (verb === "create" || verb === "edit")) {
+      const at = rest.findIndex((w) => w === "--title" || w === "-t");
+      const title = at >= 0 ? rest[at + 1] : rest.find((w) => w.startsWith("--title="))?.slice("--title=".length);
+      if (title === undefined) {
+        return verb === "create" ? "A PR needs --title with its ticket key (as PLP-123: …), not one from commits." : null;
+      }
+      return need("The PR title", title);
+    }
+    if (cmd === "git" && sub === "push") {
+      const places = [verb, ...rest].filter((w) => w !== undefined && !w.startsWith("-"));
+      const branches = places.slice(1).map((ref) => ref.slice(ref.indexOf(":") + 1)).filter((b) => b !== "HEAD" && b !== "");
+      return branches.map((b) => need("The branch", b)).find((why) => why !== null) ?? null;
+    }
+    return null;
+  }
   function check(words) {
     const [cmd, ...args] = words;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(cmd)) {
@@ -1279,6 +1305,15 @@ function span_mark(m) {
 }
 function md_flat(s) {
   return span_parse(s).map((span) => span.x).join("");
+}
+function md_list_text(b) {
+  const link = (s) => s.$ !== "Link" || s.x === s.k ? s.x : s.x + " (" + s.k + ")";
+  const line = (item, i) => (b.k ? i + 1 + ". " : "- ") + item.map(link).join("");
+  return b.x.map(line).join(`
+`);
+}
+function md_list_links(b) {
+  return b.x.some((item) => item.some((s) => s.$ === "Link"));
 }
 function md_plain(s) {
   const paras = s.replace(/\r/g, "").split(/\n(?:[ \t]*\n)+/);
@@ -3097,7 +3132,8 @@ function block_html(b) {
     case "List": {
       const tag = b.k ? "ol" : "ul";
       const items = b.x.map((item) => `<li>${spans_html(item)}</li>`);
-      return `<${tag}>${items.join("")}</${tag}>`;
+      const list = `<${tag}>${items.join("")}</${tag}>`;
+      return md_list_links(b) ? `<div class="list">${copy_html(md_list_text(b))}${list}</div>` : list;
     }
     case "Tabl": {
       const rows = b.x.map((row, i) => {
