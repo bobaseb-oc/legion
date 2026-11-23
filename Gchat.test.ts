@@ -259,7 +259,10 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   out.first = posts.length;
   await pass();
   out.posts = posts.map((p) => ({ path: p.path, tk: p.tk, reply: p.reply, len: p.text.length }));
-  out.keys = chat.mem.gchat.posted.map((p) => p.key);
+  const threads = chat.bridging?.threads ?? [];
+  out.keys = threads.map((p) => p.key);
+  // this process's threads, for the restart to reply in (memory only: PLP-2922)
+  fs.writeFileSync(process.env.UNII_DIR + "/old-threads.json", JSON.stringify(threads.map((p) => [p.key, p.thread])));
   out.lists = lists.length;
   const before = posts.length;
   chat.socks.delete(device);
@@ -269,10 +272,9 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   out.freed = !Chat.chats.has("u1");
   out.bye = posts.slice(before).map((p) => ({ tk: p.tk, text: p.text }));
 } else {
-  const saved = Memory.load(chat.mem.dir, () => null).gchat;
-  out.saved = saved.posted.map((p) => p.key);
   Chat.gchat_token = async () => "tok";
-  const old = new Map(chat.mem.gchat.posted.map((p) => [p.key, p.thread]));
+  const old = new Map(JSON.parse(fs.readFileSync(process.env.UNII_DIR + "/old-threads.json", "utf8")));
+  out.saved = old.size;
   const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
   const n = chat.mem.questions.find((x) => x.fyi);
   const t = chat.mem.assigned[0];
@@ -343,7 +345,7 @@ test("the server: each item posted once a process, again in a new thread after a
   expect(a.out.bye[0].text).toContain("stopped listening");
   expect(a.out.bye[0].tk.startsWith("legion-")).toBe(true);
   const b = await run(dir, "reply", env);
-  expect(b.out.saved.length).toBe(5);
+  expect(b.out.saved).toBe(5);
   // RED ZONE (PLP-2922): the restart posts the 5 open items again, each in
   // a new thread; replies in the old threads answer nothing; then each
   // only once, posted no more

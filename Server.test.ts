@@ -2253,7 +2253,7 @@ if (process.env.STEP === "post") {
   const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
   // the restart posts the question again; only that new thread answers (PLP-2922)
   await pass();
-  const thread = chat.mem.gchat.posted.filter((p) => p.key === "q" + q.id).at(-1).thread;
+  const thread = chat.bridging.threads.filter((p) => p.key === "q" + q.id).at(-1).thread;
   script = [{ name: SPACE + "/messages/r1", sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread }, createTime: new Date(Date.now() - 1000).toISOString(), text: "2" }];
   await pass();
   await Bun.sleep(100);
@@ -2625,7 +2625,8 @@ const keep = (chat) => chat.socks.add({ send: () => {}, close: () => {}, data: {
 const pass = (chat, now) => (Chat.chats.set("u1", chat), Chat.bridge(chat, now ?? Date.now()));
 const held = (s) => posts.filter((p) => String(p.text).includes(s)).length;
 const msgs = (chat) => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
-const posted = (chat, key) => (chat.mem.gchat?.posted ?? []).find((p) => p.key === key) ?? null;
+// this process's post of an item (its threads are in memory only: PLP-2922)
+const posted = (chat, key) => (chat.bridging?.threads ?? []).find((p) => p.key === key) ?? null;
 const reply = (chat, key, name, text, o = {}) => script.push({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: posted(chat, key)?.thread ?? SPACE + "/threads/none" }, createTime: new Date(Date.now() - 1000).toISOString(), text, ...o });
 const live = (chat, args, id) => {
   const box = { done: null };
@@ -2654,9 +2655,7 @@ out.ac2 = held("NOTE-AC2");
 out.ac5 = held("QUESTION-AC5");
 await pass(chat, t0 + DIGEST_MS + 2000);
 out.ac3 = held("NOTE-AC2");
-// O4: sent once, never again, even once gchat.posted no longer holds it
-const nkey = chat.mem.questions.find((q) => q.fyi && q.text.includes("NOTE-AC2"));
-if (chat.mem.gchat !== undefined) chat.mem.gchat.posted = chat.mem.gchat.posted.filter((p) => p.key !== "n" + nkey?.id);
+// O4: sent once a process, never again
 let t = t0 + DIGEST_MS + 2000;
 for (let k = 0; k < 10; k++) {
   t += DIGEST_MS + 1000;
@@ -2717,7 +2716,7 @@ test("L4-AC3, O3: that queued note: a pass after DIGEST_MS posts it once", async
   expect(out.ac3).toBe(1);
 }, 30_000);
 
-test("L4-AC4, O4: the note sent, ten more passes (gchat.posted no longer holding it): posted once in all; the approval too", async () => {
+test("L4-AC4, O4: the note sent, ten more passes: posted once in all; the approval too", async () => {
   const out = await out_run("out-pace", OUT_PACE);
   expect(out.ac4).toBe(1);
   expect(out.ac1_again).toBe(1);
@@ -2909,19 +2908,17 @@ const listed = await until(() => Chat.state(chat).calls.length === ${CASES.lengt
 const n = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, id_of(chat, "make deploy-" + k)]));
 // a pass may post only some: pass until each case is posted
 for (let k = 0; k < 5 && !${JSON.stringify(CASES)}.every((c) => posted(chat, "a" + n[c]) !== null); k++) await pass(chat);
-const old = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, posted(chat, "a" + n[k])]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread }]));
+const old = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, posted(chat, "a" + n[k])]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread, at: p.at }]));
 await Chat.end(chat);
-// the forged thread: view.json's posted entry of deploy-30's thread made
-// to name deploy-31's record (its key and fp), deploy-31's own entry gone
+// the forged thread (the attack: an agent's shell can write view.json): a
+// gchat.posted written from A's threads, deploy-30's made to name
+// deploy-31's record (its key and fp), deploy-31's own entry gone
 const file = chat.mem.dir + "/view.json";
 const saved = JSON.parse(fs.readFileSync(file, "utf8"));
 const r31 = (saved.pending ?? []).find((p) => p.id === n[31]);
-let forged = false;
-if (saved.gchat !== undefined && Array.isArray(saved.gchat.posted)) {
-  saved.gchat.posted = saved.gchat.posted.filter((p) => p.key !== "a" + n[31]);
-  for (const p of saved.gchat.posted) if (p.key === "a" + n[30]) { p.key = "a" + n[31]; p.fp = r31?.fp; forged = true; }
-  fs.writeFileSync(file, JSON.stringify(saved));
-}
+const forged = old[30] !== undefined && r31 !== undefined;
+saved.gchat = { ...saved.gchat, posted: Object.entries(old).filter(([k]) => Number(k) !== 31).map(([k, p]) => Number(k) === 30 ? { key: "a" + n[31], ...p, fp: r31?.fp } : { key: "a" + n[k], ...p }) };
+fs.writeFileSync(file, JSON.stringify(saved));
 console.log(JSON.stringify({ listed, n, old, forged, open: (disk(chat) ?? []).filter((p) => p.state === "open").length }));
 process.exit(0);
 `;
@@ -2934,7 +2931,7 @@ const C = (k) => ({ device: "mac", command: "make deploy-" + k });
 const n = Object.fromEntries(${JSON.stringify(CASES)}.map((k) => [k, id_of(chat, "make deploy-" + k)]));
 const rec = (k) => (chat.mem.pending ?? []).find((p) => p.id === n[k]) ?? null;
 // B's own post of case k: a thread other than A's
-const fresh = (k) => (chat.mem.gchat?.posted ?? []).filter((p) => p.key === "a" + n[k] && p.tk !== OLD[k]?.tk).at(-1) ?? null;
+const fresh = (k) => (chat.bridging?.threads ?? []).filter((p) => p.key === "a" + n[k] && p.tk !== OLD[k]?.tk).at(-1) ?? null;
 const at = (thread, name, text, o = {}) => script.push({ name: SPACE + "/messages/" + name, sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread ?? SPACE + "/threads/none" }, createTime: new Date(Date.now() - 1000).toISOString(), text, ...o });
 const here = (k, name, text, o) => at(fresh(k)?.thread, name, text, o);
 const before = posts.length;
@@ -3145,20 +3142,17 @@ await Tools.call(chat.tools, "main", "ask", { question: "DEC-22 push AO-1?", opt
 const q = (s) => chat.mem.questions.find((x) => x.text.includes(s));
 const K = { qa: "q" + q("QA-22")?.id, qb: "q" + q("QB-22")?.id, qc: "q" + q("QC-22")?.id, n: "n" + q("NOTE-22")?.id, t: "t" + chat.mem.assigned.find((a) => a.text.includes("TODO-22"))?.n, d: "d" + chat.mem.decided.find((d) => d.question.includes("DEC-22"))?.id };
 for (let k = 0; k < 5 && !Object.values(K).every((key) => posted(chat, key) !== null); k++) await pass(chat);
-const old = Object.fromEntries(Object.entries(K).map(([k, key]) => [k, posted(chat, key)]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread }]));
+const old = Object.fromEntries(Object.entries(K).map(([k, key]) => [k, posted(chat, key)]).filter(([, p]) => p !== null).map(([k, p]) => [k, { tk: p.tk, thread: p.thread, at: p.at }]));
 await Chat.end(chat);
-// the forged threads: qA's entry made to name qB, the note's the decision
+// the forged threads (the attack: an agent's shell can write view.json): a
+// gchat.posted written from A's threads, qA's made to name qB, the note's
+// the decision, qB's and the decision's own entries gone
 const file = chat.mem.dir + "/view.json";
 const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-let forged = 0;
-if (saved.gchat !== undefined && Array.isArray(saved.gchat.posted)) {
-  saved.gchat.posted = saved.gchat.posted.filter((p) => p.key !== K.qb && p.key !== K.d);
-  for (const p of saved.gchat.posted) {
-    if (p.key === K.qa) { p.key = K.qb; forged++; }
-    else if (p.key === K.n) { p.key = K.d; forged++; }
-  }
-  fs.writeFileSync(file, JSON.stringify(saved));
-}
+const named = { qa: K.qb, n: K.d };
+const forged = Object.keys(named).filter((k) => old[k] !== undefined).length;
+saved.gchat = { ...saved.gchat, posted: Object.entries(old).filter(([k]) => k !== "qb" && k !== "d").map(([k, p]) => ({ key: named[k] ?? K[k], ...p })) };
+fs.writeFileSync(file, JSON.stringify(saved));
 console.log(JSON.stringify({ K, old, forged }));
 process.exit(0);
 `;
@@ -3219,7 +3213,7 @@ test("PLP-2922 harness: A posts six items and forges two threads; B finds them o
   expect(b.control.said).toContain("Answer to your question " + a.K.qb.slice(1) + " (QB-22 merge it?):\nMerge");
 }, 60_000);
 
-test("PLP-2922 AC1: view.json edited so question A's thread names question B, a reply 1 there: question B still open", async () => {
+test("PLP-2922 AC1, PLP-2924 AC3: view.json edited so question A's thread names question B, a reply 1 there: question B still open", async () => {
   const { b } = await threads_run();
   expect(b.after.qb).toBe(true);
   expect(b.after.qa).toBe(true);
@@ -3250,4 +3244,110 @@ test("PLP-2922: view.json edited so a note's thread names a decision, undo there
   const { b } = await threads_run();
   expect(b.after.d).toBe(true);
   expect(b.said.filter((s: string) => s.startsWith("The user reversed"))).toEqual([]);
+}, 60_000);
+
+// PLP-2924: view.json keeps no record of what was posted (no outbox, no
+// gchat.posted), only gchat.acted. Process A posts one question (AC1),
+// passes again (AC5), posts a todo and acts on one reply in its thread
+// (one not understood: the thread is told, the todo stays open), ends; the
+// test then writes the previous version's records into view.json (AC2).
+// Process B (a restart, same UNII_DIR) loads and saves (AC2), posts the
+// todo again, then sees A's reply again in B's thread (AC4: only
+// gchat.acted stops a second act)
+const OUT_RECORDS_A = OUT_HEAD + `
+const chat = opened();
+keep(chat);
+chat.mem.mode = "super";
+chat.mem.pace = "all";
+const sig = () => new AbortController().signal;
+const file = chat.mem.dir + "/view.json";
+const view = () => JSON.parse(fs.readFileSync(file, "utf8"));
+const out = {};
+await Tools.call(chat.tools, "main", "ask", { question: "Q-2924 ship it?", options: ["Hold", "Push it"] }, sig(), "r1");
+await pass(chat);
+const v = view();
+out.ac1 = { posts: held("Q-2924"), outbox: "outbox" in v, gchat: Object.keys(v.gchat ?? {}) };
+await pass(chat);
+out.ac5 = held("Q-2924");
+await Tools.call(chat.tools, "main", "assign", { text: "TODO-2924 approve PR #9" }, sig(), "r2");
+const todo = "t" + chat.mem.assigned.find((a) => a.text.includes("TODO-2924"))?.n;
+await pass(chat);
+reply(chat, todo, "r-todo", "maybe later");
+await pass(chat);
+await Bun.sleep(200);
+out.todo = todo;
+out.name = SPACE + "/messages/r-todo";
+out.acted = [...chat.mem.gchat.acted];
+out.told = held("Not understood");
+const p = posted(chat, todo);
+await Chat.end(chat);
+// the previous version's records
+const saved = view();
+saved.gchat = { ...saved.gchat, posted: [{ key: todo, tk: p?.tk, thread: p?.thread, at: p?.at }] };
+saved.outbox = [{ id: 1, key: todo, kind: "todo", made: 1, must: false, state: "sent", via: "gchat", sent: 1 }];
+fs.writeFileSync(file, JSON.stringify(saved));
+const { gchat, outbox, ...rest } = saved;
+out.kept = rest;
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+const OUT_RECORDS_B = OUT_HEAD + `
+const A = JSON.parse(process.env.A ?? "{}");
+const chat = opened();
+keep(chat);
+const file = chat.mem.dir + "/view.json";
+const out = {};
+Memory.save(chat.mem);
+const v = JSON.parse(fs.readFileSync(file, "utf8"));
+const same = (k) => JSON.stringify(v[k]) === JSON.stringify(A.kept[k]);
+out.ac2 = { outbox: "outbox" in v, gchat: Object.keys(v.gchat ?? {}), acted: v.gchat?.acted ?? null, pace: v.pace, same: ["questions", "asked", "assigned", "decided", "digested", "pended", "evented"].filter((k) => !same(k)) };
+// B posts the open todo again; A's reply is seen in B's thread
+await pass(chat);
+out.reposted = posted(chat, A.todo) !== null;
+reply(chat, A.todo, "r-todo", "maybe later");
+await pass(chat);
+await Bun.sleep(200);
+out.ac4 = held("Not understood");
+// the control: a new reply there is acted on
+reply(chat, A.todo, "r-new", "maybe later");
+await pass(chat);
+await Bun.sleep(200);
+out.control = held("Not understood");
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+let recording: Promise<{ a: any; b: any }> | null = null;
+const records_run = (): Promise<{ a: any; b: any }> => (recording ??= (async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const a = await out_run("out-records-a", OUT_RECORDS_A, dir);
+  const b = await out_run("out-records-b", OUT_RECORDS_B, dir, { A: JSON.stringify(a) });
+  return { a, b };
+})());
+
+test("PLP-2924 AC1: the bridge posts one question: view.json holds no outbox, and its gchat no posted", async () => {
+  const { a } = await records_run();
+  expect(a.ac1.posts).toBe(1);
+  expect(a.ac1.outbox).toBe(false);
+  expect(a.ac1.gchat).toEqual(["acted"]);
+}, 60_000);
+
+test("PLP-2924 AC2: a view.json with the previous version's gchat.posted and outbox: loads, keeps the other fields, saves neither", async () => {
+  const { a, b } = await records_run();
+  expect(a.acted).toEqual([a.name]);
+  expect(b.ac2).toEqual({ outbox: false, gchat: ["acted"], acted: [a.name], pace: "all", same: [] });
+}, 60_000);
+
+test("PLP-2924 AC4: a reply acted on before a restart (gchat.acted), seen again after it: not acted on again", async () => {
+  const { a, b } = await records_run();
+  expect(a.told).toBe(1);
+  expect(b.reposted).toBe(true);
+  expect(b.ac4).toBe(0);
+  expect(b.control).toBe(1);
+}, 60_000);
+
+test("PLP-2924 AC5: one process, two bridge passes with the same open question: posted once", async () => {
+  const { a } = await records_run();
+  expect(a.ac5).toBe(1);
 }, 60_000);
