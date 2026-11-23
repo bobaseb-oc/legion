@@ -2365,7 +2365,7 @@ Chat.chats.delete("u1");
 Chat.drain(chat);
 await Bun.sleep(200);
 const held = msgs(chat).filter((m) => String(m.text).includes("GONE-BODY")).length;
-console.log(JSON.stringify({ held, turned: turns() - before }));
+console.log(JSON.stringify({ held, turned: turns() - before, state: events(chat).find((e) => e.id === 1)?.state ?? null }));
 process.exit(0);
 `;
 
@@ -2373,6 +2373,7 @@ test("L3, R4: a drain for a chat no longer current pushes nothing and starts no 
   const out = await event_run("event-gone", EVENT_GONE);
   expect(out.held).toBe(0);
   expect(out.turned).toBe(0);
+  expect(out.state).toBe("taken"); // so the next open reads it back as from disk
 }, 30_000);
 
 // a non-user event's fence names its own source (user's call 2026-11-23)
