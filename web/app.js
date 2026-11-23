@@ -1743,6 +1743,7 @@ function view_new() {
     roots: null,
     mapped: new Set,
     recall: null,
+    lookup: null,
     seek: null,
     notes: [],
     tab: crypto.randomUUID(),
@@ -1833,6 +1834,12 @@ function view_hear(v, msg) {
     case "recalled": {
       if (v.recall?.q === msg.q) {
         v.recall = { q: msg.q, hits: msg.hits, more: msg.more };
+      }
+      return [];
+    }
+    case "agents_found": {
+      if (v.lookup?.q === msg.q) {
+        v.lookup = { q: msg.q, hits: msg.hits };
       }
       return [];
     }
@@ -2092,6 +2099,11 @@ function view_act(v, act) {
       const q = act.q.trim().slice(0, FIND);
       v.recall = q === "" ? null : { q, hits: null, more: false };
       return q === "" ? [] : [{ $: "search", q }];
+    }
+    case "Agents": {
+      const q = act.q.trim().slice(0, FIND);
+      v.lookup = q === "" ? null : { q, hits: null };
+      return q === "" ? [] : [{ $: "agents", q }];
     }
     case "List": {
       if (v.dirs.has(act.path)) {
@@ -2437,6 +2449,23 @@ function undo_ask(name) {
 }
 function minute(date) {
   return date.slice(0, 16).replace("T", " ");
+}
+function agent_hit_text(h) {
+  return [h.name, ...h.title === undefined ? [] : [h.title], h.state, minute(h.date)].join(" · ");
+}
+function view_agents_note(v) {
+  const l = v.lookup;
+  if (l === null) {
+    return "";
+  }
+  if (l.hits === null) {
+    return "Looking for agents named “" + l.q + "”…";
+  }
+  if (l.hits.length === 0) {
+    return "No agent's name or title has “" + l.q + "”.";
+  }
+  return ["Agents for “" + l.q + "”:", ...l.hits.map(agent_hit_text), "/tab <name> opens one."].join(`
+`);
 }
 var PATH_EXT = /\.(ts|tsx|js|jsx|mjs|py|md|json|jsonl|sh|css|html|yml|yaml|toml|sql|go|rs|txt|ipynb|cfg|ini|lock|csv)$/i;
 function view_path(text) {
@@ -2949,6 +2978,18 @@ function also(c) {
 }
 function focus_href(name) {
   return ` href="${esc2(view_hash("crew", name))}"`;
+}
+function agents_find_html(v) {
+  const l = v.lookup;
+  const form = `<form class="afind"><input name="q" data-keep="agents" maxlength="${FIND}" value="${esc2(l?.q ?? "")}" placeholder="Find an agent by name or title, archived ones too" aria-label="find an agent" autocomplete="off"></form>`;
+  if (l === null) {
+    return form;
+  }
+  if (l.hits === null || l.hits.length === 0) {
+    return form + `<div class="meta">${esc2(l.hits === null ? "Looking…" : view_agents_note(v))}</div>`;
+  }
+  const hits = l.hits.map((h) => `<a class="ahit ${h.state}"${focus_href(h.name)}><span class="t">${esc2(h.title ?? h.name)}</span><span class="meta">${esc2(h.name + " · " + h.state + " · " + minute(h.date))}</span></a>`);
+  return form + `<div class="ahits">${hits.join("")}</div>`;
 }
 function tree_html(v, now) {
   return view_tree(v, now).map((r) => {
@@ -4269,6 +4310,7 @@ function chat() {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#crew").addEventListener("submit", agents_find);
   $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", track_edit);
@@ -5090,7 +5132,7 @@ function crew_bars() {
   }
   markup($("#crew .needs"), needs_html(v));
   markup($("#crew .card"), [focus_html(v), lane_html(v, Date.now())].filter((h) => h !== ""));
-  markup($("#crew .tree"), tree_html(v, Date.now()));
+  markup($("#crew .tree"), [agents_find_html(v), ...tree_html(v, Date.now())]);
   const grid = v.page === null;
   document.body.classList.toggle("gridmode", grid);
   $("#grid").hidden = !grid;
@@ -5380,6 +5422,14 @@ function memory_find(ev) {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input").value });
+}
+function agents_find(ev) {
+  const form = ev.target.closest("form.afind");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Agents", q: form.querySelector("input").value });
 }
 function note_edit(ev) {
   const form = ev.target.closest("form.mnote");

@@ -272,6 +272,10 @@ const IMAGES = "/docs/images/";
 
 const AGENTS = "/docs/agent/";
 
+// an older agent's log read at its ends only (Memory.agent_ends): bytes
+// of its head and of its tail, each
+const ENDS = 16384;
+
 // the messages a search reads between turns of the event loop
 const STEP = 256;
 
@@ -1685,6 +1689,51 @@ h4 { margin: .8em 0 .2em; color: #888; font-weight: normal; } pre { margin: 0; w
     }
     const sub = Memory.agent_mem(mem, name)!;
     return Array.from({ length: sub.count }, (_, i) => Memory.message(sub, i)!);
+  }
+
+  // the agents on disk, by name: a tree's folder or an older log, a name
+  // not well formed (Memory.agent_name) never
+  export function agent_names(mem: Memory): string[] {
+    const dir = mem.dir + AGENTS;
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    return [...new Set(files.map((file) => file.replace(/\.jsonl$/, "")))].filter(Memory.agent_name);
+  }
+
+  // an agent's first entries (its note, its task) and its last's date,
+  // each read by its index (an older log: its ENDS bytes at each end), no
+  // tree opened, the log never read whole; null: no such agent
+  export function agent_ends(mem: Memory, name: string): { head: Root[]; date: string } | null {
+    if (!Memory.agent_name(name)) {
+      return null;
+    }
+    const open = mem.agents.get(name);
+    if (open !== undefined) {
+      const head = [0, 1].flatMap((i) => Memory.message(open, i) ?? []);
+      return { head, date: Memory.message(open, open.count - 1)?.date ?? head.at(-1)?.date ?? "" };
+    }
+    const dir = mem.dir + AGENTS + name;
+    if (fs.existsSync(dir + "/main.index")) {
+      const read = (i: number): Root | null => {
+        const rec = i < 0 ? Buffer.alloc(0) : Memory.slice(dir + "/main.index", i * SLOT, SLOT);
+        const day = rec.length < SLOT ? 0 : rec.readUInt32LE(8);
+        const file = dir + "/main/" + new Date(day * DAY).toISOString().slice(0, 10) + ".jsonl";
+        return day === 0 ? null : Memory.parse(Memory.slice(file, rec.readDoubleLE(0), rec.readUInt32LE(12)).toString("utf8"), file);
+      };
+      const head = [0, 1].flatMap((i) => read(i) ?? []);
+      const last = read(fs.statSync(dir + "/main.index").size / SLOT - 1);
+      return { head, date: last?.date ?? head.at(-1)?.date ?? "" };
+    }
+    if (!fs.existsSync(dir + ".jsonl")) {
+      return null;
+    }
+    const file = dir + ".jsonl";
+    const size = fs.statSync(file).size;
+    const lines = (at: number) => Memory.slice(file, at, ENDS).toString("utf8").split("\n");
+    // whole lines only: one cut at ENDS (a long task) is left out
+    const head = lines(0).slice(0, size > ENDS ? -1 : undefined).slice(0, 2).flatMap((line) => Memory.parse(line, file) ?? []);
+    const tail = lines(Math.max(0, size - ENDS)).slice(size > ENDS ? 1 : 0).filter((line) => line !== "");
+    const last = tail.length === 0 ? null : Memory.parse(tail.at(-1)!, file);
+    return { head, date: last?.date ?? head.at(-1)?.date ?? "" };
   }
 
   // a name not taken, its tree made

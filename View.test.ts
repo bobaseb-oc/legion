@@ -554,6 +554,28 @@ test("pins and recall in the terminal: /pin, /seek take #id; /pins and a search'
   expect(View.view_recall_note(v)).toBe(`“deploy”:\n#9 · 2026-11-16 10:20 · legion: the deploy went out\nThe newest ${View.FOUND} shown: search for more words to reach older ones.\n/seek #id shows one in the chat.`);
 });
 
+// PLP-2915: agents searched by name or title (the Crew page's box,
+// /agents): empty asks nothing; an older search's answer is dropped; the
+// hits listed with name, title, state and date
+test("agents searched: an empty search asks nothing, an older answer is dropped, the hits as a note", () => {
+  const v = View.view_new();
+  expect(View.view_act(v, { $: "Agents", q: "" })).toEqual([]);
+  expect(View.view_act(v, { $: "Agents", q: "  \n " })).toEqual([]);
+  expect(v.lookup).toBeNull();
+  expect(View.view_agents_note(v)).toBe("");
+  expect(View.view_act(v, { $: "Agents", q: "  log " })).toEqual([{ $: "agents", q: "log" }]);
+  expect(View.view_agents_note(v)).toBe("Looking for agents named “log”…");
+  View.view_act(v, { $: "Agents", q: "login" });
+  View.view_hear(v, { $: "agents_found", q: "log", hits: [{ name: "Old", state: "past", date: "2026-11-01T10:00:00.000Z" }] });
+  expect(v.lookup).toEqual({ q: "login", hits: null });
+  View.view_hear(v, { $: "agents_found", q: "login", hits: [] });
+  expect(View.view_agents_note(v)).toBe("No agent's name or title has “login”.");
+  View.view_hear(v, { $: "agents_found", q: "login", hits: [{ name: "Login-Fixer", title: "Fix the login flow", state: "archived", date: "2026-11-16T10:20:00.000Z" }, { name: "Logan", state: "working", date: "2026-11-15T08:00:00.000Z" }] });
+  expect(View.view_agents_note(v)).toBe("Agents for “login”:\nLogin-Fixer · Fix the login flow · archived · 2026-11-16 10:20\nLogan · working · 2026-11-15 08:00\n/tab <name> opens one.");
+  expect(View.view_act(v, { $: "Agents", q: "" })).toEqual([]);
+  expect(v.lookup).toBeNull();
+});
+
 test("/undo and /handoff in the terminal: a crew member, idle for an undo, confirmed by yes; the page's agent by default", () => {
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Wkr", "Mgr", "worker", "working")] });

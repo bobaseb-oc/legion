@@ -621,3 +621,76 @@ test("plan: the orchestrator files its plan in plan mode, kept across a reload; 
   expect([again.mode, again.plan?.text]).toEqual(["plan", "1. read the tests\n2. fix the race"]);
   Memory.stop(again);
 }));
+
+// PLP-2915: agents searched by name or title (Tools.find), this process's
+// and those only on disk (archived: dismissed; past: before a restart),
+// each read by its log's first entries and last date, no tree opened
+function logged(dir: string, name: string, task: string, dates: string[]): void {
+  fs.mkdirSync(dir + "/docs/agent", { recursive: true });
+  const recs = [{ kind: "note", text: "worker of Unii" }, { kind: "user", text: task }, ...dates.slice(2).map(() => ({ kind: "unii", text: "on it" }))].map((r, k) => ({ i: k, ...r, date: dates[k] }));
+  fs.writeFileSync(dir + "/docs/agent/" + name + ".jsonl", recs.map((r) => JSON.stringify(r) + "\n").join(""));
+}
+
+test("an agent's ends: its note, its task and its last date, read from its index or its old file; a bad name none", () => faked(async () => {
+  const dir = DIR + "/ends";
+  const mem = Memory.load(dir, () => SHARE);
+  const name = Memory.agent_new(mem);
+  Memory.agent_push(mem, name, "note", "worker of Unii");
+  Memory.agent_push(mem, name, "user", "Fix the login flow");
+  Memory.agent_push(mem, name, "unii", "done");
+  const last = Memory.agent(mem, name)!.at(-1)!.date;
+  Memory.stop(mem);
+  logged(dir, "Old-One", "Deploy it", ["2026-11-01T10:00:00.000Z", "2026-11-01T10:00:01.000Z", "2026-11-02T09:00:00.000Z"]);
+  fs.mkdirSync(dir + "/docs/agent/bad_name");
+  fs.writeFileSync(dir + "/docs/agent/x.y.jsonl", "");
+  const again = Memory.load(dir, () => SHARE);
+  expect(again.agents.size).toBe(0);
+  expect(Memory.agent_names(again).sort()).toEqual([name, "Old-One"].sort());
+  const ends = Memory.agent_ends(again, name)!;
+  expect(ends.head.map((r) => [r.kind, r.text])).toEqual([["note", "worker of Unii"], ["user", "Fix the login flow"]]);
+  expect(ends.date).toBe(last);
+  expect(again.agents.size).toBe(0);
+  const old = Memory.agent_ends(again, "Old-One")!;
+  expect(old.head.map((r) => r.text)).toEqual(["worker of Unii", "Deploy it"]);
+  expect(old.date).toBe("2026-11-02T09:00:00.000Z");
+  expect(Memory.agent_ends(again, "bad_name")).toBeNull();
+  expect(Memory.agent_ends(again, "../ends")).toBeNull();
+  expect(Memory.agent_ends(again, "Nobody")).toBeNull();
+  Memory.stop(again);
+}));
+
+test("agents found by part of a name or title, any case: working, done, archived and past ones, newest first, 20 at most", () => faked(async () => {
+  const dir = DIR + "/find";
+  const mem = Memory.load(dir, () => SHARE);
+  const tools = served(mem, []);
+  const at = (d: number) => "2026-11-" + String(d).padStart(2, "0") + "T10:00:00.000Z";
+  const agent = (name: string, more: object) => tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["ok"], user: false, ...more } as any);
+  logged(dir, "Live-Alpha", "Ship the thing", [at(1), at(1), at(9)]);
+  agent("Live-Alpha", { call: { stop: () => {} }, title: "Ship the thing" });
+  logged(dir, "Done-Alpha", "Done thing", [at(1), at(1), at(8)]);
+  agent("Done-Alpha", {});
+  logged(dir, "Gone-Alpha", "Gone thing", [at(1), at(1), at(7)]);
+  agent("Gone-Alpha", { hidden: true });
+  logged(dir, "Past-Alpha", "Old thing", [at(1), at(1), at(6)]);
+  logged(dir, "Zed", "Roll out the ALPHA release", [at(1), at(1), at(5)]);
+  logged(dir, "Other", "Nothing here", [at(1), at(1), at(4)]);
+  fs.mkdirSync(dir + "/docs/agent/bad_alpha", { recursive: true });
+  fs.writeFileSync(dir + "/docs/agent/alpha.x.jsonl", "");
+  const hits = Tools.find(tools, "aLpHa");
+  expect(hits.map((h) => [h.name, h.state, h.date])).toEqual([
+    ["Live-Alpha", "working", at(9)], ["Done-Alpha", "done", at(8)], ["Gone-Alpha", "archived", at(7)], ["Past-Alpha", "past", at(6)], ["Zed", "past", at(5)],
+  ]);
+  expect(hits.find((h) => h.name === "Live-Alpha")?.title).toBe("Ship the thing");
+  expect(hits.find((h) => h.name === "Zed")?.title).toBe("Roll out the ALPHA release");
+  expect(Tools.find(tools, "nothing").map((h) => h.name)).toEqual(["Other"]);
+  expect(Tools.find(tools, "bad").map((h) => h.name)).toEqual([]);
+  for (let k = 0; k < 25; k++) {
+    logged(dir, "Many-" + "abcdefghijklmnopqrstuvwxyz"[k], "many", [at(1), at(1), at(10 + k)]);
+  }
+  const many = Tools.find(tools, "many-");
+  expect(many.length).toBe(20);
+  expect(many[0].name).toBe("Many-y");
+  expect(many.map((h) => h.date)).toEqual([...many.map((h) => h.date)].sort().reverse());
+  Tools.close(tools);
+  Memory.stop(mem);
+}));

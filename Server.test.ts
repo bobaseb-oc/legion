@@ -1306,6 +1306,72 @@ test("an agent's events go only to views on its page; a view's tell and dismiss 
   expect(out).toEqual({ a: [true, true], b: [false, true], told: {}, sent: ["one more thing"], crewed: true, dismissed: {}, after: false });
 });
 
+// PLP-2915: a view's search of the agents (a read, as "search" is):
+// answered at once to that view only, as agents_found; an archived one and
+// one only on disk (from before a restart) found too; an empty or long
+// search refused; a hit opens read-only by the "agent" read (Goto)
+const AGENTS_FIND = `
+const fs = await import("node:fs");
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const got = { a: [], b: [] };
+const sock = (k) => ({ send: (m) => got[k].push(JSON.parse(m)), data: { seen: new Set(), watch: new Set() } });
+const [a, b] = [sock("a"), sock("b")];
+chat.socks.add(a);
+chat.socks.add(b);
+const asks = [];
+AskAI.ask = (ask, on) => {
+  const [call, sink] = AskAI.tie(on, ask.bill, () => {}, () => {});
+  asks.push({ ask, sink });
+  call.send = () => {};
+  return call;
+};
+const until = async (f) => {
+  for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10);
+  return f();
+};
+const name = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "Find the flaky test");
+await until(() => asks.length === 1);
+asks[0].sink.end({ ok: true, text: "done", left: [] });
+await until(() => !chat.tools.agents.get(name).runs);
+await Chat.act(chat, "d1", { $: "dismiss", name }, "");
+fs.mkdirSync(chat.mem.dir + "/docs/agent", { recursive: true });
+fs.writeFileSync(chat.mem.dir + "/docs/agent/Old-Finder.jsonl", JSON.stringify({ i: 0, kind: "note", text: "worker of Unii", date: "2026-01-01T00:00:00.000Z" }) + "\\n" + JSON.stringify({ i: 1, kind: "user", text: "an old task", date: "2026-01-01T00:00:01.000Z" }) + "\\n");
+got.a.length = 0;
+got.b.length = 0;
+const answered = Chat.ask(chat, a, { $: "agents", q: " FIND " });
+const found = got.a.filter((m) => m.$ === "agents_found");
+const empty = Chat.ask(chat, a, { $: "agents", q: "  " });
+const long = Chat.ask(chat, a, { $: "agents", q: "x".repeat(201) });
+got.a.length = 0;
+Chat.ask(chat, a, { $: "agent", name: "Old-Finder" });
+console.log(JSON.stringify({
+  answered, empty: "error" in empty, long: "error" in long,
+  found: found.map((m) => [m.q, m.hits.map((h) => [h.name === name ? "it" : h.name, h.state, h.title ?? null])]),
+  b: got.b.length,
+  opened: got.a.filter((m) => m.$ === "agent").map((m) => m.found), entries: got.a.filter((m) => m.$ === "entry").map((m) => m.text),
+}));
+process.exit(0);
+`;
+
+test("PLP-2915: a view searches the agents, archived and past ones too; a hit opens read-only", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/find.ts", AGENTS_FIND);
+  const proc = Bun.spawn([process.execPath, dir + "/find.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({
+    answered: {}, empty: true, long: true,
+    found: [["FIND", [["it", "archived", "Find the flaky test"], ["Old-Finder", "past", "An old task"]]]],
+    b: 0,
+    opened: [true], entries: ["worker of Unii", "an old task"],
+  });
+}, 30_000);
+
 // Every view hears an agent's pulse (Tools.pulse) as it streams, at most
 // one an agent a PULSE (a burst of deltas: one); only views watching it
 // hear the deltas. A view's watch replaces what it watches: agents known,

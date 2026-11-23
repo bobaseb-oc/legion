@@ -150,6 +150,22 @@ function focus_href(name: string): string {
   return ` href="${esc(View.view_hash("crew", name))}"`;
 }
 
+// the Crew's search of the agents by name or title (View.Lookup): its
+// box, then each hit a link to its page (read-only: Goto), with its
+// title, state and last date; archived and past ones too
+export function agents_find_html(v: View.View): string {
+  const l = v.lookup;
+  const form = `<form class="afind"><input name="q" data-keep="agents" maxlength="${View.FIND}" value="${esc(l?.q ?? "")}" placeholder="Find an agent by name or title, archived ones too" aria-label="find an agent" autocomplete="off"></form>`;
+  if (l === null) {
+    return form;
+  }
+  if (l.hits === null || l.hits.length === 0) {
+    return form + `<div class="meta">${esc(l.hits === null ? "Looking…" : View.view_agents_note(v))}</div>`;
+  }
+  const hits = l.hits.map((h) => `<a class="ahit ${h.state}"${focus_href(h.name)}><span class="t">${esc(h.title ?? h.name)}</span><span class="meta">${esc(h.name + " · " + h.state + " · " + View.minute(h.date))}</span></a>`);
+  return form + `<div class="ahits">${hits.join("")}</div>`;
+}
+
 // the Crew tree (View.view_tree): per agent a caret (managers: fold or
 // open), its link (mark, name, tier, model; its roll-up or how long
 // ago), its actions
