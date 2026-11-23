@@ -32,7 +32,12 @@ export const TRASH = ".sweep-trash";
 export type Item = { path: string; bytes: number; mtime: number; git: "repo" | "worktree" | null; envs?: string[]; dev?: number; ino?: number };
 // the agents' names known (live or on disk), and those not done (at work,
 // asking, waiting, stopped)
-export type Agents = { known: Set<string>; busy: Set<string> };
+// shared: whether dirs not named after an agent (shared clones like
+// WORK/review) may be listed. M1: config.WORK is one per server, agent
+// names unique per user only, so a chat lists only its own agents' dirs,
+// and the shared ones only on a server with one user (Server.ts
+// Chat.sweep_agents); absent: not
+export type Agents = { known: Set<string>; busy: Set<string>; shared?: boolean };
 
 // git read-only, argv only: no optional locks (no index written), no
 // fsmonitor, hooks or signature check, no system or global config, no
@@ -192,7 +197,7 @@ export async function sweep_candidate(work: string, p: string, agents: Agents, k
   const rel = path.relative(real(work) ?? work, at).split(path.sep);
   const top = rel[0] ?? "";
   const kind = sweep_git(at);
-  if (agents.busy.has(top) || kind === null && !(rel.length === 1 && agents.known.has(top))) {
+  if (agents.busy.has(top) || !agents.known.has(top) && agents.shared !== true || kind === null && !(rel.length === 1 && agents.known.has(top))) {
     return null;
   }
   const walk = await sweep_walk(at);
@@ -247,7 +252,7 @@ export async function sweep_list(work: string, agents: Agents, keep: string[], n
       const item = await sweep_candidate(root, p, agents, keep, now);
       if (item !== null) {
         out.push(item);
-      } else if (depth < DEPTH && sweep_git(p) === null && !(depth === 0 && agents.known.has(e.name))) {
+      } else if (depth < DEPTH && sweep_git(p) === null && !(depth === 0 && (agents.known.has(e.name) || agents.shared !== true))) {
         await look(p, depth + 1);
       }
     }
