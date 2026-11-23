@@ -1893,3 +1893,503 @@ test("P6: the tick expires a re-shown consent past its until, and saves it", asy
   expect(out.state).toBe("expired");
   expect((out.disk ?? []).map((p: any) => p.state)).toEqual(["expired"]);
 }, 30_000);
+
+// RED ZONE (ADR 2; DRAFT awaiting the user's sign-off): the chat's inbox
+// (Events.ts). Who sent an event is the credential's (a view, a terminal
+// key, else a device), never the payload's; a device's event waits
+// (parked) while no view is open and reaches a model fenced; one event
+// per src and key; a restart retries a taken event, fails it after TRIES,
+// never makes an approval found on disk a yes, and never pushes twice.
+// L1's APPROVE_HEAD harness, every model call counted (turns: the calls
+// that are not the reviewer's)
+const EVENT_HEAD = APPROVE_HEAD + `
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+const ask0 = AskAI.ask;
+const asks = [];
+AskAI.ask = (ask, on) => { asks.push(1); return ask0(ask, on); };
+const turns = () => asks.length - reviews.length;
+const msgs = (chat) => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
+const events = (chat) => chat.mem.events ?? [];
+const view = () => ({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "view", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: null, seen: new Set(), watch: new Set() } });
+const ev = (over) => ({ id: 1, src: "view", key: "k1", kind: "work", to: "main", body: "b", at: Date.now(), tries: 0, state: "new", ...over });
+// a restart: the chat ended, view.json's events written by hand (as an
+// agent's write would be), the chat opened again
+const reopened = async (first, list, evented) => {
+  await Chat.end(first);
+  const file = first.mem.dir + "/view.json";
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  saved.events = list;
+  saved.evented = evented;
+  fs.writeFileSync(file, JSON.stringify(saved));
+  return opened();
+};
+`;
+
+const event_runs = new Map<string, Promise<any>>();
+const event_run = (name: string, script: string): Promise<any> => {
+  let run = event_runs.get(name);
+  if (run === undefined) {
+    run = (async () => {
+      const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+      fs.writeFileSync(dir + "/" + name + ".ts", script);
+      const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+      return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+    })();
+    event_runs.set(name, run);
+  }
+  return run;
+};
+
+// a view's events (AC1); a device's approval (AC9); a view's consent (AC13)
+const EVENT_VIEW = EVENT_HEAD + `
+const chat = opened();
+const a1 = await Chat.act(chat, "e1", { $: "event", key: "k1", kind: "notify", body: "hello" }, "", true);
+const a2 = await Chat.act(chat, "e2", { $: "event", key: "k1", kind: "notify", body: "hello again" }, "", true);
+const same = events(chat).filter((e) => e.key === "k1").length;
+const asked = Tools.ask_user(chat.tools, "Wkr", "shell", DEPLOY, new AbortController().signal);
+let settled = false;
+asked.then(() => (settled = true));
+const n = Chat.state(chat).calls[0]?.id ?? -1;
+const device = await Chat.act(chat, "d1", { $: "event", kind: "approval", ref: n, body: "yes" }, "mac", false);
+await Bun.sleep(50);
+const after_device = { calls: Chat.state(chat).calls.map((c) => c.id), settled, approvals: events(chat).filter((e) => e.kind === "approval").length };
+const yes = await Chat.act(chat, "c1", { $: "consent", n, yes: true }, "");
+const answered = await Promise.race([asked, Bun.sleep(1000).then(() => "none")]);
+const approvals = events(chat).filter((e) => e.kind === "approval").map((e) => ({ src: e.src, ref: e.ref, state: e.state }));
+console.log(JSON.stringify({ a1, a2, same, n, device, after_device, yes, answered, approvals }));
+process.exit(0);
+`;
+
+// a device's events with no view open (AC6, AC7, AC10), then a view joins (AC8)
+const EVENT_DEVICE = EVENT_HEAD + `
+const chat = opened();
+// the posting device's own socket: keeps the chat this process's, is no view
+const sock = view();
+chat.socks.add({ ...sock, data: { ...sock.data, who: "device", device: "mac" } });
+const viewed = Chat.viewed(chat);
+const before = asks.length;
+const a6 = await Chat.act(chat, "d6", { $: "event", key: "k6", kind: "work", body: "b-ac6" }, "mac", false);
+const a10 = await Chat.act(chat, "d10", { $: "event", key: "k10", src: "view", body: "b-ac10" }, "mac", false);
+const one = (key) => { const e = events(chat).find((x) => x.key === key); return e === undefined ? null : { src: e.src, state: e.state }; };
+const ac6 = one("k6");
+const ac10 = one("k10");
+await Bun.sleep(200);
+const called = asks.length - before;
+const holding = () => msgs(chat).filter((m) => m.kind === "work" && String(m.text).includes("b-ac6")).map((m) => m.text);
+const early = holding().length;
+await Chat.join(chat, view());
+await until(() => holding().length > 0);
+console.log(JSON.stringify({ viewed, a6, a10, ac6, ac10, called, early, works: holding() }));
+process.exit(0);
+`;
+
+// a device floods the inbox past WAITING (50) with no view open (AC16)
+const EVENT_FULL = EVENT_HEAD + `
+const chat = opened();
+const answers = [];
+for (let k = 0; k < 50; k++) {
+  answers.push(await Chat.act(chat, "f" + k, { $: "event", key: "f" + k, kind: "notify", body: "x" }, "mac", false));
+}
+const over = await Chat.act(chat, "f50", { $: "event", key: "f50", kind: "notify", body: "x" }, "mac", false);
+const stored = events(chat).length;
+// the cap is counted apart for the user's origins: a view's event still goes in (AC20)
+const mine = await Chat.act(chat, "v1", { $: "event", key: "v1", kind: "notify", body: "from the view" }, "", true);
+const v1 = events(chat).find((e) => e.key === "v1");
+console.log(JSON.stringify({ errors: answers.filter((a) => a?.error !== undefined).map((a) => a.error).slice(0, 3), over, stored, mine, v1: v1 === undefined ? null : { src: v1.src } }));
+process.exit(0);
+`;
+
+// a restart with taken events: one retried (AC2, AC3), one at its last try
+// (AC4, AC5), one already delivered before the restart (AC17)
+const EVENT_RESTART = EVENT_HEAD + `
+const first = opened();
+// the delivery act id is "event-<id>-<at>", at the event's own stored time
+const t0 = turns();
+Chat.push(first, null, "work", "BODY-AC17", [], false, "event-3-1000");
+let chat = await reopened(first, [
+  ev({ id: 1, key: "k-ac2", state: "taken", tries: 0, body: "BODY-AC2" }),
+  ev({ id: 2, key: "k-ac4", state: "taken", tries: 2, body: "BODY-AC4" }),
+  ev({ id: 3, key: "k-ac17", state: "taken", tries: 0, body: "BODY-AC17", at: 1000 }),
+  // a parked event claiming the view, written by hand (restart rule)
+  ev({ id: 4, key: "k-park", state: "parked", tries: 0, body: "BODY-PARK" }),
+], 4);
+const holding = (s) => msgs(chat).filter((m) => String(m.text).includes(s)).map((m) => m.kind);
+const texts = (s) => msgs(chat).filter((m) => String(m.text).includes(s)).map((m) => ({ kind: m.kind, text: m.text }));
+const states = () => Object.fromEntries(events(chat).map((e) => [e.id, { state: e.state, tries: e.tries }]));
+// no view open: wait as long as a drain at open would take, then look
+await Bun.sleep(400);
+const viewed = Chat.viewed(chat);
+const parked = { rec: states(), ac2: holding("BODY-AC2"), park: holding("BODY-PARK"), turns: turns() - t0 };
+// a view's socket gets its chat from Chat.open (the current one, or one
+// opened afresh from view.json if the idle one was let go)
+chat = Chat.open({ id: "u1", name: "a@b.c" });
+await Chat.join(chat, view());
+await until(() => [1, 3, 4].every((id) => events(chat).find((e) => e.id === id)?.state === "done"));
+await Bun.sleep(100);
+const notes = msgs(chat).filter((m) => m.kind === "note" && String(m.text).includes("k-ac4")).map((m) => m.text);
+console.log(JSON.stringify({ viewed, parked, rec: states(), ac2: texts("BODY-AC2"), ac4: holding("BODY-AC4"), ac17: holding("BODY-AC17"), park: texts("BODY-PARK"), notes }));
+process.exit(0);
+`;
+
+// three view work events new at a restart: one drain, one turn (AC15)
+const EVENT_BATCH = EVENT_HEAD + `
+const first = opened();
+const t0 = turns();
+let chat = await reopened(first, [1, 2, 3].map((id) => ev({ id, key: "b" + id, body: "BATCH-" + id })), 3);
+await Bun.sleep(400);
+const early = turns() - t0;
+// a view's socket gets its chat from Chat.open, as in EVENT_RESTART
+chat = Chat.open({ id: "u1", name: "a@b.c" });
+await Chat.join(chat, view());
+await until(() => events(chat).filter((e) => e.state === "done").length === 3);
+await Bun.sleep(200);
+const works = msgs(chat).filter((m) => m.kind === "work").map((m) => m.text);
+console.log(JSON.stringify({ early, turns: turns() - t0, states: events(chat).map((e) => e.state), works }));
+process.exit(0);
+`;
+
+// an approval event found new at a restart, its consent open (AC11, AC12)
+const EVENT_APPROVAL = EVENT_HEAD + `
+const first = opened();
+void Tools.call(first.tools, "main", "shell", DEPLOY, first.halt.signal, "a1");
+await until(() => Chat.state(first).calls.length === 1);
+const n = Chat.state(first).calls[0]?.id ?? -1;
+const chat = await reopened(first, [ev({ id: 1, key: "consent:" + n, kind: "approval", ref: n, body: "yes" })], 1);
+await until(() => events(chat).find((e) => e.id === 1)?.state === "done");
+await Bun.sleep(100);
+const state = events(chat).find((e) => e.id === 1)?.state ?? null;
+const listed = Chat.state(chat).calls.map((c) => c.id);
+const again = await made(chat, DEPLOY, "b1");
+console.log(JSON.stringify({ n, state, listed, again }));
+process.exit(0);
+`;
+
+// a reply event new at a restart, naming an open consent (AC19): done,
+// its act not run, the consent still listed
+const EVENT_REPLY = EVENT_HEAD + `
+const first = opened();
+void Tools.call(first.tools, "main", "shell", DEPLOY, first.halt.signal, "a1");
+await until(() => Chat.state(first).calls.length === 1);
+const n = Chat.state(first).calls[0]?.id ?? -1;
+const body = JSON.stringify({ act: { $: "consent", n, yes: true }, tk: "legion-x" });
+const chat = await reopened(first, [ev({ id: 1, src: "gchat", key: "spaces/TESTSPACE/messages/r9", kind: "reply", body })], 1);
+await until(() => events(chat).find((e) => e.id === 1)?.state === "done");
+await Bun.sleep(200);
+const state = events(chat).find((e) => e.id === 1)?.state ?? null;
+const listed = Chat.state(chat).calls.map((c) => c.id);
+console.log(JSON.stringify({ n, state, listed }));
+process.exit(0);
+`;
+
+// event 1 delivered, then view.json reset (evented 0, no events) on the
+// same cloud: a new event 1 is still delivered (AC21: the act id is not
+// the id alone)
+const EVENT_RESET = EVENT_HEAD + `
+const first = opened();
+const a1 = await Chat.act(first, "e1", { $: "event", key: "k21a", kind: "notify", body: "BODY-21A" }, "", true);
+const held = (chat, s) => msgs(chat).filter((m) => String(m.text).includes(s)).length;
+await until(() => held(first, "BODY-21A") > 0);
+const before = { held: held(first, "BODY-21A"), id: events(first).find((e) => e.key === "k21a")?.id ?? null };
+const chat = await reopened(first, [], 0);
+const a2 = await Chat.act(chat, "e2", { $: "event", key: "k21b", kind: "notify", body: "BODY-21B" }, "", true);
+await until(() => held(chat, "BODY-21B") > 0);
+const e2 = events(chat).find((e) => e.key === "k21b");
+console.log(JSON.stringify({ a1, a2, before, after: { held: held(chat, "BODY-21B"), id: e2?.id ?? null, state: e2?.state ?? null } }));
+process.exit(0);
+`;
+
+// a view's approval event new in the inbox when Chat.drain runs: only
+// enqueue answers an approval, so drain leaves it new and pushes nothing
+const EVENT_DRAIN = EVENT_HEAD + `
+const chat = opened();
+chat.mem.events.push(ev({ id: 1, key: "consent:1:1", kind: "approval", ref: 1, body: "DRAIN-APPROVAL" }));
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("DRAIN-APPROVAL")).length;
+console.log(JSON.stringify({ state: events(chat).find((e) => e.id === 1)?.state ?? null, held }));
+process.exit(0);
+`;
+
+// one GChat reply seen by two bridge passes (AC14): fetch stubbed as in
+// Gchat.test.ts (no network); STEP "post" posts the question, "reply" (a
+// restart on the same UNII_DIR) reads the user's reply twice
+const EVENT_GCHAT = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+const SPACE = "spaces/TESTSPACE";
+let script = [];
+let posts = 0;
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  if (u.host === "chat.googleapis.com" && init.method === "POST") {
+    posts++;
+    const tk = u.searchParams.get("threadKey");
+    return Response.json({ name: SPACE + "/messages/w" + posts, createTime: new Date(Date.now() - 60_000).toISOString(), thread: { name: SPACE + "/threads/" + tk }, sender: { name: "users/999", type: "BOT" } });
+  }
+  if (u.host === "chat.googleapis.com") {
+    return Response.json({ messages: [...script].reverse() });
+  }
+  if (u.host === "openidconnect.googleapis.com" && u.pathname === "/v1/userinfo") {
+    return Response.json({ sub: "111" });
+  }
+  return new Response("no", { status: 404 });
+};
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
+Chat.gchat_token = async () => "tok";
+const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
+const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
+const out = {};
+if (process.env.STEP === "post") {
+  await Tools.call(chat.tools, "main", "ask", { question: "Ship it?", options: ["Hold", "Push it"] }, new AbortController().signal, "t1");
+  await pass();
+  out.posted = posts;
+} else {
+  const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
+  const thread = chat.mem.gchat.posted.find((p) => p.key === "q" + q.id).thread;
+  script = [{ name: SPACE + "/messages/r1", sender: { name: "users/111", type: "HUMAN" }, thread: { name: thread }, createTime: new Date(Date.now() - 1000).toISOString(), text: "2" }];
+  await pass();
+  await Bun.sleep(100);
+  await pass();
+  await Bun.sleep(50);
+  out.replies = (chat.mem.events ?? []).filter((e) => e.src === "gchat" && e.kind === "reply").map((e) => e.key);
+  out.answered = msgs().filter((m) => m.kind === "user" && /^Answer to/.test(m.text)).length;
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+test("L3-AC1, E5: two event acts with the same key from one view: one event with that key", async () => {
+  const out = await event_run("event-view", EVENT_VIEW);
+  expect(out.same).toBe(1);
+}, 30_000);
+
+test("L3-AC9, E1, E2: a device's approval event for open consent n has an error; n is still listed and unanswered", async () => {
+  const out = await event_run("event-view", EVENT_VIEW);
+  expect(out.n).toBeGreaterThan(0);
+  expect(out.device).toEqual({ error: "An event is notify or work." });
+  expect(out.after_device).toEqual({ calls: [out.n], settled: false, approvals: 0 });
+}, 30_000);
+
+test("L3-AC13: a view's consent act for an open consent: one done approval event from view", async () => {
+  const out = await event_run("event-view", EVENT_VIEW);
+  expect(out.yes).toEqual({});
+  expect(out.answered).toBe(true);
+  expect(out.approvals).toEqual([{ src: "view", ref: out.n, state: "done" }]);
+}, 30_000);
+
+test("L3-AC6, E3: no view open, a device's work event is parked", async () => {
+  const out = await event_run("event-device", EVENT_DEVICE);
+  expect(out.viewed).toBe(false);
+  expect(out.a6.error).toBeUndefined();
+  expect(out.ac6).toEqual({ src: "device", state: "parked" });
+}, 30_000);
+
+test("L3-AC7, E3: that parked event: no model call in 200 ms, nothing pushed", async () => {
+  const out = await event_run("event-device", EVENT_DEVICE);
+  expect(out.called).toBe(0);
+  expect(out.early).toBe(0);
+}, 30_000);
+
+test("L3-AC8, E4: a view joins (device null): a work message holding the body inside <untrusted source=\"event:device\">", async () => {
+  const out = await event_run("event-device", EVENT_DEVICE);
+  expect(out.works).toHaveLength(1);
+  expect(out.works[0]).toContain('<untrusted source="event:device">');
+  expect(out.works[0]).toContain("b-ac6");
+}, 30_000);
+
+test("L3-AC10, E1: a device-key socket's event saying src view is stored from device, parked", async () => {
+  const out = await event_run("event-device", EVENT_DEVICE);
+  expect(out.a10.error).toBeUndefined();
+  expect(out.ac10).toEqual({ src: "device", state: "parked" });
+}, 30_000);
+
+test("L3-AC16, E8: past WAITING events waiting, one more event act is refused with an error", async () => {
+  const out = await event_run("event-full", EVENT_FULL);
+  expect(out.errors).toEqual([]);
+  expect(out.stored).toBe(50);
+  expect(out.over).toEqual({ error: "Legion's inbox is full: wait a moment." });
+}, 30_000);
+
+test("L3-AC2, E6: a view's taken work event (tries 0) read at a restart, no view open: nothing holding its body pushed, parked", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.viewed).toBe(false);
+  expect(out.parked.ac2).toEqual([]);
+  expect(out.parked.rec[1]?.state).toBe("parked");
+}, 30_000);
+
+test("L3-AC3, E4, E6: that parked event, a view joins: one work message holding <untrusted source=\"event:restart\"> and its body; then tries 1, done", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.ac2).toHaveLength(1);
+  expect(out.ac2[0].kind).toBe("work");
+  expect(out.ac2[0].text).toContain('<untrusted source="event:restart">');
+  expect(out.ac2[0].text).toContain("BODY-AC2");
+  expect(out.rec[1]).toEqual({ state: "done", tries: 1 });
+}, 30_000);
+
+test("L3-AC4, E6: a taken event at tries 2 at a restart is failed, not delivered", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.rec[2]?.state).toBe("failed");
+  expect(out.ac4).toEqual([]);
+}, 30_000);
+
+test("L3-AC5, E6: that failed event: one note names its key and says it failed", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.notes).toHaveLength(1);
+  expect(out.notes[0]).toMatch(/failed/);
+}, 30_000);
+
+test("L3 restart rule, E3, E4: a parked event in view.json claiming the view: nothing pushed and no model call with no view; on a view's join, fenced as event:restart", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.viewed).toBe(false);
+  expect(out.parked.park).toEqual([]);
+  expect(out.parked.turns).toBe(0);
+  expect(out.park).toHaveLength(1);
+  expect(out.park[0].kind).toBe("work");
+  expect(out.park[0].text).toContain('<untrusted source="event:restart">');
+  expect(out.park[0].text).toContain("BODY-PARK");
+}, 30_000);
+
+test("L3-AC17, E7: a taken event whose act is already recorded, delivered when a view joins: no second push, done", async () => {
+  const out = await event_run("event-restart", EVENT_RESTART);
+  expect(out.ac17).toEqual(["work"]);
+  expect(out.rec[3]?.state).toBe("done");
+}, 30_000);
+
+test("L3-AC15: three view work events new in view.json, a view joins after the open: one turn (one model call) for all three", async () => {
+  const out = await event_run("event-batch", EVENT_BATCH);
+  expect(out.early).toBe(0);
+  expect(out.states).toEqual(["done", "done", "done"]);
+  for (const body of ["BATCH-1", "BATCH-2", "BATCH-3"]) {
+    expect(out.works.some((w: string) => w.includes(body))).toBe(true);
+  }
+  expect(out.turns).toBe(1);
+}, 30_000);
+
+test("L3-AC11, E6: an approval event new at a restart, its consent n open: the event done, n listed", async () => {
+  const out = await event_run("event-approval", EVENT_APPROVAL);
+  expect(out.n).toBeGreaterThan(0);
+  expect(out.state).toBe("done");
+  expect(out.listed).toContain(out.n);
+}, 30_000);
+
+test("L3-AC12, E6: after that open the identical call waits (disk granted nothing)", async () => {
+  const out = await event_run("event-approval", EVENT_APPROVAL);
+  expect(out.again.waited).toBe(true);
+}, 30_000);
+
+test("L3-AC19, E6: a reply event new at a restart: done, its act not run (the consent it names still listed)", async () => {
+  const out = await event_run("event-reply", EVENT_REPLY);
+  expect(out.n).toBeGreaterThan(0);
+  expect(out.state).toBe("done");
+  expect(out.listed).toContain(out.n);
+}, 30_000);
+
+test("L3-AC20, E8: WAITING device events parked, no view open: a view's event act is stored, its answer no error", async () => {
+  const out = await event_run("event-full", EVENT_FULL);
+  expect(out.over.error).toBeDefined();
+  expect(out.mine.error).toBeUndefined();
+  expect(out.v1).toEqual({ src: "view" });
+}, 30_000);
+
+test("L3-AC21, E7: event 1 delivered, view.json reset (evented 0, no events), a new event 1 on the same cloud: its message pushed", async () => {
+  const out = await event_run("event-reset", EVENT_RESET);
+  expect(out.before).toEqual({ held: 1, id: 1 });
+  expect(out.after.id).toBe(1);
+  expect(out.after.held).toBe(1);
+  expect(out.after.state).toBe("done");
+}, 30_000);
+
+test("E2, L3: Chat.drain never delivers an approval event: one new in the inbox stays new, its body never pushed", async () => {
+  const out = await event_run("event-drain", EVENT_DRAIN);
+  expect(out.held).toBe(0);
+  expect(out.state).toBe("new");
+}, 30_000);
+
+test("L3-AC14, E5: one GChat reply seen by two bridge passes: one gchat reply event for that message", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/gchat.ts", EVENT_GCHAT);
+  const space = "spaces/TESTSPACE";
+  const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
+  const step = async (s: string) => {
+    const env = { ...process.env, UNII_DIR: dir, UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", STEP: s };
+    const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env, stdout: "pipe", stderr: "inherit" });
+    return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  };
+  const a = await step("post");
+  expect(a.posted).toBe(1);
+  const b = await step("reply");
+  // the bridge read the reply (today's path): the harness reached it
+  expect(b.answered).toBe(1);
+  expect(b.replies).toEqual([space + "/messages/r1"]);
+}, 30_000);
+
+// an event in the inbox addressed to anyone but Unii (only a hand-written
+// view.json holds one): a view open, Chat.drain fails it, with a note, and
+// pushes nothing holding its body
+const EVENT_TO = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, key: "k-to", to: "Wkr", body: "TO-WORKER" }));
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("TO-WORKER")).length;
+const notes = msgs(chat).filter((m) => m.kind === "note" && String(m.text).includes("k-to")).map((m) => m.text);
+console.log(JSON.stringify({ viewed: Chat.viewed(chat), state: events(chat).find((e) => e.id === 1)?.state ?? null, held, notes }));
+process.exit(0);
+`;
+
+test("L3: an event not for main, a view open: failed, one note naming its key, its body never pushed", async () => {
+  const out = await event_run("event-to", EVENT_TO);
+  expect(out.viewed).toBe(true);
+  expect(out.held).toBe(0);
+  expect(out.state).toBe("failed");
+  expect(out.notes).toEqual(["Event k-to from view is not for Unii; dropped."]);
+}, 30_000);
+
+// RED ZONE (R4, DRAFT awaiting the user's sign-off): a drain whose chat is
+// no longer this process's (moved or ended while the step was held)
+// pushes nothing and starts no turn (user's call 2026-11-23)
+const EVENT_GONE = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, key: "k-gone", body: "GONE-BODY" }));
+const before = turns();
+Chat.chats.delete("u1");
+Chat.drain(chat);
+await Bun.sleep(200);
+const held = msgs(chat).filter((m) => String(m.text).includes("GONE-BODY")).length;
+console.log(JSON.stringify({ held, turned: turns() - before, state: events(chat).find((e) => e.id === 1)?.state ?? null }));
+process.exit(0);
+`;
+
+test("L3, R4: a drain for a chat no longer current pushes nothing and starts no turn", async () => {
+  const out = await event_run("event-gone", EVENT_GONE);
+  expect(out.held).toBe(0);
+  expect(out.turned).toBe(0);
+  expect(out.state).toBe("taken"); // so the next open reads it back as from disk
+}, 30_000);
+
+// a non-user event's fence names its own source (user's call 2026-11-23)
+const EVENT_SRC = EVENT_HEAD + `
+const chat = opened();
+await Chat.join(chat, view());
+chat.mem.events.push(ev({ id: 1, src: "timer", key: "k-tm", kind: "notify", body: "TIMER-BODY" }));
+Chat.drain(chat);
+await until(() => msgs(chat).some((m) => String(m.text).includes("TIMER-BODY")));
+console.log(JSON.stringify({ texts: msgs(chat).filter((m) => String(m.text).includes("TIMER-BODY")).map((m) => m.text) }));
+process.exit(0);
+`;
+
+test("L3, E4: a timer's event is fenced as event:timer and said to come from a timer, not a device", async () => {
+  const out = await event_run("event-src", EVENT_SRC);
+  expect(out.texts).toHaveLength(1);
+  expect(out.texts[0]).toContain('<untrusted source="event:timer">');
+  expect(out.texts[0]).not.toContain("a device posted");
+}, 30_000);

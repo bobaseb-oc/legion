@@ -187,3 +187,60 @@ test("L1-AC16: view.json's pended (the last approval id) survives a save and a l
   expect((loaded({ pended: "7" }) as any).pended).toBe(0);
   expect((loaded({ pended: 1.5 }) as any).pended).toBe(0);
 });
+
+// RED ZONE (ADR 2; DRAFT awaiting the user's sign-off): the chat's inbox
+// (Events.ts), kept in view.json; an event not well formed dropped as it
+// loads, and an approval not from the user's own origins dropped (a file
+// written by hand can't answer an approval)
+const event = { id: 1, src: "view", key: "k1", kind: "work", to: "main", body: "b", at: 5, tries: 0, state: "new" };
+
+test("L3 load guard: view.json's events not well formed are dropped as they load", () => {
+  const mem: any = loaded({
+    events: [
+      event,
+      { ...event, id: 2, key: "k2", src: "terminal", kind: "approval", ref: 4, body: "yes", state: "done" },
+      { ...event, id: "3", key: "k3" },
+      { ...event, id: 4, key: "k4", src: "evil" },
+      { ...event, id: 5, key: "k5", kind: "shell" },
+      { ...event, id: 6, key: "k6", state: "yes" },
+      { ...event, id: 7, key: "k7", tries: -1 },
+      { ...event, id: 8, key: "k8", tries: 1.5 },
+      { ...event, id: 9, key: "k9", body: 7 },
+      { ...event, id: 10, key: "a b" },
+      { ...event, id: 11, key: "k11", at: "now" },
+      { ...event, id: 12, key: "k12", to: 3 },
+      null,
+      "event",
+    ],
+  });
+  expect(mem.events.map((e: any) => e.id)).toEqual([1, 2]);
+  expect(mem.events[0]).toEqual(event);
+  const none: any = loaded({});
+  expect(none.events).toEqual([]);
+  expect(none.evented).toBe(0);
+  expect((loaded({ events: "x" }) as any).events).toEqual([]);
+});
+
+test("E2, L3 load guard: an approval event from a device in view.json is dropped; a gchat one kept", () => {
+  const mem: any = loaded({
+    events: [
+      { ...event, id: 1, src: "device", kind: "approval", ref: 2, body: "yes" },
+      { ...event, id: 2, key: "k2", src: "gchat", kind: "approval", ref: 2, body: "yes" },
+    ],
+  });
+  expect(mem.events.map((e: any) => [e.id, e.src])).toEqual([[2, "gchat"]]);
+});
+
+test("L3: view.json's evented (the last event id) and events survive a save and a load; evented not an integer, 0", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
+  const mem: any = Memory.load(dir, () => ({}) as any);
+  mem.evented = 9;
+  mem.events = [{ ...event, id: 9 }];
+  Memory.save(mem);
+  const back: any = Memory.load(dir, () => ({}) as any);
+  expect(back.evented).toBe(9);
+  expect(back.events).toEqual([{ ...event, id: 9 }]);
+  expect((loaded({ evented: "9" }) as any).evented).toBe(0);
+  expect((loaded({ evented: 1.5 }) as any).evented).toBe(0);
+});
