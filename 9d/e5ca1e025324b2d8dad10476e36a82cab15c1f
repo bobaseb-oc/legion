@@ -1,0 +1,23 @@
+Gchat.ts
+  s_aeea4652c6b7ae::t_be52a4f8d0b6e9 37
+Memory.ts
+  s_aeea4652c6b7ae::t_b0cc359de9e6d6 336
+Server.ts
+  s_aeea4652c6b7ae::t_2dd771dc764c8e 2919
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9de5ca1e025324b2d8dad10476e36a82cab15c1f",
+  "prompts": {},
+  "sessions": {
+    "s_aeea4652c6b7ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1e5f75c-f04e-4697-9f1c-b2adedfbcd80",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
