@@ -332,6 +332,12 @@ test("H2: a repo whose config or attributes run commands is never listed, and gi
   const sig = repo(work + "/rv/sig", out);
   git(sig, "config", "log.showSignature", "true");
   git(sig, "config", "gpg.program", "sh -c 'touch " + marker + "'");
+  // a driver attribute alone (no config naming it): kept too
+  const attr = repo(work + "/rv/attr", out);
+  fs.writeFileSync(attr + "/.gitattributes", "*.bin diff=exif\n");
+  git(attr, "add", ".");
+  git(attr, "commit", "-q", "-m", "attrs");
+  git(attr, "push", "-q", "origin", "main");
   const ok = repo(work + "/rv/ok", out);
   age(work, 8);
   if (fs.existsSync(marker)) {
@@ -352,6 +358,10 @@ test("L1: a path or a .env name with a control character is never listed", async
   const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now());
   expect(listed(items)).toEqual([work + "/Bob"]);
   expect(items.some((x) => x.path === bad)).toBe(false);
+  // a forged item for it (its real identity) is still never removed
+  const st = fs.lstatSync(bad);
+  expect(await Sweep.sweep_remove(work, { path: bad, bytes: 0, mtime: 0, git: "repo", dev: st.dev, ino: st.ino })).not.toBeNull();
+  expect(fs.existsSync(bad)).toBe(true);
 });
 
 test("L2, L4: an entry it cannot stat keeps its dir; a dir it cannot read rejects only itself", async () => {
@@ -405,6 +415,9 @@ test("M1: another user's agent dirs are never listed; shared clones only when th
   const mine = { known: new Set(["Ada"]), busy: new Set<string>(), shared: false };
   expect(listed(await Sweep.sweep_list(work, mine, [], Date.now()))).toEqual([work + "/Ada"]);
   expect(listed(await Sweep.sweep_list(work, { ...mine, shared: true }, [], Date.now()))).toEqual([work + "/Ada", clone]);
+  // at apply too (sweep_check): no shared clone unless the server has one user
+  const [item] = await Sweep.sweep_list(work, { known: new Set(), busy: new Set(), shared: true }, [], Date.now());
+  expect(await Sweep.sweep_check(work, item!, { ...mine, shared: false }, [], Date.now())).toBe(false);
 });
 
 test("the fingerprint covers each listed dir's path, size and time", async () => {
