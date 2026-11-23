@@ -3036,7 +3036,7 @@ const LIKES = 30;
     const rung = Chat.rang(chat, now);
     Chat.drain(chat);
     // RED ZONE (R4, DRAFT awaiting the user's sign-off): an unused grant
-    // past its time can't be taken; gone, so the map doesn't grow (PLP-2921)
+    // past its time can't be taken; gone, so the map doesn't grow
     if (chat.tools.grants !== undefined) {
       Pending.prune(chat.tools.grants, now);
     }
