@@ -2281,7 +2281,7 @@ export namespace Chat {
     if (looks.size >= LOOKS) {
       looks.delete(looks.keys().next().value!);
     }
-    looks.set(id, link === null ? Tools.opened(chat.tools).reduce((n, [, d]) => n + d.terms.size, 0) : 1);
+    looks.set(id, link === null ? Tools.opened(chat.tools).reduce((n, [, d]) => n + Tools.live(d).length, 0) : 1);
     if (link === null) {
       Chat.all(chat, { $: "look", id, what });
     } else {
