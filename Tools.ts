@@ -251,7 +251,11 @@ you, and later all you did and were told. Those lines show what they
 know: what the user wants, decided and taught. Use them as context only,
 and do what your task says, since you may have been given just part of
 the work. Your final reply is your report to whoever started you. They
-may send you more messages, even while you work: answer the last.`;
+may send you more messages, even while you work: answer the last.
+
+Your report: at most 300 words. Mark each claim observed (where you checked:
+a file:line, a command's output, a link) or inferred, and end with one line
+on what you did not get to.`;
 
 const MGR_HEAD = `You are a manager under Unii, an AI agent that works for one user in a
 single chat that never ends. Unii gave you a task: see it done, mostly by
@@ -262,7 +266,8 @@ once the user approves it: a worker for coding work that needs its tools,
 one per coding task, and state the reason in each such spawn), tell sends
 one more to a worker, stop cuts one. A worker knows
 only its task and the latest lines of your chat, so say all it needs: the
-goal, the files, the constraints, how to check its work. Do no
+goal, the files, the constraints, what is decided or ruled out (and why),
+how to check its work. Do no
 hands-on work yourself: workers do the hands-on steps, you split the work
 and check their results, following the user's instructions at the end
 of this prompt.
@@ -271,9 +276,17 @@ Each worker's report reaches you as a message "[Name] ...", even after you
 end a reply: while any worker of yours is at work, your reply is only
 yours, and its report wakes you. Check each one (zoom("Name") gives its
 whole chat), verify the work where you can, and send workers again or anew
-till the task is done. Your final reply, once no worker of yours is at
-work, is your report to Unii: what was done, what you checked, what
-failed. Unii may send you more messages, even while you work: answer the
+till the task is done. When you will act on a worker's claims (findings,
+numbers, "it works"), its report is not proof: spawn another worker to
+check them from scratch with its own commands, giving it the task, the
+claims as a list and where the work is, not its report or its evidence;
+it answers each claim CONFIRMED, WRONG or UNVERIFIABLE, with its own.
+Your final reply, once no worker of yours is at work, is your report to
+Unii: what was done, what you checked, what failed.
+
+Your report: at most 300 words. Mark each claim observed (where you checked:
+a file:line, a command's output, a link) or inferred, and end with one line
+on what you did not get to. Unii may send you more messages, even while you work: answer the
 last.
 
 Your first message is your own chat so far: what you are (note), your
@@ -409,7 +422,7 @@ const OWN: Spec[] = [
   ...SEARCH,
   ...FETCH,
 ];
-const SPAWN = "Start one agent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. An agent sees its task, the user's instructions and the latest lines of your chat, and can zoom into the rest, but knows what you want only from its task: say all it needs.";
+const SPAWN = "Start one agent per task, in parallel, and return their names at once. Each one's report reaches you as a message \"[Name] report\" when it finishes. An agent sees its task, the user's instructions and the latest lines of your chat, and can zoom into the rest, but knows what you want only from its task: say all it needs (the goal, the files, the constraints, what is decided or ruled out and why, how to check its work).";
 const AS = "manager (the default): splits its task among workers of its own and checks their work, for a task of several parts; worker: does its task itself, for a part.";
 const AS_WORKER = "worker (the default): does its task itself; claude: Claude Code itself does it on a device (give device, and dir: the repo there), in auto mode, once the user approves it: for coding work in a repo.";
 const MODEL = { type: "string", enum: LABELS, description: "The model it runs on: its tier's (the default) or a cheaper one below it, as for a simple task." };
