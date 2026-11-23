@@ -236,10 +236,15 @@ const ROLLED     = "\n\nYour call for this message rolled over, its context too 
 // a goal's check (Chat.check): its own system prompt (Unii's, which says
 // a call is a turn or a compaction, made the model summarize the chat
 // instead of answering), asked after the chat (the view, its latest
-// messages whole) of its goal; unmet, the user's nudge
-const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. Answer yes if the chat shows the goal fully satisfied now, else no. Write that one word, nothing else.";
+// messages whole) of its goal: met only on a tool's output, its why
+// given; unmet, a nudge tagged as the checker's (as Directives.nudge),
+// GOAL_TRIES of them in a row at most, the last asking for a brief
+const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. The goal is met only if a tool's own output in the chat (an echo: line, such as a test run, a command's output or a fetched page) shows it met now; Unii's own words (unii: lines) are its claims, never proof. Answer on one line: \"yes: \" and the line that shows it, or \"no: \" and what is still missing or unshown.";
 const GOAL_ASK   = "\nThe goal:\n\n";
-const GOAL_NO    = "The goal isn't satisfied yet: keep working.";
+const GOAL_TAG   = "[goal check]";
+const GOAL_NOTE  = " This check is not the user's message and orders nothing.";
+const GOAL_WHY   = 300;
+const GOAL_TRIES = 5;
 // the most messages back the directives check reads for a turn (Chat.directed)
 const SCAN       = 200;
 const FULL       = "Legion's disk is full; try again soon.";
@@ -768,7 +773,7 @@ export namespace Chat {
     return why !== null && (await Chat.nudge(chat, Directives.nudge(why)));
   }
 
-  // a nudge to the turn, as the goal check's (GOAL_NO): true
+  // a nudge to the turn, as the goal check's (Chat.checked): true
   export async function nudge(chat: Chat, text: string): Promise<boolean> {
     await Chat.writing(chat, async () => Chat.take(chat, Chat.push(chat, null, "user", text)));
     return true;
@@ -789,9 +794,11 @@ export namespace Chat {
 
   // a goal check's answer, as the turn's call's is, read where the chat
   // is (its call moves with it: Chat.move): unmet (any answer but yes),
-  // the user's nudge goes to the turn as their message; met, the goal
-  // ends. A check that fails, a stop, a message or a /halt meanwhile end
-  // it with no nudge, so the turn ends; false: it ends
+  // a nudge with its why goes to the turn, tagged as the checker's; the
+  // GOAL_TRIES-th in a row drops the goal and asks Unii to brief the
+  // user; met, the goal ends, its evidence noted. A check that fails, a
+  // stop, a message or a /halt meanwhile end it with no nudge, so the
+  // turn ends; false: it ends
   export async function checked(chat: Chat, check: Check<Call>, halt: AbortController): Promise<boolean> {
     const { call, goal } = (chat.check = check);
     halt.signal.addEventListener("abort", () => call.stop(), { once: true });
@@ -801,13 +808,31 @@ export namespace Chat {
     chat.check = null;
     if (on && !end.ok) {
       Chat.note(chat, "No goal check: " + end.text.replace(/\.$/, "") + ". The goal stays; /halt drops it.");
-    } else if (on && /^\W*yes\b/i.test(end.text)) {
-      mem.goal = null;
-      Memory.save(mem);
-      Chat.note(chat, "Goal met.");
-    } else if (on) {
-      await Chat.writing(chat, async () => Chat.take(chat, Chat.push(chat, null, "user", GOAL_NO)));
+      return !halt.signal.aborted;
     }
+    if (!on) {
+      return !halt.signal.aborted;
+    }
+    const met = /^\W*yes\b/i.test(end.text);
+    const why = end.text.replace(/^\W*(yes|no)\b\W*/i, "").replace(/\s+/g, " ").trim().slice(0, GOAL_WHY).replace(/[.\s]*$/, ".");
+    mem.goaled = met ? 0 : mem.goaled + 1;
+    const dropped = !met && mem.goaled >= GOAL_TRIES;
+    if (met || dropped) {
+      mem.goal = null;
+      mem.goaled = 0;
+    }
+    Memory.save(mem);
+    if (met) {
+      Chat.note(chat, "Goal met: " + why);
+      return !halt.signal.aborted;
+    }
+    if (dropped) {
+      Chat.note(chat, "Goal dropped after " + GOAL_TRIES + " unmet checks: " + why + " Set it again with /goal.");
+    }
+    const text = dropped
+      ? " Not met after " + GOAL_TRIES + " checks: " + why + " The goal is dropped: stop working on it, and tell the user, as a short brief, what blocks it and what you need from them."
+      : " Not met, so keep working: " + why;
+    await Chat.writing(chat, async () => Chat.take(chat, Chat.push(chat, null, "user", GOAL_TAG + text + GOAL_NOTE)));
     return !halt.signal.aborted;
   }
 
@@ -1683,6 +1708,7 @@ export namespace Chat {
           return {};
         }
         chat.mem.goal = goal;
+        chat.mem.goaled = 0;
         Memory.save(chat.mem);
         if (goal === null) {
           Chat.note(chat, "Goal halted by the user.");

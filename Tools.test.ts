@@ -1184,3 +1184,30 @@ test("P3, dismiss: the dismiss act takes back the dismissed agent's grants (Tool
   const dismiss = /case "dismiss": \{([\s\S]*?)\n      \}/.exec(src)?.[1] ?? "";
   expect(dismiss).toContain("Tools.ungrant(chat.tools, [agent.name])");
 });
+
+// briefs and reports (the prompting guide): a spawn asks for what is
+// decided or ruled out; a worker's report is capped, each claim marked
+// observed (where checked) or inferred, ending on what it did not get
+// to; a manager verifies claims it acts on with a second, blind worker
+test("briefs say what is ruled out; reports cap, mark evidence and say what's left; a manager verifies blind", () => {
+  const tools = Tools.serve({} as any, { change: () => {} } as any);
+  const sub = (name: string, tier: string) => ({ name, parent: "main", role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+  tools.agents.set("Mgr", sub("Mgr", "manager") as any);
+  tools.agents.set("Wkr", sub("Wkr", "worker") as any);
+  const seen = { view: [], log: { text: "", mark: false } } as any;
+  const system = (name: string) => Tools.ask(tools, tools.agents.get(name)!, seen).system;
+  for (const who of ["main", "Mgr"]) {
+    const spawn = Tools.list(tools, who).find((t) => t.name === "spawn")!.info;
+    expect(spawn).toContain("decided or ruled out");
+  }
+  for (const who of ["Mgr", "Wkr"]) {
+    expect(system(who)).toContain("at most 300 words");
+    expect(system(who)).toMatch(/observed \(where you checked/);
+    expect(system(who)).toMatch(/inferred/);
+    expect(system(who)).toContain("what you did not get to");
+  }
+  const mgr = system("Mgr");
+  expect(mgr.replace(/\s+/g, " ")).toContain("giving it the task, the claims as a list and where the work is, not its report or its evidence");
+  expect(mgr).toContain("CONFIRMED, WRONG or UNVERIFIABLE");
+  expect(system("Wkr")).not.toContain("CONFIRMED, WRONG or UNVERIFIABLE");
+});
