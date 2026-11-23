@@ -54,7 +54,7 @@ async function git(dir: string, args: string[]): Promise<string | null> {
 
 function real(p: string): string | null {
   try {
-    return fs.realpathSync(p);
+    return fs.realpathSync.native(p); // the name as on disk (a case-insensitive file system: "Main" is main)
   } catch {
     return null;
   }
@@ -68,7 +68,9 @@ export function sweep_inside(work: string, p: string): string | null {
     return null;
   }
   const rel = path.relative(root, at);
-  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) || ["main", TRASH].includes(rel.split(path.sep)[0] ?? "") ? null : at;
+  // L1: a name with a control character (a newline forging a line of the
+  // question) never listed; Info: main and TRASH compared case-folded
+  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) || /[\x00-\x1f\x7f]/.test(at) || ["main", TRASH].includes((rel.split(path.sep)[0] ?? "").toLowerCase()) ? null : at;
 }
 
 // a dir's bytes, its newest mtime (.git's insides aside: git writes there
@@ -78,13 +80,19 @@ export function sweep_inside(work: string, p: string): string | null {
 export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: number; repos: string[]; envs: string[]; attrs: string[] }> {
   const out = { bytes: 0, mtime: 0, repos: [] as string[], envs: [] as string[], attrs: [] as string[] };
   const each = async (p: string, ingit: boolean): Promise<void> => {
-    const st = await fs.promises.lstat(p).catch(() => null);
+    // L2: gone meanwhile, skipped; any other error, never old enough
+    const st = await fs.promises.lstat(p).catch((e: NodeJS.ErrnoException) => {
+      out.mtime = e.code === "ENOENT" ? out.mtime : Infinity;
+      return null;
+    });
     if (st === null) {
       return;
     }
     out.bytes += st.size;
-    out.mtime = ingit ? out.mtime : Math.max(out.mtime, st.mtimeMs);
-    if (!ingit && st.isFile() && path.basename(p).startsWith(".env")) {
+    // L1: a name with a control character in it: the dir is never listed
+    out.mtime = /[\x00-\x1f\x7f]/.test(path.basename(p)) ? Infinity : ingit ? out.mtime : Math.max(out.mtime, st.mtimeMs);
+    // L4: ENVS + 1 at most (one more: "and more"), so git's argv stays small
+    if (!ingit && st.isFile() && path.basename(p).startsWith(".env") && out.envs.length <= ENVS) {
       out.envs.push(path.relative(dir, p));
     }
     if (!ingit && path.basename(p) === ".gitattributes") {
@@ -111,7 +119,12 @@ export async function sweep_walk(dir: string): Promise<{ bytes: number; mtime: n
 
 // a git repo (.git a dir), a worktree (.git a file), or neither
 export function sweep_git(dir: string): Item["git"] {
-  const st = fs.lstatSync(dir + "/.git", { throwIfNoEntry: false });
+  let st: fs.Stats | undefined;
+  try {
+    st = fs.lstatSync(dir + "/.git", { throwIfNoEntry: false });
+  } catch {
+    return null; // unreadable: not git; its walk keeps it (L2)
+  }
   return st === undefined ? null : st.isDirectory() ? "repo" : st.isFile() ? "worktree" : null;
 }
 
@@ -191,7 +204,7 @@ const overlap = (a: string, b: string): boolean => a === b || a.startsWith(b + "
 export async function sweep_candidate(work: string, p: string, agents: Agents, keep: string[], now: number): Promise<Item | null> {
   const at = sweep_inside(work, p);
   const st = fs.lstatSync(p, { throwIfNoEntry: false });
-  if (at === null || at !== p || st === undefined || !st.isDirectory() || keep.some((k) => overlap(at, real(k) ?? k))) {
+  if (at === null || at !== p || st === undefined || !st.isDirectory() || keep.some((k) => at === (real(k) ?? k) || (real(k) ?? k).startsWith(at + "/"))) {
     return null;
   }
   const rel = path.relative(real(work) ?? work, at).split(path.sep);
@@ -241,7 +254,9 @@ async function untracked(dir: string, envs: string[], repos: string[]): Promise<
 // and below those neither git nor an agent's, DEPTH deep
 export async function sweep_list(work: string, agents: Agents, keep: string[], now: number): Promise<Item[]> {
   const root = real(work);
-  if (root === null) {
+  // Info: WORK is, or holds, a kept dir (Legion's DIR, HOME, the user's
+  // dir): no sweep at all
+  if (root === null || keep.some((k) => root === (real(k) ?? k) || (real(k) ?? k).startsWith(root + "/"))) {
     return [];
   }
   const out: Item[] = [];
@@ -249,10 +264,11 @@ export async function sweep_list(work: string, agents: Agents, keep: string[], n
     const entries = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const e of entries.filter((x) => x.isDirectory())) {
       const p = dir + "/" + e.name;
-      const item = await sweep_candidate(root, p, agents, keep, now);
-      if (item !== null) {
+      // L4: one dir that fails (EACCES) is skipped, not the whole listing
+      const item = await sweep_candidate(root, p, agents, keep, now).catch(() => undefined);
+      if (item !== null && item !== undefined) {
         out.push(item);
-      } else if (depth < DEPTH && sweep_git(p) === null && !(depth === 0 && (agents.known.has(e.name) || agents.shared !== true))) {
+      } else if (item === null && depth < DEPTH && sweep_git(p) === null && !(depth === 0 && (agents.known.has(e.name) || agents.shared !== true))) {
         await look(p, depth + 1);
       }
     }
@@ -348,7 +364,7 @@ export function sweep_size(n: number): string {
 // the question put to the user, each dir's .env files named
 export function sweep_text(items: Item[]): string {
   const total = items.reduce((n, x) => n + x.bytes, 0);
-  const envs = (x: Item) => (x.envs === undefined ? "" : "; holds " + x.envs.slice(0, ENVS).join(", ") + (x.envs.length > ENVS ? " and " + (x.envs.length - ENVS) + " more .env files" : ""));
+  const envs = (x: Item) => (x.envs === undefined ? "" : "; holds " + x.envs.slice(0, ENVS).join(", ") + (x.envs.length > ENVS ? " and more .env files" : ""));
   const lines = items.map((x) => "- " + x.path + " (" + sweep_size(x.bytes) + (x.git === null ? "" : ", git " + x.git) + envs(x) + ")");
   return "Work sweep: " + items.length + " work dirs untouched for 7 days or more, " + sweep_size(total) + " in all. Delete them? Answer yes to delete exactly these, with every file in them (ignored ones, .env files, too); each is checked again first, and one changed since is kept. No answer in 24 h: nothing is deleted. A no: these are not asked again for 7 days.\n" + lines.join("\n");
 }

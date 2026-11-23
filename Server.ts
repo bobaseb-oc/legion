@@ -2130,7 +2130,9 @@ export namespace Chat {
       return { error: "No open question " + n + "." };
     }
     if (q.sweep !== undefined) {
-      return Chat.swept(chat, q, text, Date.now());
+      // M2: not from GChat till PLP-2922 binds its threads in memory (a
+      // reply there rides view.json's thread map); PLP-2922 can lift this
+      return id.startsWith("gchat-") ? { error: "Answer the work sweep in Legion, not in Google Chat." } : Chat.swept(chat, q, text, Date.now());
     }
     const refused = text === "" ? null : await Chat.afford(chat);
     if (refused !== null) {
@@ -3104,7 +3106,7 @@ const LIKES = 30;
     }
     s.last = now;
     s.snoozed = new Map([...s.snoozed].filter(([, until]) => now < until));
-    const items = (await Sweep.sweep_list(config.WORK, Chat.sweep_agents(chat), [chat.mem.dir], now)).filter((x) => !s.snoozed.has(x.path));
+    const items = (await Sweep.sweep_list(config.WORK, Chat.sweep_agents(chat), [chat.mem.dir, config.DIR, os.homedir()], now)).filter((x) => !s.snoozed.has(x.path));
     chat.mem.questions = chat.mem.questions.filter((q) => q.sweep === undefined);
     s.listing = null;
     if (items.length > 0) {
@@ -3154,7 +3156,7 @@ const LIKES = 30;
       const removed: Sweep.Item[] = [];
       const skipped: string[] = [];
       for (const item of l.items) {
-        const why = (await Sweep.sweep_check(config.WORK, item, agents, [chat.mem.dir], now)) ? await Sweep.sweep_remove(config.WORK, item) : "changed since the listing";
+        const why = (await Sweep.sweep_check(config.WORK, item, agents, [chat.mem.dir, config.DIR, os.homedir()], now)) ? await Sweep.sweep_remove(config.WORK, item) : "changed since the listing";
         if (why === null) {
           removed.push(item);
         } else {
