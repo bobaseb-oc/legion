@@ -470,6 +470,28 @@ console.log(JSON.stringify({ alone: alone.error ?? null, ran, dead: jobs.mac.len
 process.exit(0);
 `;
 
+// a look to every device waits for one answer per live link only: a
+// killed device's dead link never answers, so a refusal from the live one
+// is told at once
+const LOOK_LIVE = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const sent = [];
+chat.socks.add({ send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set() } });
+const link = (live) => ({ send: () => {}, live, computer: false, work: "~/w" });
+Tools.attach(chat.tools, "t1", "mac", "u1", link(() => false));
+Tools.attach(chat.tools, "t2", "mac", "u1", link(() => true));
+Tools.attach(chat.tools, "t3", "box", "u1", link(() => false));
+await Chat.act(chat, "l1", { $: "look", what: { kind: "file", path: "/r/a.ts" } }, "");
+await Chat.act(chat, "l2", { $: "looked", id: "l1", kind: "file", error: "not under" }, "mac");
+console.log(JSON.stringify({ told: sent.filter((m) => m.$ === "looked") }));
+process.exit(0);
+`;
+
 // B2: shell commands running like Claude Code's. A device's tails (its
 // own jobs only) give each command's last lines, in the state and in
 // "shells" messages; RED ZONE (DRAFT): sending one to the background or
@@ -1314,6 +1336,14 @@ test("!command: a killed device's dead link is not open; the command runs on the
   const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ alone: "No device is open: run legion (or legion device) on one.", ran: {}, dead: 0, live: ["ls"] });
+});
+
+test("a look to every device waits only for live links: the live one's refusal is told at once", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/look-live.ts", LOOK_LIVE);
+  const proc = Bun.spawn([process.execPath, dir + "/look-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ told: [{ $: "looked", id: "l1", kind: "file", error: "not under" }] });
 });
 
 test("shell commands: their last lines told the views; background and stop only the user's, a device key's refused; the user's Stop ends them all", async () => {

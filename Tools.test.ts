@@ -211,6 +211,19 @@ test("only a device with a live link is open; a lost link's jobs are there when 
   Tools.close(tools);
 });
 
+// an agent's job for a device named: refused if none of its links is live,
+// the error naming the devices that are open
+test("a device named whose links are all dead is not open to an agent's job", () => {
+  const tools = Tools.serve({} as any, {} as any);
+  const link = (live: () => boolean) => ({ send: () => {}, live, computer: false, work: "~/w" });
+  Tools.attach(tools, "t1", "mac", "u", link(() => true));
+  Tools.attach(tools, "t2", "box", "u", link(() => false));
+  expect(Tools.open(tools, "box", false)).toBe("No device box is open (unii isn't running there). Open: mac. Only the user opens it, so don't retry or wait: end your turn, saying what is left.");
+  expect(typeof Tools.start_job(tools, "box", { name: "shell", input: { command: "ls" }, cwd: "main" } as any, "j1")).toBe("string");
+  expect(typeof Tools.open(tools, "mac", false)).not.toBe("string");
+  Tools.close(tools);
+});
+
 // An agent's pulse, sent to every view (Server.ts), small: its status,
 // what it does now (its stream's last line: a tool's call, its words, or
 // "thinking"), its report's last line; each line at most PULSE_LINE chars
