@@ -2902,7 +2902,6 @@ const LIKES = 30;
   }
 
   export async function bridge(chat: Chat, now: number): Promise<void> {
-    const g = chat.mem.gchat;
     const url = config.KEYS.gchat ?? "";
     if (!Chat.gchat_for(chat.acct.user, url) || chat.bridging?.busy || Chat.chats.get(chat.acct.user) !== chat) {
       return;
@@ -2913,17 +2912,12 @@ const LIKES = 30;
       const mem = chat.mem;
       const items = Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, now);
       const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
-      if (!g.posted.every(open)) {
-        g.posted = g.posted.filter(open);
-        Memory.save(mem);
-      }
       b.threads = b.threads.filter(open);
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
-      // a process. view.json's outbox and posted are records only, never
-      // read back to skip a post or to route a reply
-      const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), [], mem.pace, mem.digested, now);
+      // a process. view.json keeps no record of what was posted
+      const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), mem.pace, mem.digested, now);
       const nows = plan.now.slice(0, Gchat.POSTS);
       const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
       // the digest's first item carries its header, so each keeps a thread of its own
@@ -2938,9 +2932,6 @@ const LIKES = 30;
           continue;
         }
         b.threads.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
-        g.posted = [...g.posted.filter((p) => item.kind !== "approval" || p.key !== item.key), { key: item.key, tk, ...sent }];
-        mem.outbox = Outbox.sent(mem.outbox, item, (mem.outbox.at(-1)?.id ?? 0) + 1, now);
-        Memory.save(mem);
       }
       // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
       if (plan.due && whole) {
@@ -2966,13 +2957,13 @@ const LIKES = 30;
   // so Chat.act's own checks (an open question, credit) apply as for the
   // web; what it refuses, or a reply not understood, said in the thread.
   // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item's
-  // thread is only one this process posted (b.threads), never view.json's posted
+  // thread is only one this process posted (b.threads); view.json keeps none
   export async function bridged(chat: Chat, url: string, items: Gchat.Item[]): Promise<void> {
     const g = chat.mem.gchat;
     const token = await Chat.gchat_token!();
     const b = chat.bridging!;
     b.me ??= await Google.me(token);
-    const threads: Gchat.Gchat = { posted: b.threads, acted: g.acted };
+    const threads: Gchat.Threads = { posted: b.threads, acted: g.acted };
     if (threads.posted.length === 0) {
       return;
     }
