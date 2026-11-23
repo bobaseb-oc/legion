@@ -807,6 +807,15 @@ p.fx { cursor: default; }
 .msg.pinned > .pin { opacity: 1; filter: none; }
 .msg.pinned { box-shadow: inset 3px 0 0 var(--accent); }
 
+/* the Crew's search of the agents, archived and past ones too (Html.agents_find_html) */
+.afind input { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; margin-bottom: 6px; }
+.ahits { margin-bottom: 10px; }
+.ahit { display: flex; gap: 6px; padding: 2px 6px; border-radius: 6px; text-decoration: none; color: inherit; font-size: 12.5px; }
+.ahit:hover { background: var(--hover); }
+.ahit .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ahit .meta, .afind + .meta { color: var(--soft); font: 11px var(--mono); }
+.ahit:is(.archived, .past) .t { color: var(--soft); }
+
 /* the Memory page: search, pins, the tree's map (Pages.memory_html) */
 .msearch input { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; margin-bottom: 8px; }
 .mhit, .mx { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; font: inherit; font-size: 12.5px; line-height: 1.5; padding: 3px 6px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }

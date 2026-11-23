@@ -316,6 +316,7 @@ function chat(): void {
   $("#page").addEventListener("submit", routine_add);
   $("#page").addEventListener("submit", files_run);
   $("#page").addEventListener("submit", memory_find);
+  $("#crew").addEventListener("submit", agents_find);
   $("#page").addEventListener("submit", note_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", track_edit);
@@ -1331,7 +1332,7 @@ function crew_bars(): void {
   }
   markup($("#crew .needs"), Html.needs_html(v));
   markup($("#crew .card"), [Html.focus_html(v), Html.lane_html(v, Date.now())].filter((h) => h !== ""));
-  markup($("#crew .tree"), Html.tree_html(v, Date.now()));
+  markup($("#crew .tree"), [Html.agents_find_html(v), ...Html.tree_html(v, Date.now())]);
   const grid = v.page === null;
   document.body.classList.toggle("gridmode", grid);
   $("#grid").hidden = !grid;
@@ -1677,6 +1678,17 @@ function memory_find(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   act({ $: "Search", q: form.querySelector("input")!.value });
+}
+
+// the Crew's search box sent: the agents searched on the server by name
+// or title (an empty one clears the hits)
+function agents_find(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.afind");
+  if (form === null) {
+    return;
+  }
+  ev.preventDefault();
+  act({ $: "Agents", q: form.querySelector("input")!.value });
 }
 
 // a note's box sent (the Memory page): its text saved as edited
