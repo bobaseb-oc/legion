@@ -1,0 +1,28 @@
+tasks/todo.md
+  s_ea6d981cb652f4::t_62061bafaee295 1294-1296
+  s_ea6d981cb652f4::t_af6342c04ac381 1297-1303
+Memory.test.ts
+  s_ea6d981cb652f4::t_30b5ca095de346 247-261
+Memory.ts
+  s_ea6d981cb652f4::t_bfea664f545e59 132,136-137,168,301,309,462
+Server.test.ts
+  s_ea6d981cb652f4::t_a590393da3c4d0 2396-2494
+Server.ts
+  s_ea6d981cb652f4::t_88881a61b23158 239-242,244-247,776,797-801,811-820,822-830,832-835,1711
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "761adcc543708fb07a4769136825f27bf4b3bc89",
+  "prompts": {},
+  "sessions": {
+    "s_ea6d981cb652f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7ecd1c4e-e8f7-4d35-8915-98c0da6410f1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
