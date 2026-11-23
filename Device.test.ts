@@ -736,3 +736,131 @@ test("a terminal's own Ctrl+B sends its shell commands here away, the user's !co
   expect([...jobs.keys()]).toEqual(["c"]);
   expect(Device.device_away(jobs)).toBe(0);
 });
+
+// Tidy
+// ----
+// real repos: an origin, a clone r, and its worktrees at
+// r-worktrees/<name>, one of each kind the tidy tells apart
+function tidy_repos() {
+  const T = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-tidy-"));
+  const g = (dir: string, ...a: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", dir, ...a]);
+    if (r.exitCode !== 0) {
+      throw new Error("git " + a.join(" ") + ": " + r.stderr.toString());
+    }
+    return r.stdout.toString().trim();
+  };
+  const R = T + "/r";
+  Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", T + "/origin.git"]);
+  Bun.spawnSync(["git", "init", "-q", "-b", "main", R]);
+  g(R, "remote", "add", "origin", T + "/origin.git");
+  g(R, "commit", "-q", "--allow-empty", "-m", "base");
+  g(R, "push", "-q", "-u", "origin", "main");
+  g(R, "remote", "set-head", "origin", "main");
+  const wt = (name: string) => {
+    g(R, "worktree", "add", "-q", "-b", name, T + "/r-worktrees/" + name, "main");
+    return T + "/r-worktrees/" + name;
+  };
+  const gone = (name: string) => {
+    const p = wt(name);
+    g(p, "push", "-q", "-u", "origin", name);
+    g(R, "push", "-q", "origin", "--delete", name);
+    g(R, "fetch", "-q", "--prune");
+    return p;
+  };
+  const w = { merged: wt("merged"), dirty: wt("dirty"), stashed: wt("stashed"), live: wt("live"), gone: gone("gone"), ahead: gone("ahead"), again: wt("again") };
+  fs.writeFileSync(w.dirty + "/f", "x");
+  fs.writeFileSync(w.stashed + "/f", "x");
+  g(w.stashed, "stash", "push", "-q", "-u");
+  g(w.ahead, "commit", "-q", "--allow-empty", "-m", "not pushed");
+  return { T, R, w, g };
+}
+
+// gh and acli answered by a fake (no network); git, lsof and du are real
+const tidy_exec: Device.Exec = async (cmd) => (["gh", "acli"].includes(cmd[0]) ? { code: 1, out: "" } : Device.exec(cmd));
+const nog2: Device.Reads = { events: async () => [], docs: async () => [], text: async () => "" };
+
+test("a device lists each worktree with merged, gone, changes, unpushed, stashes, size, age and use; the main checkout never", async () => {
+  const { R, w } = tidy_repos();
+  const sleeper = Bun.spawn(["sleep", "30"], { cwd: w.live });
+  try {
+    const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
+    const rows = new Map<string, any>(msg.inbox.clean.map((c: any) => [c.path, c]));
+    expect(rows.has(R)).toBe(false);
+    expect(rows.get(w.merged)).toMatchObject({ branch: "merged", merged: true, gone: false, changes: 0, unpushed: 0, stashes: 0, live: false });
+    expect(rows.get(w.dirty)).toMatchObject({ changes: 1 });
+    expect(rows.get(w.stashed)).toMatchObject({ changes: 0, stashes: 1 });
+    expect(rows.get(w.live)).toMatchObject({ live: true });
+    expect(rows.get(w.gone)).toMatchObject({ gone: true, unpushed: 0 });
+    expect(rows.get(w.ahead)).toMatchObject({ gone: true, unpushed: 1 });
+    expect(rows.get(w.merged).bytes).toBeGreaterThan(0);
+    expect(rows.get(w.merged).at).toBeGreaterThan(Date.now() - 3600e3);
+    // the server's own check: only the merged and the gone ones are safe
+    const { inbox_check } = await import("./Inbox.ts");
+    const kept = inbox_check(msg.inbox) as any;
+    const safe = kept.clean.filter((c: any) => c.safe).map((c: any) => c.path).sort();
+    expect(safe).toEqual([w.again, w.gone, w.merged].sort());
+  } finally {
+    sleeper.kill();
+  }
+});
+
+test("a check that fails makes a row unsafe (fail closed)", async () => {
+  const { R, w } = tidy_repos();
+  const failing: Device.Exec = async (cmd) => (cmd.includes("rev-list") || cmd[0] === "lsof" ? { code: 1, out: "failed" } : tidy_exec(cmd));
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, failing, new Date(), nog2) as any;
+  const { inbox_check } = await import("./Inbox.ts");
+  const kept = inbox_check(msg.inbox) as any;
+  expect(kept.clean.find((c: any) => c.path === w.merged).safe).toBe(false);
+});
+
+test("the tidy re-checks each worktree, removes only a safe one with git worktree remove (never --force, never rm), keeps the rest", async () => {
+  const { R, w, g } = tidy_repos();
+  // safe when listed, dirty by the time the tidy runs
+  fs.writeFileSync(w.again + "/late", "x");
+  const ran: string[][] = [];
+  const run: Device.Exec = async (cmd) => {
+    ran.push(cmd);
+    return tidy_exec(cmd);
+  };
+  const out = await Device.device_tidy([w.merged, w.again, w.dirty, "/nowhere/x"], run);
+  expect(out.$).toBe("tidied");
+  expect(out.removed).toEqual([w.merged]);
+  expect(out.kept.map((k) => k.path)).toEqual([w.again, w.dirty, "/nowhere/x"]);
+  expect(fs.existsSync(w.merged)).toBe(false);
+  expect(g(R, "worktree", "list", "--porcelain")).not.toContain(w.merged);
+  for (const p of [w.again, w.dirty]) {
+    expect(fs.existsSync(p)).toBe(true);
+  }
+  const removes = ran.filter((c) => c.includes("worktree") && c.includes("remove"));
+  expect(removes.length).toBe(1);
+  expect(removes[0]).toContain(w.merged);
+  expect(ran.some((c) => c.includes("--force") || c.includes("-f"))).toBe(false);
+  expect(ran.some((c) => c[0] === "rm" || c.includes("rm"))).toBe(false);
+});
+
+test("the tidy also looks under ~/repos and /private/tmp/claude-501, for its list only", async () => {
+  expect(Device.TIDY_ROOTS).toEqual(["~/repos", "/private/tmp/claude-501"]);
+  const { T, R } = tidy_repos();
+  const empty = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
+  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS };
+  process.env.UNII_SPACES = empty;
+  process.env.UNII_TIDY_ROOTS = T;
+  try {
+    const msg = await Device.device_inbox({ work: "/w", computer: false }, tidy_exec, new Date(), nog2) as any;
+    expect(msg.inbox.clean.some((c: any) => c.path.startsWith(T + "/r-worktrees/"))).toBe(true);
+    // not a space of the digest or the sidebar
+    expect(msg.inbox.spaces).not.toContain("r");
+  } finally {
+    process.env.UNII_SPACES = was.spaces;
+    process.env.UNII_TIDY_ROOTS = was.tidy;
+    void R;
+  }
+});
+
+test("legion tidy --list: a line per row with its checks, and safe", () => {
+  const rows = [{ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 3 * 2 ** 20, at: 0, live: false, safe: true }];
+  const text = Device.device_tidy_list(rows, 2 * 86400e3);
+  expect(text).toContain("safe");
+  expect(text.split("\n").find((l) => l.includes("/r-worktrees/a"))).toMatch(/r\s+a\s+.*merged.*3\.0 MB.*2d.*yes/);
+});
