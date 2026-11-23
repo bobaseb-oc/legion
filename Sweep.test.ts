@@ -62,7 +62,7 @@ const repo = (dir: string, out: string): string => {
   return dir;
 };
 
-const none = { known: new Set<string>(), busy: new Set<string>() };
+const none = { known: new Set<string>(), busy: new Set<string>(), shared: true };
 const listed = (items: Sweep.Item[]): string[] => items.map((x) => x.path).sort();
 
 test("AC1: a finished agent's dir untouched 8 days is listed once with its size; nothing is removed", async () => {
@@ -70,7 +70,7 @@ test("AC1: a finished agent's dir untouched 8 days is listed once with its size;
   fs.mkdirSync(work + "/Ada/sub", { recursive: true });
   fs.writeFileSync(work + "/Ada/sub/f.bin", Buffer.alloc(5000));
   age(work + "/Ada", 8);
-  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
   expect(listed(items)).toEqual([work + "/Ada"]);
   expect(items[0]!.bytes).toBeGreaterThanOrEqual(5000);
   expect(Sweep.sweep_text(items)).toContain(work + "/Ada");
@@ -85,7 +85,7 @@ test("age: a dir touched 6 days ago, or with one file touched today, is not list
   age(work + "/Ada", 6);
   age(work + "/Bob", 30);
   fs.utimesSync(work + "/Bob/deep/new.txt", new Date(), new Date());
-  expect(await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set() }, [], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now())).toEqual([]);
 });
 
 test("AC3: an old repo with a change, a stash, or a commit on no remote is not listed; a clean pushed one is", async () => {
@@ -119,7 +119,7 @@ test("AC9: never WORK/main, the user's dirs, or a non-git dir not named after an
   fs.writeFileSync(work + "/users/u1/view.json", "{}");
   age(work, 30);
   const keep = [work + "/users/u1"];
-  expect(await Sweep.sweep_list(work, { known: new Set(["main", "users"]), busy: new Set() }, keep, Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["main", "users"]), busy: new Set(), shared: true }, keep, Date.now())).toEqual([]);
 });
 
 test("symlinks: one in WORK pointing outside is never listed nor removed; the outside dir stays", async () => {
@@ -128,7 +128,7 @@ test("symlinks: one in WORK pointing outside is never listed nor removed; the ou
   fs.writeFileSync(out + "/precious/keep.txt", "keep");
   fs.symlinkSync(out + "/precious", work + "/Eve");
   age(out, 30);
-  expect(await Sweep.sweep_list(work, { known: new Set(["Eve"]), busy: new Set() }, [], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, { known: new Set(["Eve"]), busy: new Set(), shared: true }, [], Date.now())).toEqual([]);
   const forged: Sweep.Item = { path: work + "/Eve", bytes: 4, mtime: 0, git: null };
   expect(await Sweep.sweep_remove(work, forged)).not.toBeNull();
   expect(await Sweep.sweep_remove(work, { ...forged, path: work + "/../out/precious" })).not.toBeNull();
@@ -145,7 +145,7 @@ test("AC5: a listed dir touched or made dirty since the listing fails its re-che
   const r = repo(work + "/rv/r", out);
   fs.mkdirSync(work + "/Bob");
   age(work, 8);
-  const agents = { known: new Set(["Ada", "Bob"]), busy: new Set<string>() };
+  const agents = { known: new Set(["Ada", "Bob"]), busy: new Set<string>(), shared: true };
   const items = await Sweep.sweep_list(work, agents, [], Date.now());
   expect(listed(items)).toEqual([work + "/Ada", work + "/Bob", r]);
   fs.writeFileSync(work + "/Ada/f", "y");
@@ -190,7 +190,7 @@ test("cap: the biggest dirs are listed first, so 60 empty agent dirs never crowd
   git(big, "commit", "-q", "-m", "blob");
   git(big, "push", "-q", "origin", "main");
   age(work, 8);
-  const items = await Sweep.sweep_list(work, { known: new Set(names), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(names), busy: new Set(), shared: true }, [], Date.now());
   expect(items.length).toBe(50);
   expect(items[0]!.path).toBe(big);
   expect(items.map((x) => x.bytes)).toEqual(items.map((x) => x.bytes).sort((a, b) => b - a));
@@ -236,7 +236,7 @@ test("an agent dir holding a linked worktree: removed, then the worktree pruned 
   const wt = work + "/Ada/af-pr";
   git(parent, "worktree", "add", "-q", "--detach", wt);
   age(work, 8);
-  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
   const ada = items.find((x) => x.path === work + "/Ada")!;
   expect(ada).toBeDefined();
   expect(await Sweep.sweep_remove(work, ada)).toBeNull();
@@ -252,7 +252,7 @@ test("the question names each listed dir's .env files, by path within it", async
   fs.writeFileSync(work + "/Ada/app/env.txt", "not one");
   fs.mkdirSync(work + "/Bob");
   age(work, 8);
-  const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now());
   const text = Sweep.sweep_text(items);
   const ada = text.split("\n").find((l) => l.includes(work + "/Ada"))!;
   expect(ada).toContain(".env");
@@ -273,11 +273,84 @@ test("only .env files git does not track are named: a tracked template is not; a
   fs.writeFileSync(app + "/.env", "A=secret"); // ignored
   fs.writeFileSync(work + "/Ada/.env.local", "B=secret"); // in no repo
   age(work, 8);
-  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set() }, [], Date.now());
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
   const ada = items.find((x) => x.path === work + "/Ada")!;
   expect(ada).toBeDefined();
   expect([...(ada.envs ?? [])].sort()).toEqual([".env.local", "app/.env"]);
   expect(Sweep.sweep_text(items)).not.toContain(".env.example");
+});
+
+test("H1: a parent swapped for a symlink out of WORK after the check: nothing outside is removed or moved", async () => {
+  const { work, out } = fresh();
+  const r = repo(work + "/rv/r", out);
+  age(work, 8);
+  const agents = { known: new Set<string>(), busy: new Set<string>(), shared: true };
+  const items = await Sweep.sweep_list(work, agents, [], Date.now());
+  const item = items.find((x) => x.path === r)!;
+  expect(await Sweep.sweep_check(work, item, agents, [], Date.now())).toBe(true);
+  // the attack: WORK/rv becomes a link to a dir outside holding its own
+  // "r", swapped while sweep_remove is already under way (its walk of a
+  // big tree is the window)
+  fs.mkdirSync(out + "/home/r", { recursive: true });
+  fs.writeFileSync(out + "/home/r/precious.txt", "keep");
+  fs.mkdirSync(r + "/node_modules");
+  for (let k = 0; k < 2000; k++) {
+    fs.writeFileSync(r + "/node_modules/f" + k, "x");
+  }
+  const removing = Sweep.sweep_remove(work, item);
+  setImmediate(() => {
+    fs.renameSync(work + "/rv", work + "/rv-old");
+    fs.symlinkSync(out + "/home", work + "/rv");
+  });
+  expect(await removing).not.toBeNull();
+  expect(fs.readFileSync(out + "/home/r/precious.txt", "utf8")).toBe("keep");
+});
+
+test("H1: a removal goes through a quarantine in WORK that is never listed; the listed dir is gone", async () => {
+  const { work } = fresh();
+  fs.mkdirSync(work + "/Ada");
+  age(work, 8);
+  const agents = { known: new Set(["Ada"]), busy: new Set<string>(), shared: true };
+  const [ada] = await Sweep.sweep_list(work, agents, [], Date.now());
+  expect(ada!.ino).toBeGreaterThan(0);
+  expect(await Sweep.sweep_remove(work, ada!)).toBeNull();
+  expect(fs.existsSync(work + "/Ada")).toBe(false);
+  fs.mkdirSync(work + "/.sweep-trash/x", { recursive: true });
+  age(work, 8);
+  expect(await Sweep.sweep_list(work, { ...agents, known: new Set([".sweep-trash"]) }, [], Date.now())).toEqual([]);
+});
+
+test("H2: a repo whose config or attributes run commands is never listed, and git never runs them", async () => {
+  const { work, out } = fresh();
+  const marker = out + "/ran";
+  const filt = repo(work + "/rv/filter", out);
+  fs.writeFileSync(filt + "/.gitattributes", "* filter=evil\n");
+  git(filt, "add", ".");
+  git(filt, "commit", "-q", "-m", "attrs");
+  git(filt, "push", "-q", "origin", "main");
+  git(filt, "config", "filter.evil.clean", "sh -c 'touch " + marker + "; cat'");
+  const sig = repo(work + "/rv/sig", out);
+  git(sig, "config", "log.showSignature", "true");
+  git(sig, "config", "gpg.program", "sh -c 'touch " + marker + "'");
+  const ok = repo(work + "/rv/ok", out);
+  age(work, 8);
+  if (fs.existsSync(marker)) {
+    fs.rmSync(marker);
+  }
+  const items = await Sweep.sweep_list(work, { known: new Set(), busy: new Set(), shared: true }, [], Date.now());
+  expect(listed(items)).toEqual([ok]);
+  expect(fs.existsSync(marker)).toBe(false);
+});
+
+test("M1: another user's agent dirs are never listed; shared clones only when this server has one user", async () => {
+  const { work, out } = fresh();
+  fs.mkdirSync(work + "/Ada");
+  fs.mkdirSync(work + "/Bob");
+  const clone = repo(work + "/review/clone", out);
+  age(work, 8);
+  const mine = { known: new Set(["Ada"]), busy: new Set<string>(), shared: false };
+  expect(listed(await Sweep.sweep_list(work, mine, [], Date.now()))).toEqual([work + "/Ada"]);
+  expect(listed(await Sweep.sweep_list(work, { ...mine, shared: true }, [], Date.now()))).toEqual([work + "/Ada", clone]);
 });
 
 test("the fingerprint covers each listed dir's path, size and time", async () => {
