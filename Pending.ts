@@ -119,3 +119,13 @@ export function take(grants: Map<string, Grant>, who: string, tool: string, args
   grants.delete(key);
   return g.who === who && now < g.until;
 }
+
+// the grants expired by now gone (take's rule: live while now < until);
+// it only deletes, never adds or extends one
+export function prune(grants: Map<string, Grant>, now: number): void {
+  for (const [key, g] of grants) {
+    if (!(now < g.until)) {
+      grants.delete(key);
+    }
+  }
+}
