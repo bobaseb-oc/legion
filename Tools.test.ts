@@ -244,7 +244,9 @@ test("label: itself or an agent under it, trimmed and capped, in the crew", asyn
 // Code's TodoWrite), cleaned and capped, in the crew; the orchestrator has
 // none (it does no hands-on work)
 test("todo: an agent sets its own checklist, cleaned and capped, in the crew; main has no todo tool", async () => {
-  const tools = Tools.serve({} as any, { change: () => {} } as any);
+  // a real chat dir: the checklist is saved in its view.json too
+  const { Memory } = await import("./Memory.ts");
+  const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/unii-todo-"), () => ({}) as any), { change: () => {} } as any);
   const sub = (name: string, parent: string, tier: string) => ({ name, parent, role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
   tools.agents.set("Wkr", sub("Wkr", "main", "worker"));
   const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
