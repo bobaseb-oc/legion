@@ -342,6 +342,60 @@ test("H2: a repo whose config or attributes run commands is never listed, and gi
   expect(fs.existsSync(marker)).toBe(false);
 });
 
+test("L1: a path or a .env name with a control character is never listed", async () => {
+  const { work, out } = fresh();
+  const bad = repo(work + "/rv/bad\nname", out);
+  fs.mkdirSync(work + "/Ada");
+  fs.writeFileSync(work + "/Ada/.env\n- /etc yes", "x");
+  fs.mkdirSync(work + "/Bob");
+  age(work, 8);
+  const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now());
+  expect(listed(items)).toEqual([work + "/Bob"]);
+  expect(items.some((x) => x.path === bad)).toBe(false);
+});
+
+test("L2, L4: an entry it cannot stat keeps its dir; a dir it cannot read rejects only itself", async () => {
+  const { work } = fresh();
+  fs.mkdirSync(work + "/Ada/sub", { recursive: true });
+  fs.writeFileSync(work + "/Ada/sub/f", "x");
+  fs.mkdirSync(work + "/Bob");
+  fs.mkdirSync(work + "/locked");
+  age(work, 8);
+  fs.chmodSync(work + "/Ada/sub", 0o600); // names readable, entries not stat-able
+  fs.chmodSync(work + "/locked", 0o000);
+  try {
+    const items = await Sweep.sweep_list(work, { known: new Set(["Ada", "Bob"]), busy: new Set(), shared: true }, [], Date.now());
+    expect(listed(items)).toEqual([work + "/Bob"]);
+  } finally {
+    fs.chmodSync(work + "/Ada/sub", 0o700);
+    fs.chmodSync(work + "/locked", 0o700);
+  }
+});
+
+test("L3: a removed agent dir's worktree of a repo outside WORK: that repo is never pruned", async () => {
+  const { work, out } = fresh();
+  const parent = repo(out + "/outside", out);
+  const wt = work + "/Ada/pr";
+  git(parent, "worktree", "add", "-q", "--detach", wt);
+  age(work, 8);
+  const [ada] = await Sweep.sweep_list(work, { known: new Set(["Ada"]), busy: new Set(), shared: true }, [], Date.now());
+  expect(ada!.path).toBe(work + "/Ada");
+  expect(await Sweep.sweep_remove(work, ada!)).toBeNull();
+  expect(git(parent, "worktree", "list", "--porcelain")).toContain(wt);
+});
+
+test("Info: no sweep at all when WORK holds a kept dir (Legion's DIR, HOME); a dir named main in any case is never listed", async () => {
+  const { work } = fresh();
+  fs.mkdirSync(work + "/Ada");
+  fs.mkdirSync(work + "/Main");
+  fs.mkdirSync(work + "/dir");
+  age(work, 8);
+  const agents = { known: new Set(["Ada", "Main"]), busy: new Set<string>(), shared: true };
+  expect(listed(await Sweep.sweep_list(work, agents, [], Date.now()))).toEqual([work + "/Ada"]);
+  expect(await Sweep.sweep_list(work, agents, [work + "/dir"], Date.now())).toEqual([]);
+  expect(await Sweep.sweep_list(work, agents, [work], Date.now())).toEqual([]);
+});
+
 test("M1: another user's agent dirs are never listed; shared clones only when this server has one user", async () => {
   const { work, out } = fresh();
   fs.mkdirSync(work + "/Ada");
@@ -459,6 +513,26 @@ test("AC1, AC2, AC5, AC7: one question lists both dirs; a device's yes is refuse
   expect(out.told).toContain("Skipped");
   expect(out.told).toContain(out.work + "/Bob");
   expect(out.open).toBe(0);
+}, 30_000);
+
+const GCHAT = HEAD + `
+const Gchat = await import(${JSON.stringify(import.meta.dir + "/Gchat.ts")});
+agent("Fay");
+await tick(Date.now());
+const q = sweeps()[0];
+const posted = Gchat.gchat_items({ questions: chat.mem.questions, assigned: [], decided: [] }, Date.now()).filter((x) => x.n === q.id).length;
+const one = await Chat.apply(chat, { $: "answer", q: q.id, text: "1", id: "gchat-a1" }, "", true);
+const yes = await Chat.apply(chat, { $: "answer", q: q.id, text: "yes", id: "gchat-a2" }, "", true);
+const kept = fs.existsSync(work + "/Fay");
+const open = sweeps().some((x) => x.id === q.id);
+const mine = await answer(q.id, "yes");
+console.log(JSON.stringify({ posted, one: "error" in one, yes: "error" in yes, kept, open, mine, gone: !fs.existsSync(work + "/Fay") }));
+process.exit(0);
+`;
+
+test("M2: the sweep question is never posted to GChat, and a GChat answer applies nothing (till PLP-2922)", async () => {
+  const out = await run("gchat", GCHAT);
+  expect(out).toMatchObject({ posted: 0, one: true, yes: true, kept: true, open: true, mine: {}, gone: true });
 }, 30_000);
 
 const TWO = HEAD + `
