@@ -1,0 +1,21 @@
+Pending.test.ts
+  s_aeea4652c6b7ae::t_33217160d02a50 83-100
+Server.test.ts
+  s_aeea4652c6b7ae::t_5363a7e4b80bec 1963-1983
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5f6c14695fa7912314e9ec4c3aae14f46679ed3e",
+  "prompts": {},
+  "sessions": {
+    "s_aeea4652c6b7ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1e5f75c-f04e-4697-9f1c-b2adedfbcd80",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
