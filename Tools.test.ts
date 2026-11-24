@@ -136,10 +136,18 @@ test("a child runs on its tier's model or one below it, never above nor another 
   expect(typeof Tools.child("worker", "opus-5.5")).toBe("string");
   expect(typeof Tools.child("manager", "gpt-6-luna")).toBe("string");
   expect(typeof Tools.child("worker", "no-such-model")).toBe("string");
-  const tools = Tools.serve({} as any, {} as any);
-  const out = await Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "opus-5.5" }, go(), "1");
-  expect(out.fail).toBe(true);
+  const tools = Tools.serve({} as any, { change: () => {} } as any);
+  // Unii's spawn above the tier's waits for the user (agents.test.ts:
+  // "propose Opus"); a stop while it waits refuses it, nothing started
+  const stop = new AbortController();
+  const asked = Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "opus-5.5" }, stop.signal, "1");
+  expect(Tools.consents(tools)).toHaveLength(1);
+  stop.abort();
+  expect((await asked).fail).toBe(true);
   expect(tools.agents.size).toBe(0);
+  // another vendor's model is refused at once, nothing asked
+  expect((await Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "gpt-6-luna" }, go(), "2")).fail).toBe(true);
+  expect(Tools.consents(tools)).toEqual([]);
   Tools.close(tools);
 });
 
