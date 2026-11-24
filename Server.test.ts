@@ -3440,7 +3440,7 @@ const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 const sent = [];
 chat.socks.add({ send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set(), seen: new Set() } });
-const row = (path, over) => ({ repo: "r", path, branch: "b", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 1, at: 1, live: false, ...over });
+const row = (path, over) => ({ repo: "r", path, branch: "b", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, envs: [], bytes: 1, at: 1, live: false, ...over });
 const inbox = { at: 1, login: "me", reviews: [], mine: [], merged: 0, today: 0, tickets: null, notes: [], errors: [], clean: [row("/w/safe"), row("/w/dirty", { changes: 2 })] };
 await Chat.act(chat, "t0", { $: "inbox", inbox }, "mac");
 chat.tools.devices.set("mac", { terms: new Set(["t1"]), jobs: new Map() });

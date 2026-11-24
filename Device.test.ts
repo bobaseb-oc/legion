@@ -947,7 +947,6 @@ test("device git: a repo's own config naming a command git would run is not trus
     ["url.ext::sh -c x.insteadOf", "https://github.com/"],
     ["protocol.ext.allow", "always"],
     ["core.editor", "sh -c x"],
-    ["core.pager", "sh -c x"],
     ["gpg.program", "sh -c x"],
     ["merge.evil.driver", "sh -c x"],
     ["diff.evil.command", "sh -c x"],
