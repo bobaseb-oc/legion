@@ -70,3 +70,55 @@ test("the index says how to use a skill and lists each with its path, descriptio
   expect(text).toContain("- on:pr-reviewer [agent]: Reviews a diff. (");
   expect(text).toContain("${CLAUDE_PLUGIN_ROOT}");
 });
+
+// PLP-2945: with Legion's own oncorps-shared-skills checkout, its
+// allowlisted plugins replace Claude Code's OnCorps ones; a skill of yours
+// of the same name (a link into a clone) is not listed twice; without a
+// checkout, Claude Code's stay
+function shared(h: string): string {
+  const dir = h + "/.unii/shared-skills";
+  fs.mkdirSync(dir + "/.claude-plugin", { recursive: true });
+  fs.writeFileSync(dir + "/.claude-plugin/marketplace.json", JSON.stringify({ name: "oncorps-shared-skills", plugins: [
+    { name: "oc", source: "./skills/oc" },
+    { name: "xlsx", source: "./skills/xlsx" },
+    { name: "unlisted", source: "./skills/unlisted" },
+    { name: "out", source: "../../.." },
+  ] }));
+  skill(dir + "/skills/oc/skills/fresh", "name: fresh\ndescription: From 0.x.");
+  fs.mkdirSync(dir + "/skills/oc/commands", { recursive: true });
+  fs.writeFileSync(dir + "/skills/oc/commands/ship.md", "---\ndescription: Ship it.\n---\n");
+  skill(dir + "/skills/xlsx", "name: xlsx\ndescription: Flat, at 0.x.");
+  skill(dir + "/skills/unlisted", "name: unlisted\ndescription: Not allowlisted.");
+  // Claude Code's older OnCorps install, and your link of the same skill
+  const cc = h + "/.claude/plugins/cache/oncorps-shared-skills/oc/0.6.0";
+  skill(cc + "/skills/stale-oc", "name: stale-oc\ndescription: Claude Code's copy.");
+  const s = JSON.parse(fs.readFileSync(h + "/.claude/settings.json", "utf8"));
+  s.enabledPlugins["oc@oncorps-shared-skills"] = true;
+  fs.writeFileSync(h + "/.claude/settings.json", JSON.stringify(s));
+  const i = JSON.parse(fs.readFileSync(h + "/.claude/plugins/installed_plugins.json", "utf8"));
+  i.plugins["oc@oncorps-shared-skills"] = [{ scope: "user", installPath: cc }];
+  fs.writeFileSync(h + "/.claude/plugins/installed_plugins.json", JSON.stringify(i));
+  skill(h + "/clone/skills/xlsx", "name: xlsx\ndescription: Your linked clone's.");
+  fs.symlinkSync(h + "/clone/skills/xlsx", h + "/.claude/skills/xlsx");
+  return dir;
+}
+
+test("Legion's checkout gives the allowlisted OnCorps plugins, in place of Claude Code's and your same-named links", () => {
+  const h = home();
+  const dir = shared(h);
+  const found = skills(h, { dir, plugins: ["oc", "xlsx", "out"] });
+  const names = found.map((s) => s.name).sort();
+  expect(names).toEqual(["/on:review", "/oc:ship", "linked", "mine", "oc:fresh", "on:alpha", "on:long", "on:pr-reviewer", "xlsx"]);
+  expect(found.find((s) => s.name === "xlsx")).toEqual({ name: "xlsx", description: "Flat, at 0.x.", path: dir + "/skills/xlsx/SKILL.md" });
+  expect(found.find((s) => s.name === "oc:fresh")!.path).toBe(dir + "/skills/oc/skills/fresh/SKILL.md");
+});
+
+test("without a checkout, Claude Code's OnCorps plugins and your links stay", () => {
+  const h = home();
+  shared(h);
+  const found = skills(h, { dir: h + "/no-checkout", plugins: ["oc", "xlsx"] });
+  const names = found.map((s) => s.name);
+  expect(names).toContain("oc:stale-oc");
+  expect(found.find((s) => s.name === "xlsx")!.description).toBe("Your linked clone's.");
+  expect(names).not.toContain("oc:fresh");
+});

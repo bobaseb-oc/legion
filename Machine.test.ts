@@ -462,3 +462,18 @@ test("a Claude Code worker's flags: --model the id sent, else the catalog's sonn
   }
   expect(Machine.claude_args("t", "claude-haiku-5-5")).toContain("--permission-mode");
 });
+
+// PLP-2945 (RED ZONE, DRAFT awaiting the user's sign-off): Legion's own
+// oncorps-shared-skills checkout holds the gate's hooks.json and the
+// skills the agents follow, and local/shared.json names its repo, ref and
+// allowlist: an agent's write or edit reaches none, in any case
+test("write and edit refuse Legion's shared-skills checkout and local/shared.json", () => {
+  const dir = (process.env.UNII_DIR ?? os.homedir() + "/.unii") + "/shared-skills";
+  expect(Machine.gating(dir)).toBe(true);
+  expect(Machine.gating(dir + "/skills/oc-coding-assistant/hooks/hooks.json")).toBe(true);
+  expect(Machine.gating(dir.toUpperCase() + "/X/SKILL.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/shared-skills/a.md")).toBe(true);
+  expect(Machine.gating(import.meta.dir + "/local/shared.json")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/shared-skills-notes.md")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/other/local/shared.json")).toBe(false);
+});
