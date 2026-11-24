@@ -193,6 +193,14 @@ export function explain_assign(text: string, themes: Record<string, string>, nam
   return out;
 }
 
+// the themes without a dismissed agent's: a theme stays while another
+// agent is in it, and is gone with its last (themes are only names)
+export function theme_drop(themes: Record<string, string>, name: string): Record<string, string> {
+  const out = { ...themes };
+  delete out[name];
+  return out;
+}
+
 // the themes' names, in crew order (a track with none: its own name)
 export function theme_names(themes: Record<string, string>, names: string[]): string[] {
   return [...new Set(names.map((n) => themes[n] ?? n))];

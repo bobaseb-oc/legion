@@ -1923,6 +1923,11 @@ export namespace Chat {
           delete chat.mem.tracks[agent.name];
           Memory.save(chat.mem);
         }
+        // and its theme (Explain.theme_drop): the theme stays for the others
+        if (chat.mem.explain.themes?.[agent.name] !== undefined) {
+          chat.mem.explain.themes = Explain.theme_drop(chat.mem.explain.themes, agent.name);
+          Memory.save(chat.mem);
+        }
         Chat.change(chat);
         return {};
       }
