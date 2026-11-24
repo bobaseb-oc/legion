@@ -9,7 +9,8 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { Memory } from "./Memory.ts";
+import { CHECKLISTS, Memory } from "./Memory.ts";
+import { TODO_TEXT, TODOS } from "./View.ts";
 
 const DAY = { $: "daily", at: "09:30" };
 const good = { id: 1, name: "Morning", task: "Triage", when: DAY, tier: "worker", on: true, last: null, made: 1 };
@@ -270,4 +271,56 @@ test("view.json's goaled (a goal's unmet checks in a row) survives a save and a 
   for (const bad of ["3", 1.5, -1, null]) {
     expect((loaded({ goaled: bad }) as any).goaled).toBe(0);
   }
+});
+
+// RED ZONE (user authority over agents; DRAFT awaiting the user's
+// sign-off): each agent's own checklist (Tools.todo) kept in view.json so
+// a restart keeps it; as it loads, each list or item not well formed is
+// dropped, so a file written by hand (or by an agent) can't grow a list
+// past the todo tool's caps or forge a status
+const item = (text: string, status = "pending") => ({ text, status });
+
+test("checklists: an agent's list survives a save and a load; an old view.json without them loads empty", () => {
+  expect((loaded({}) as any).checklists).toEqual({});
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
+  const mem: any = Memory.load(dir, () => ({}) as any);
+  mem.checklists = { Alpha: [item("write tests"), { text: "fix it", status: "doing", since: 5 }] };
+  Memory.save(mem);
+  const back: any = Memory.load(dir, () => ({}) as any);
+  expect(back.checklists).toEqual({ Alpha: [item("write tests"), { text: "fix it", status: "doing", since: 5 }] });
+});
+
+test("checklists load guard: bad items and lists dropped, good ones kept, never throws", () => {
+  const mem: any = loaded({
+    checklists: {
+      Alpha: [item("ok"), item("x".repeat(TODO_TEXT + 1)), item("bad status", "won"), item(""), { text: 7, status: "done" }, null, item("also ok", "done")],
+      Beta: "not a list",
+      Gamma: Array.from({ length: TODOS + 5 }, (_, k) => item("step " + k)),
+      Delta: [],
+      "bad name!": [item("forged")],
+      Eps: [{ ...item("since kept", "doing"), since: 9 }, { ...item("since dropped", "doing"), since: "9" }, { ...item("reminded", "doing"), reminded: true }, { ...item("extra"), by: "user" }],
+    },
+  });
+  expect(mem.checklists.Alpha).toEqual([item("ok"), item("also ok", "done")]);
+  expect(mem.checklists.Beta).toBeUndefined();
+  expect(mem.checklists.Gamma).toHaveLength(TODOS);
+  expect(mem.checklists.Gamma[0]).toEqual(item("step 0"));
+  expect(mem.checklists.Delta).toBeUndefined();
+  expect(mem.checklists["bad name!"]).toBeUndefined();
+  expect(mem.checklists.Eps).toEqual([{ ...item("since kept", "doing"), since: 9 }, item("since dropped", "doing"), { ...item("reminded", "doing"), reminded: true }, item("extra")]);
+  for (const bad of [null, "x", 5, [item("a")]]) {
+    expect((loaded({ checklists: bad }) as any).checklists).toEqual({});
+  }
+  const proto: any = loaded(JSON.parse('{"checklists":{"__proto__":[{"text":"p","status":"done"}]}}'));
+  expect(Object.keys(proto.checklists)).toEqual([]);
+  expect(({} as any).text).toBeUndefined();
+});
+
+test("checklists load guard: at most CHECKLISTS agents kept, the last ones", () => {
+  const many = Object.fromEntries(Array.from({ length: CHECKLISTS + 3 }, (_, k) => ["A" + "b".repeat(k), [item("t")]]));
+  const mem: any = loaded({ checklists: many });
+  const names = Object.keys(mem.checklists);
+  expect(names).toHaveLength(CHECKLISTS);
+  expect(names.at(-1)).toBe("A" + "b".repeat(CHECKLISTS + 2));
 });

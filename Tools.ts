@@ -37,7 +37,7 @@ import * as config from "./Config.ts";
 import { COMPUTER, INT, Machine, STR, TOOLS, USER_SHELL, spec, type Job, type Spec } from "./Machine.ts";
 import { Lsp, OPS } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
-import { Memory, type Seen } from "./Memory.ts";
+import { CHECKLISTS, Memory, type Seen } from "./Memory.ts";
 import { ABOUT, ASK_KINDS, Modes, type AskKind } from "./Modes.ts";
 import PROMPT from "./prompt.txt" with { type: "text" };
 import { EFFORTS, LABELS, Pick } from "./Pick.ts";
@@ -52,6 +52,7 @@ import { Directives } from "./Directives.ts";
 import * as Pending from "./Pending.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
 import type { AgentHit, Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
+import { TODO_TEXT, TODOS } from "./View.ts";
 
 export type { Live };
 
@@ -130,9 +131,6 @@ const HANDOFF = 8000; // a brief handed to Claude Code, at most (Tools.handoff)
 const AUTO_TITLE = 60; // a title made from a task (Tools.titled), at most
 const REPOS = 8;
 
-// a checklist's most items, and an item's most characters (Tools.todo)
-const TODOS = 20;
-const TODO_TEXT = 120;
 const REPO  = 60;
 
 // B2: the jobs that are shell commands (an agent's shell, the user's
@@ -453,6 +451,12 @@ const TODO = spec("todo", "Set your checklist, the whole list each time, in orde
   items: { type: "array", items: { type: "object", properties: { text: STR, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text"] } },
   pinned: { type: "array", items: { type: "object", properties: { n: INT, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["n", "status"] } },
 }, ["items"]);
+// the orchestrator's todo: todos go stale, so it closes or removes items
+// on another agent's checklist (Tools.todo_of); it adds or rewrites none
+const TODO_OF = spec("todo", "Close or remove stale items on an agent's checklist. agent: whose list. items: that list as it should be now: only items it has (by their text), each with its status as it is or done; any left out is removed. You can't add items to it or change a status otherwise: tell the agent instead. The user sees each change.", {
+  agent: STR,
+  items: { type: "array", items: { type: "object", properties: { text: STR, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text"] } },
+}, ["agent", "items"]);
 // the orchestrator's questions for the user, kept in a backlog the user
 // answers in due course (Tools.question); at most ASKS open, each at most
 // ASK_TEXT, with at most ASK_OPTIONS answers offered
@@ -644,7 +648,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, NOTEBOOK, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, NOTIFY, NOTEBOOK, TODO_OF, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -1050,6 +1054,12 @@ export namespace Tools {
         return Tools.assign(tools, who, args);
       }
       case "todo": {
+        if (who === "main") {
+          return Tools.todo_of(tools, args.agent, args.items);
+        }
+        if (args.agent !== undefined) {
+          return { text: "Only your own checklist: leave out agent.", fail: true };
+        }
         return Tools.todo(tools, who, args.items, args.pinned);
       }
       case "wait": {
@@ -2060,11 +2070,85 @@ export namespace Tools {
       .filter((m: any) => Number.isInteger(m?.n) && known.includes(m?.status))
       .map((m: any) => ({ n: m.n as number, status: m.status as Todo["status"] }));
     const pins = tools.hooks.pinned?.(who, marks, list.map((x) => x.text)) ?? [];
-    agent.todo = list.length === 0 ? undefined : list;
-    tools.hooks.change();
+    Tools.checklist_set(tools, who, list);
     const box = { pending: "[ ]", doing: "[>]", done: "[x]" };
     const lines = [...list.map((x) => box[x.status] + " " + x.text), ...pins.map((p) => box[p.status] + " #" + p.n + " " + p.text + " (pinned by the user)")];
     return { text: list.length === 0 && pins.length === 0 ? "Checklist cleared." : lines.join("\n"), fail: false };
+  }
+
+  // an agent's checklist set, and kept in view.json too, so a restart
+  // keeps it (Memory.checklists_read checks it as it loads); the newest
+  // last, the oldest past CHECKLISTS dropped
+  export function checklist_set(tools: Tools, who: string, list: Todo[]): void {
+    const agent = tools.agents.get(who);
+    if (agent !== undefined) {
+      agent.todo = list.length === 0 ? undefined : list;
+    }
+    const kept = tools.mem.checklists;
+    delete kept[who];
+    if (list.length > 0) {
+      kept[who] = list;
+    }
+    for (const name of Object.keys(kept).slice(0, -CHECKLISTS)) {
+      delete kept[name];
+    }
+    Memory.save(tools.mem);
+    tools.hooks.change();
+  }
+
+  // the saved checklists of top agents not taken back yet, for their
+  // tracks at startup: each agent's parent read once from its log's note
+  // (Memory.agent_ends, its head only), never taken back here (read only)
+  const parents = new WeakMap<Tools, Map<string, string | null>>();
+  export function saved_tops(tools: Tools): Record<string, Todo[]> {
+    const known = parents.get(tools) ?? new Map<string, string | null>();
+    parents.set(tools, known);
+    const out: Record<string, Todo[]> = {};
+    for (const [name, list] of Object.entries(tools.mem.checklists)) {
+      if (tools.agents.has(name)) {
+        continue;
+      }
+      if (!known.has(name)) {
+        const head = Memory.agent_ends(tools.mem, name)?.head[0];
+        known.set(name, head?.kind === "note" ? Tools.noted(String(head.text))?.parent ?? null : null);
+      }
+      if (known.get(name) === "main") {
+        out[name] = list;
+      }
+    }
+    return out;
+  }
+
+  // the orchestrator's close or removal of stale items on another agent's
+  // checklist: items is that list as main wants it, each an item it has
+  // (by text) with its status as it was or done; the rest removed; any
+  // other item or status refused, nothing changed. Each change noted for
+  // the user. RED ZONE (user authority over agents; DRAFT awaiting the
+  // user's sign-off): main closes and removes, and adds or rewrites none
+  export function todo_of(tools: Tools, name: unknown, items: unknown): Out {
+    const agent = typeof name === "string" && name !== "main" ? tools.agents.get(name) : undefined;
+    if (agent === undefined || !Array.isArray(items)) {
+      return { text: agent === undefined ? "No agent " + String(name).slice(0, 64) + " with a checklist." : "items: give that list as it should be now.", fail: true };
+    }
+    const was = agent.todo ?? [];
+    const want = items.map((x: any) => ({ text: String(x?.text ?? "").replace(/\s+/g, " ").trim(), status: x?.status }));
+    const list: Todo[] = [];
+    for (const w of want) {
+      const same = was.find((t) => t.text === w.text && !list.includes(t));
+      if (same === undefined || (w.status !== undefined && w.status !== same.status && w.status !== "done")) {
+        return { text: same === undefined ? "Not on " + agent.name + "'s checklist: " + JSON.stringify(w.text.slice(0, 80)) + ". You can only close or remove items: tell " + agent.name + " to add one." : "Only done, or as it is: tell " + agent.name + " to change " + JSON.stringify(same.text.slice(0, 80)) + " otherwise.", fail: true };
+      }
+      list.push(w.status === "done" && same.status !== "done" ? { text: same.text, status: "done" } : same);
+    }
+    const closed = list.filter((t) => t.status === "done" && was.find((x) => x.text === t.text)?.status !== "done").map((t) => t.text);
+    const removed = was.filter((t) => !list.some((x) => x.text === t.text)).map((t) => t.text);
+    if (closed.length === 0 && removed.length === 0) {
+      return { text: "Nothing to change on " + agent.name + "'s checklist.", fail: false };
+    }
+    Tools.checklist_set(tools, agent.name, list);
+    const said = [...(closed.length === 0 ? [] : ["closed: " + closed.join("; ")]), ...(removed.length === 0 ? [] : ["removed: " + removed.join("; ")])].join(", ");
+    tools.hooks.note?.("Unii tidied " + agent.name + "'s checklist (" + said + ").");
+    return { text: "Done on " + agent.name + "'s checklist: " + said + ".", fail: false };
   }
 
   // a title made from a task (spawn's, when it gives none): its first
@@ -2185,12 +2269,14 @@ export namespace Tools {
     Tools.finish(tools, agent);
   }
 
-  // one not of this process is taken back from its log, idle
+  // one not of this process is taken back from its log, idle, with its
+  // checklist as view.json kept it (Tools.todo)
   export function agent(tools: Tools, name: string): Agent | null {
     const log = tools.agents.has(name) ? null : Memory.agent(tools.mem, name);
     const noted = log !== null && log.length > 0 && log[0].kind === "note" ? Tools.noted(log[0].text) : null;
     if (noted !== null) {
-      tools.agents.set(name, { name, ...noted, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+      const todo = tools.mem.checklists[name];
+      tools.agents.set(name, { name, ...noted, call: null, live: [], calls: {}, stop: false, replies: [], user: false, ...(todo === undefined ? {} : { todo }) });
     }
     return tools.agents.get(name) ?? null;
   }
