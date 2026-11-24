@@ -136,6 +136,21 @@ export function md_list_text(b: Extract<Block, { $: "List" }>): string {
   return b.x.map(line).join("\n");
 }
 
+// security review 4 (E4, G6): text to a clipboard (the web's Copy, the
+// terminal's /copy) as it was shown: no control character but \n and \t
+// (an ESC could end a bracketed paste), no bidi or zero-width one (what
+// runs must read as it runs); one helper for both
+const UNSEEN = /[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+export function copy_clean(text: string): string {
+  return text.replace(UNSEEN, "");
+}
+
+// what a copy toast names of it: its first line with text, cleaned, cut
+export function copy_first(text: string): string {
+  const line = copy_clean(text).split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+  return line.length > 60 ? line.slice(0, 60) + "…" : line;
+}
+
 // whether a list holds a link
 export function md_list_links(b: Extract<Block, { $: "List" }>): boolean {
   return b.x.some((item) => item.some((s) => s.$ === "Link"));

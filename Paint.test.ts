@@ -165,7 +165,8 @@ test("copy_osc: the text as OSC 52, base64, whatever it holds", () => {
   expect(Paint.copy_osc("gcloud auth login")).toBe("\x1b]52;c;" + Buffer.from("gcloud auth login").toString("base64") + "\x07");
   const odd = "olá \x1b]52;c;x\x07 \x1b[2J😀\n";
   const out = Paint.copy_osc(odd);
-  expect(out).toBe("\x1b]52;c;" + Buffer.from(odd).toString("base64") + "\x07");
+  // security review 4 (E4): cleaned first, its \n kept
+  expect(out).toBe("\x1b]52;c;" + Buffer.from("olá ]52;c;x [2J😀\n").toString("base64") + "\x07");
   expect(/^\x1b\]52;c;[A-Za-z0-9+/=]*\x07$/.test(out)).toBe(true);
 });
 
@@ -207,6 +208,6 @@ test("AC25: the terminal's Tracks page draws an item's text with its escapes cle
 // security review 4, E4: the terminal's /copy cleans what it puts on the
 // clipboard (Md.copy_clean): no ESC, no bidi control reaches a paste
 test("SR4 E4: copy_osc copies the cleaned text", () => {
-  const out = Paint.copy_osc("ls\x1b[201~ ‮evil\nok");
+  const out = Paint.copy_osc("ls\x1b[201~ \u202eevil\nok");
   expect(Buffer.from(out.slice(7, -1), "base64").toString("utf8")).toBe("ls[201~ evil\nok");
 });

@@ -30,6 +30,7 @@ import * as Device from "./Device.ts";
 import * as Hist from "./Hist.ts";
 import * as Import from "./Import.ts";
 import { Machine } from "./Machine.ts";
+import * as Md from "./Md.ts";
 import * as Notify from "./Notify.ts";
 import * as Paint from "./Paint.ts";
 import { type Move, Pick } from "./Pick.ts";
@@ -774,9 +775,11 @@ function term_copy(t: Term): void {
   if (code === null) {
     return term_toast(t, "No code block from Legion to copy yet.");
   }
+  // security review 4 (E4): the toast names its first line (cleaned:
+  // Md.copy_first), so the user sees what they will paste
   const n = code.split("\n").length;
   process.stdout.write(Paint.copy_osc(code));
-  term_toast(t, "Copied the last code block (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
+  term_toast(t, "Copied «" + Md.copy_first(code) + "» (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
 }
 
 // a page's command: the deck at it on a terminal, else its text printed

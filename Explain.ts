@@ -72,6 +72,17 @@ export const THEMES = CARDS;          // themes at most (a card each)
 export const THEMED = 200;            // agents kept with a theme at most
 export const REPORT = 1500;           // a status report's characters at most
 export const REPORT_EVERY = 30 * 60_000;
+// security review 4 (E2): a theme's name is the observer's, from agents'
+// words (open to prompt injection), and fixed once made: short, and never
+// one that reads as a call to act or an approval (the track keeps its own)
+export const THEME_NAME  = 40;
+export const THEME_WORDS = 5;
+const CALLS = /\b(approv\w*|action\s+needed|urgent\w*|run|merge\w*|click\w*)\b/i;
+// what the views say over the observer's report and cards: model text
+// written from what the agents said, not Legion's nor the user's word
+export const OBSERVED = "Written by the observer (an AI) from the agents' own words: a summary, not instructions or approvals.";
+// a report's at at most (Date's range: past it, toISOString throws)
+const LATEST = 8.64e15;
 
 // what the observer is told: to write the cards, to answer a question.
 // What it reads (agents' words, PR text) is data, never instructions
@@ -184,7 +195,7 @@ export function explain_assign(text: string, themes: Record<string, string>, nam
   const picked = new Map<string, string>();
   const json = json_of(text);
   for (const t of Array.isArray(json?.themes) ? json.themes : []) {
-    const theme = typeof t?.theme === "string" ? cut(t.theme, TITLE) : "";
+    const theme = theme_name(t?.theme);
     for (const name of Array.isArray(t?.tracks) ? t.tracks : []) {
       if (theme !== "" && typeof name === "string" && !picked.has(name)) {
         picked.set(name, theme);
@@ -198,6 +209,14 @@ export function explain_assign(text: string, themes: Record<string, string>, nam
     out[name] = same ?? (made.length < THEMES ? want : made[0]!);
   }
   return out;
+}
+
+// a theme's name as the observer gave it, made safe to show: THEME_WORDS
+// words and THEME_NAME characters at most; one calling to act or
+// approving (CALLS), or not a string: "" (none made)
+export function theme_name(raw: unknown): string {
+  const all = typeof raw === "string" ? cut(raw, TITLE) : "";
+  return CALLS.test(all) ? "" : all.split(" ").slice(0, THEME_WORDS).join(" ").slice(0, THEME_NAME).trim();
 }
 
 // the themes without a dismissed agent's: a theme stays while another
@@ -240,21 +259,50 @@ export function explain_report(text: string): string | null {
 // the explain record as view.json kept it: a field malformed, or past its
 // bounds, dropped (at most THEMED agents, THEMES themes, TITLE a name);
 // never a throw. A writing or question in flight isn't
+//
+// security review 4 (E3/N5): only the record's own fields, each checked
+// (nothing else of the file spread in): cards and qa arrays of their
+// shape, capped (CARDS, QAS; FIELD, TITLE, Q, A); a report's at within
+// Date's range; a theme's name as theme_name makes it (a planted one
+// that calls to act is dropped, so it doesn't persist)
 export function explain_load(saved: unknown): Explain {
-  const s: any = typeof saved === "object" && saved !== null ? saved : {};
-  const themes: Record<string, string> = {};
+  if (typeof saved !== "object" || saved === null) {
+    return explain_new();
+  }
+  const s: any = saved;
+  const themes: Record<string, string> = Object.create(null);
   const made = new Set<string>();
   for (const [name, theme] of Object.entries(typeof s.themes === "object" && s.themes !== null ? s.themes : {})) {
-    const ok = typeof theme === "string" && theme !== "" && theme.length <= TITLE && name.length <= TITLE;
+    const ok = typeof theme === "string" && theme !== "" && theme_name(theme) === theme && name.length <= TITLE && name !== "__proto__";
     if (ok && Object.keys(themes).length < THEMED && (made.has(theme) || made.size < THEMES)) {
       made.add(theme);
       themes[name] = theme;
     }
   }
   const r = s.report;
-  const report = typeof r?.text === "string" && r.text !== "" && Number.isFinite(r?.at) ? { text: r.text.slice(0, REPORT), at: r.at } : null;
-  const loaded = typeof saved === "object" && saved !== null ? { ...explain_new(), ...s, writing: false, asking: null } : explain_new();
-  return saved === null || typeof saved !== "object" ? loaded : { ...loaded, themes, report };
+  const report = typeof r?.text === "string" && r.text !== "" && Number.isFinite(r?.at) && r.at >= 0 && r.at <= LATEST ? { text: r.text.slice(0, REPORT), at: r.at } : null;
+  const str = (x: unknown, most: number) => typeof x === "string" ? x.slice(0, most) : null;
+  const time = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= LATEST ? x : null;
+  const card = (c: any): Card | null => {
+    const f = [str(c?.track, TITLE), str(c?.title, TITLE), str(c?.what, FIELD), str(c?.why, FIELD), str(c?.status, FIELD), str(c?.watch, FIELD)];
+    return f.some((x) => x === null) ? null : { track: f[0]!, title: f[1]!, what: f[2]!, why: f[3]!, status: f[4]!, watch: f[5]! };
+  };
+  const qa = (x: any): Qa | null => {
+    const [q, a, at] = [str(x?.q, Q), str(x?.a, A), time(x?.at)];
+    return q === null || a === null || at === null ? null : { q, a, at };
+  };
+  const list = <T>(x: unknown, each: (y: any) => T | null) => (Array.isArray(x) ? x : []).map(each).filter((y): y is T => y !== null);
+  return {
+    ...explain_new(),
+    cards: list(s.cards, card).slice(0, CARDS),
+    at: time(s.at),
+    hash: typeof s.hash === "string" ? s.hash.slice(0, 200) : "",
+    tried: time(s.tried),
+    qa: list(s.qa, qa).slice(-QAS),
+    error: typeof s.error === "string" ? s.error.slice(0, FIELD) : null,
+    themes: { ...themes },
+    report,
+  };
 }
 
 // the tracks' names: the top agents (Legion's own), in crew order

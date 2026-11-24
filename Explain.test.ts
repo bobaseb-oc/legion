@@ -360,7 +360,7 @@ test("themes: fixed once made; a new agent joins an existing theme (any case), e
   expect(Explain.explain_assign("{}", {}, ["D"])).toEqual({ D: "D" });
   expect(Explain.explain_assign("not json", { A: "P" }, ["A", "D"])).toEqual({ A: "P", D: "D" });
   expect(Explain.explain_assign(themed([{ theme: "", tracks: ["E"] }, { theme: 7, tracks: ["F"] }]), {}, ["E", "F"])).toEqual({ E: "E", F: "F" });
-  expect(Explain.explain_assign(themed([{ theme: "x".repeat(500), tracks: ["G"] }]), {}, ["G"]).G).toHaveLength(Explain.TITLE);
+  expect(Explain.explain_assign(themed([{ theme: "x".repeat(500), tracks: ["G"] }]), {}, ["G"]).G).toHaveLength(Explain.THEME_NAME);
   const full: Record<string, string> = {};
   for (let k = 1; k <= Explain.THEMES; k++) full["a" + k] = "T" + k;
   const capped = Explain.explain_assign(themed([{ theme: "New", tracks: ["N"] }]), full, [...Object.keys(full), "N", "M"]);

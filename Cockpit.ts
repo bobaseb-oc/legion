@@ -6,7 +6,7 @@
 
 import type { Clean, DigestPr, Inbox, Note, Pr, Ticket } from "./Inbox.ts";
 import type { Given } from "./Routines.ts";
-import { explain_ago } from "./Explain.ts";
+import { explain_ago, OBSERVED } from "./Explain.ts";
 import { MAIN, minute, view_needs, view_notes, view_questions, type Act, type Assignment, type Crew, type Deck, type Draft, type Mark, type View } from "./View.ts";
 
 // a row: its key (a link, a path), its kind, what it says, under it (repo#n,
@@ -527,8 +527,11 @@ export function tracks_text(v: View, now: number): string {
   };
   const qa = (ex?.qa ?? []).flatMap((x) => ["You: " + x.q, "  " + x.a, ""]);
   const asking = ex?.asking ?? null;
+  // security review 4 (E2): the cards are the observer's, said so
+  const observed = (ex?.cards ?? []).some((c) => c.title !== "") || ex?.report != null;
   return [
     "Tracks · " + (ex === null ? "not written yet" : explain_ago(ex, now)) + (ex?.error ? " · " + ex.error : ""), "",
+    ...(observed ? [OBSERVED, ""] : []),
     ...(tracks.length === 0 ? [TRACKS_NONE, ""] : tracks.flatMap(track)),
     ...(qa.length === 0 && asking === null ? [] : ["Asked:", ...qa]),
     ...(asking === null ? [] : ["You: " + asking, "  answering…", ""]),

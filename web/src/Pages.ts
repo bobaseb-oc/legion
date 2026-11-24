@@ -535,8 +535,11 @@ export function tracks_html(v: View.View, now: number): string[] {
   const ago = ex === null ? "not written yet" : Explain.explain_ago(ex, now);
   const head = `<div class="phead"><h2>Tracks</h2><p class="meta">Each agent's work, what it builds and why, its checklist and your pins · ${esc(ago)}${ex?.error ? " · " + esc(ex.error) : ""}</p></div>`;
   const field = (label: string, text: string) => `<p><b>${label}</b> ${esc(text)}</p>`;
+  // security review 4 (E2): the report and each card are the observer's,
+  // written from the agents' words: said so (Explain.OBSERVED)
+  const observed = `<p class="meta observed">${esc(Explain.OBSERVED)}</p>`;
   const summary = (c: Explain.Card | undefined) => c === undefined || c.title === "" ? `<p class="meta">No summary yet.</p>`
-    : `<h4>${esc(c.title)}</h4>${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
+    : `<h4>${esc(c.title)}</h4>${observed}${field("What", c.what)}${field("Why", c.why)}${field("Status", c.status)}${field("Watch", c.watch)}`;
   type TrackView = NonNullable<View.View["tracks"]>[number];
   const button = (label: string, a: View.Act) => ` <button class="pbtn small"${act_html(a)}>${label}</button>`;
   const item = (t: TrackView) => (x: View.Todo & { dropped?: boolean }, i: number) => `<li class="titem ${x.status}"><span class="box">${BOX[x.status]}</span> <span class="t">${i + 1}. ${esc(x.text)}</span>${x.dropped ? ` <span class="meta">dropped by you</span>` : ""}`
@@ -558,7 +561,7 @@ export function tracks_html(v: View.View, now: number): string[] {
   const tracks = v.tracks ?? [];
   const theme_of = (t: TrackView) => ex?.themes?.[t.name] ?? t.name;
   const theme = (name: string) => `<section class="xcard theme"><h3>${esc(name)}</h3>${summary(ex?.cards.find((c) => c.track === name))}${tracks.filter((t) => theme_of(t) === name).map(track).join("")}</section>`;
-  const report = ex?.report ? `<section class="xreport"><h3>Status report</h3><p>${esc(ex.report.text)}</p><p class="meta">${esc(minute(new Date(ex.report.at).toISOString()))} UTC</p></section>` : "";
+  const report = ex?.report ? `<section class="xreport"><h3>Status report</h3>${observed}<p>${esc(ex.report.text)}</p><p class="meta">${esc(minute(new Date(ex.report.at).toISOString()))} UTC</p></section>` : "";
   // one element per entry (main.ts markup keeps an entry's first element)
   const cards = tracks.length === 0 ? [`<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>`] : [...(report === "" ? [] : [report]), `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`];
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc(x.q)}</div><div class="xa">${esc(x.a)}</div>`).join("");

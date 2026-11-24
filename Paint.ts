@@ -18,6 +18,7 @@
 import type { Kind } from "./AskAI.ts";
 import * as Call from "./Call.ts";
 import * as Hl from "./Hl.ts";
+import { copy_clean } from "./Md.ts";
 import type * as Md from "./Md.ts";
 import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
@@ -127,9 +128,11 @@ export function line_ansi(l: Line): string {
 
 // text to the terminal's clipboard (/copy): the painter's own OSC 52, the
 // text in base64 (UTF-8), so nothing in it, escapes and all, is ever a
-// sequence of its own; a terminal that doesn't do OSC 52 ignores it
+// sequence of its own; a terminal that doesn't do OSC 52 ignores it. The
+// text cleaned first (Md.copy_clean, security review 4 E4): no control,
+// bidi or zero-width character reaches the paste
 export function copy_osc(text: string): string {
-  return "\x1b]52;c;" + Buffer.from(text, "utf8").toString("base64") + "\x07";
+  return "\x1b]52;c;" + Buffer.from(copy_clean(text), "utf8").toString("base64") + "\x07";
 }
 
 // the codes that change ink was (null: a line's start) to s
