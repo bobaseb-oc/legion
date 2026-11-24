@@ -108,7 +108,7 @@ test("Legion's checkout gives the allowlisted OnCorps plugins, in place of Claud
   const dir = shared(h);
   const found = skills(h, { dir, plugins: ["oc", "xlsx", "out"] });
   const names = found.map((s) => s.name).sort();
-  expect(names).toEqual(["/on:review", "/oc:ship", "linked", "mine", "oc:fresh", "on:alpha", "on:long", "on:pr-reviewer", "xlsx"]);
+  expect(names).toEqual(["/oc:ship", "/on:review", "linked", "mine", "oc:fresh", "on:alpha", "on:long", "on:pr-reviewer", "xlsx"]);
   expect(found.find((s) => s.name === "xlsx")).toEqual({ name: "xlsx", description: "Flat, at 0.x.", path: dir + "/skills/xlsx/SKILL.md" });
   expect(found.find((s) => s.name === "oc:fresh")!.path).toBe(dir + "/skills/oc/skills/fresh/SKILL.md");
 });

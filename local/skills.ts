@@ -11,11 +11,16 @@
 // ("/plugin:command") and agents ("plugin:agent") are listed too, their
 // files the flows the agent follows (local/rules.md: PR work goes through
 // oc-coding-assistant's). The agent reads a skill's SKILL.md when a task
-// matches it, as Claude Code does.
+// matches it, as Claude Code does. PLP-2945: with Legion's own
+// oncorps-shared-skills checkout (Shared.ts), its allowlisted plugins
+// (local/shared.json) replace Claude Code's OnCorps ones, and a skill of
+// the user's of the same name (a link into a clone) is left out.
 
 import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { Hooks } from "../Hooks.ts";
+import { MARKET, Shared } from "../Shared.ts";
 
 // Types
 // =====
@@ -36,7 +41,7 @@ const SAY = 250;
 
 const HEAD = `# Skills
 
-Packaged instructions, the same your user's Claude Code has. When a task matches one, read its SKILL.md with the shell on this computer's device and follow it; it may point to scripts and files beside it. Skills written for Claude Code may name its tools: use yours.
+Packaged instructions: your user's Claude Code ones, and OnCorps's from Legion's own checkout of oncorps-shared-skills (newer than Claude Code's copy). When a task matches one, read its SKILL.md with the shell on this computer's device and follow it; it may point to scripts and files beside it. Skills written for Claude Code may name its tools: use yours.
 
 A [command] is a plugin's slash command and an [agent] its subagent: to run a command, read its file and follow it; to dispatch one of its agents, start a subagent whose task is that agent file with the inputs the command gives it. In a plugin's file, \${CLAUDE_PLUGIN_ROOT} is the plugin's folder: the one holding the commands/, agents/ or skills/ folder the file is in.
 `;
@@ -74,14 +79,17 @@ function folder(dir: string, prefix: string): Skill[] {
   if (!fs.existsSync(dir)) {
     return [];
   }
-  return fs.readdirSync(dir).flatMap((d) => {
-    const path = dir + "/" + d + "/SKILL.md";
-    if (!fs.existsSync(path)) {
-      return [];
-    }
-    const f = front(fs.readFileSync(path, "utf8"));
-    return [{ name: prefix + (f.name || d), description: f.description ?? "", path }];
-  });
+  return fs.readdirSync(dir).flatMap((d) => one(dir + "/" + d, prefix));
+}
+
+// the skill in a skill folder (its SKILL.md), named with `prefix`
+function one(dir: string, prefix: string): Skill[] {
+  const file = dir + "/SKILL.md";
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+  const f = front(fs.readFileSync(file, "utf8"));
+  return [{ name: prefix + (f.name || path.basename(dir)), description: f.description ?? "", path: file }];
 }
 
 // a plugin's command or agent files (*.md in `dir`), named with `prefix`
@@ -104,13 +112,24 @@ export function json(path: string): any {
   }
 }
 
-export function skills(home: string): Skill[] {
-  const plugins = Hooks.plugins(home + "/.claude").filter((p) => !EXCLUDE.includes(p.name)).flatMap((p) => [
+// a plugin's skills, commands and agents; a flat plugin (a SKILL.md at its
+// root) is the one skill, named as the user's own are
+function plugin(p: { name: string; root: string }): Skill[] {
+  return [
+    ...one(p.root, ""),
     ...folder(p.root + "/skills", p.name + ":"),
     ...files(p.root + "/commands", "/" + p.name + ":", "command"),
     ...files(p.root + "/agents", p.name + ":", "agent"),
-  ]);
-  return [...folder(home + "/.claude/skills", ""), ...plugins];
+  ];
+}
+
+export function skills(home: string, shared: { dir: string; plugins: string[] } = { dir: Shared.dir(), plugins: Shared.conf().plugins }): Skill[] {
+  const ours = Shared.ready(shared.dir);
+  const cc = Hooks.plugins(home + "/.claude").filter((p) => !EXCLUDE.includes(p.name) && !(ours && p.key.endsWith("@" + MARKET)));
+  const oncorps = ours ? Shared.plugins(shared.plugins, shared.dir).flatMap(plugin) : [];
+  const taken = new Set(oncorps.map((s) => s.name));
+  const mine = folder(home + "/.claude/skills", "").filter((s) => !taken.has(s.name));
+  return [...mine, ...cc.flatMap(plugin), ...oncorps];
 }
 
 export function skills_index(list: Skill[]): string {

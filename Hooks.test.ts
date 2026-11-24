@@ -420,8 +420,8 @@ test("with Legion's checkout, the gate is its oc-coding-assistant, not Claude Co
   expect(plugs).toEqual([{ file: root + "/hooks/hooks.json", managed: false, plugin: root, key: OCKEY }]);
   const gate = await legion(unii, conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
   expect(gate.deny).toBe("root=" + root);
-  // with no Claude Code install at all, the checkout still gates
-  const bare = plugged([]);
+  // with no OnCorps install in Claude Code, the checkout still gates
+  const bare = plugged([["other@m", true, "user"]]);
   expect((await legion(unii, bare, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBe("root=" + root);
 });
 
