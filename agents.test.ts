@@ -533,6 +533,45 @@ test("ask: the orchestrator files questions, kept across a reload; close withdra
   Memory.stop(again);
 }));
 
+// what waits on the user (waiting, PLP-2938): the orchestrator reads its
+// open questions (not notes), the user's todos, the calls held for the
+// user's yes and the plan filed, read-only and capped; only the orchestrator
+test("waiting: the orchestrator lists what waits on the user, read-only and capped; agents can't", () => faked(async () => {
+  const mem = Memory.load(DIR + "/waiting", () => SHARE);
+  const tools = served(mem, []);
+  const wait = (who: string) => Tools.call(tools, who, "waiting", {}, new AbortController().signal, "w");
+  expect(Tools.list(tools, "main").map((t) => t.name)).toContain("waiting");
+  const none = await wait("main");
+  expect(none.fail).toBe(false);
+  expect(none.text).toBe("Nothing waits on the user.");
+  await Tools.call(tools, "main", "ask", { question: "Ship on <Friday>?", options: ["yes", "no"] }, new AbortController().signal, "a");
+  await Tools.call(tools, "main", "ask", { question: "q" + "x".repeat(1500) }, new AbortController().signal, "b");
+  await Tools.call(tools, "main", "notify", { text: "a note, not a question" }, new AbortController().signal, "c");
+  mem.assigned.push({ n: 3, text: "Rotate the key", by: "HotIguana", date: "2026-11-24T10:00:00Z" });
+  mem.plan = { text: "Step 1: merge #370", date: "2026-11-24T10:00:00Z" };
+  const stop = new AbortController();
+  const held = Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "opus-5.5" }, stop.signal, "d");
+  const [c] = Tools.consents(tools);
+  const saved = JSON.stringify([mem.questions, mem.assigned, mem.plan, mem.pending]);
+  const out = await wait("main");
+  expect(out.fail).toBe(false);
+  expect(out.text).toContain("1. Ship on <Friday>? (yes / no)");
+  expect(out.text).toContain("#3 Rotate the key (from HotIguana)");
+  expect(out.text).toContain(c!.id + ". main: " + c!.tool);
+  expect(out.text).toContain("Step 1: merge #370");
+  expect(out.text).not.toContain("a note, not a question");
+  expect(out.text).not.toContain("x".repeat(600));
+  expect(JSON.stringify([mem.questions, mem.assigned, mem.plan, mem.pending])).toBe(saved);
+  stop.abort();
+  await held;
+  const name = Memory.agent_new(mem);
+  tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
+  expect(Tools.list(tools, name).map((t) => t.name)).not.toContain("waiting");
+  expect((await wait(name)).fail).toBe(true);
+  Tools.close(tools);
+  Memory.stop(mem);
+}));
+
 // the orchestrator's notes for the user (notify; user's ask 2026-11-13):
 // in the questions pane, not questions (no answer awaited, never counted
 // against the questions' cap); the oldest notes dropped past NOTES, never
