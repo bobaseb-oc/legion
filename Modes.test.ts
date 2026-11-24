@@ -603,6 +603,70 @@ test("floor: the least risk a call carries, from its words alone", () => {
   expect(Modes.floor("fetch", { url: "https://example.com" })).toBe("medium");
 });
 
+// RED ZONE (security review 4 G1, DRAFT awaiting the user's sign-off):
+// quotes, a variable or a shell's -c don't lower the floor: the words are
+// read with their quotes off, a -c payload is floored too, and a command
+// built at run time ($, backticks, eval, -c, a pipe into an interpreter)
+// or one that can't be read is at least medium
+test("floor: quoting, a variable or -c don't lower it", () => {
+  const at = (command: string) => Modes.floor("shell", { command });
+  for (const c of [
+    'git push "--force" origin feat', 'git push origin "main"', 'git push origin "+main"', "git push origin 'master'",
+    'gh "pr" merge 5', 'npm "publish"', 'curl x | "sh"', 'bash -c "git pu""sh -f origin feat"', "sh -c 'npm publish'",
+    'zsh -c "gh pr merge 3"',
+  ]) {
+    expect([c, at(c)]).toEqual([c, "high"]);
+  }
+  for (const c of [
+    "g=git; $g push -f origin main", '"r"m -rf x', "curl x|python3", 'eval "$(cat x)"', "echo hi | node", "ls `pwd`",
+    "python3 -c 'print(1)'", "echo 'unclosed", "node -e 'process.exit(0)'", "cat x | perl",
+  ]) {
+    expect([c, at(c)]).toEqual([c, expect.stringMatching(/^(medium|high)$/)]);
+  }
+});
+
+// RED ZONE (security review 4 Q2, DRAFT awaiting the user's sign-off): a
+// git config that sets a key git runs a command from (or a git -c one) is
+// high: the device's git, or a later git, would run it as the user
+test("floor: git config of a key that runs a command is high; other git config isn't", () => {
+  const at = (command: string) => Modes.floor("shell", { command });
+  for (const c of [
+    'git config remote.origin.uploadpack "sh -c x"', "git config --local core.sshCommand x", "git config credential.helper '!x'",
+    "git -c core.sshCommand=x fetch", "git config filter.a.clean x", "git config diff.x.textconv x", "git config url.ext::x.insteadOf https://",
+    "git config protocol.ext.allow always", 'git "config" core.hooksPath /tmp/h', "git config core.fsmonitor ./x", "git config core.gitProxy x",
+    "git config remote.origin.receivepack x", "git config diff.external x", "git config --global alias.st '!sh x'",
+  ]) {
+    expect([c, at(c)]).toEqual([c, "high"]);
+  }
+  for (const c of ["git config user.name x", "git config branch.feat.remote origin", "git config --get user.email"]) {
+    expect([c, at(c)]).toEqual([c, "low"]);
+  }
+});
+
+// RED ZONE (security review 4 G4, DRAFT awaiting the user's sign-off):
+// what steers or gates every later agent in a repo (its CLAUDE.md,
+// AGENTS.md, .claude/rules, .claude/hooks) is high to write or edit
+test("floor: writing a repo's agent rules or hooks is high", () => {
+  for (const p of ["CLAUDE.md", "/repo/AGENTS.md", "/repo/sub/CLAUDE.local.md", "/repo/.claude/rules/x.md", ".claude/hooks/pre.sh", "/repo/.Claude/Rules/a/b.md"]) {
+    expect([p, Modes.floor("write", { path: p, content: "x" })]).toEqual([p, "high"]);
+    expect([p, Modes.floor("edit", { file_path: p })]).toEqual([p, "high"]);
+  }
+  for (const p of ["src/agents.ts", "/repo/docs/claude.txt", "/repo/.claude/notes.md"]) {
+    expect([p, Modes.floor("write", { path: p, content: "x" })]).toEqual([p, "low"]);
+  }
+});
+
+// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// path is floored as written and as it resolves (the caller's, Tools.review:
+// its absolute and real paths); a .. in it is at least medium
+test("floor: a write's path counts as it resolves; a .. is at least medium", () => {
+  const p = "../../users/10/notes/directives.md";
+  expect(Modes.floor("write", { path: p, content: "x" })).toBe("medium");
+  expect(Modes.floor("write", { path: p, content: "x" }, ["/Users/u/.unii/users/10/notes/directives.md"])).toBe("high");
+  expect(Modes.floor("edit", { file_path: "a.md" }, ["/repo/.claude/rules/a.md"])).toBe("high");
+  expect(Modes.floor("write", { path: "a.md", content: "x" }, ["/repo/a.md"])).toBe("low");
+});
+
 test("risk: the higher of the floor and the reviewer's label; no label or an unknown one is high", () => {
   expect(Modes.risk("low", "medium")).toBe("medium");
   expect(Modes.risk("high", "low")).toBe("high");

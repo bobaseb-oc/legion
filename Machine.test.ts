@@ -397,6 +397,43 @@ test("write and edit refuse a chat's view.json under Legion's dir", () => {
   expect(Machine.gating(os.tmpdir() + "/repo/view.json")).toBe(false);
 });
 
+// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// chat's notes (~/.unii/users/<id>/notes/: its standing directives and
+// index, read into every turn): no agent's write or edit, in any case
+test("write and edit refuse a chat's notes under Legion's dir", () => {
+  expect(Machine.gating(os.homedir() + "/.unii/users/10/notes/directives.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/Users/10/Notes/x.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/users/10/notes")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.unii/work/users/10/notes/x.md")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/repo/users/10/notes/x.md")).toBe(false);
+});
+
+// RED ZONE (security review 4 F2, G5, DRAFT awaiting the user's sign-off):
+// the code the user runs: this live checkout (its sources, local/legion,
+// local/models.json, the key helper's source) and Legion's bin dir (the
+// built key helper and its hash): no agent's write or edit, in any case;
+// worktrees in the checkout (.claude/worktrees) and other repos are theirs.
+// The bin dir is trust state too: no read, and no shell command naming it
+test("write and edit refuse this live checkout and Legion's bin dir", () => {
+  for (const f of ["/Term.ts", "/Auth.ts", "/local/legion", "/local/models.json", "/local/legion-key/main.swift", "/WEB/src/Main.ts"]) {
+    expect([f, Machine.gating(import.meta.dir + f)]).toEqual([f, true]);
+  }
+  expect(Machine.gating(import.meta.dir)).toBe(true);
+  expect(Machine.gating(import.meta.dir + "/.claude/worktrees/x/Term.ts")).toBe(false);
+  expect(Machine.gating(os.tmpdir() + "/other/Term.ts")).toBe(false);
+  const bin = os.homedir() + "/.unii/bin/";
+  for (const f of ["legion-key", "legion-key.sha256", "Legion-Key"]) {
+    expect([f, Machine.gating(bin + f)]).toEqual([f, true]);
+    expect([f, Machine.trust(bin + f)]).toEqual([f, true]);
+  }
+  const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
+  for (const c of ["cp x ~/.unii/bin/legion-key", "cat $HOME/.unii/bin/legion-key.sha256", "printf x > \"$UNII_DIR/bin/legion-key\""]) {
+    expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
+  }
+  expect(shell("ls ~/.unii/work")).toBe(null);
+  expect(Machine.gating(os.tmpdir() + "/repo/bin/legion-key")).toBe(false);
+});
+
 // mcp.json is rebuilt at each start from this checkout's local/mcp.extra.json
 // (local/mcp.ts): as gating as mcp.json; another repo's file of that name isn't
 test("write and edit refuse this checkout's local/mcp.extra.json", () => {
