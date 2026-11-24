@@ -101,6 +101,16 @@ const MEDIUM = [
   /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/,
 ];
 
+// RED ZONE (security review 4 G1, Q2, G4, DRAFT awaiting the user's
+// sign-off): what runs the code it is given (a shell, an interpreter),
+// as a command's name (its -c payload) or piped into (medium at least);
+// git config keys git runs a command from (high); a repo's files that
+// steer or gate every later agent there (high to write or edit)
+const INTERPRETERS = /^((ba|z|da|k|fi)?sh|python[\d.]*|node|bun|deno|perl|ruby|php|osascript)$/;
+const INTERPRETED = /\|\s*(sudo\s+)?(env\s+)?(\S*\/)?((ba|z|da|k|fi)?sh|python[\d.]*|node|bun|deno|perl|ruby|php|osascript)\b/;
+const GIT_RUNS = /\b(core\.(sshcommand|gitproxy|fsmonitor|hookspath|pager|editor|askpass)|[\w.:-]*\.(uploadpack|receivepack|textconv)|credential\.(\S*\.)?helper|filter\.[\w.-]+|diff\.external|protocol\.[\w.-]+|url\.\S+\.insteadof|alias\.[\w-]+|sequence\.editor)\b/i;
+const STEERS = /(^|\/)(claude|agents)(\.local)?\.md$|(^|\/)\.claude\/(rules|hooks)(\/|$)/i;
+
 // RED ZONE (security review follow-up, DRAFT awaiting the user's
 // sign-off): the one list of where a secret may be, in any case (macOS's
 // disk is case-insensitive). A file's name (a key, credentials, a token,
@@ -118,7 +128,9 @@ export const SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/co
 // sign-in secret's hash (Cloud.ts SIGNIN), the server's log, a terminal's
 // device key (<host>/token). Machine.trust refuses them to agents' tools.
 // TRUST_WORDS: the same, or the dir, named in a shell command (SECRETS)
-export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token)$/i;
+// RED ZONE (security review 4 F2, DRAFT awaiting the user's sign-off):
+// and its bin dir (the built key helper, legion-key, and its .sha256)
+export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token|bin\/.+)$/i;
 const TRUST_WORDS = String.raw`\.unii\b|\bUNII_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
 
 // a read-only command that may read secrets: still reviewed in auto mode
@@ -248,18 +260,54 @@ export namespace Modes {
 
   // the least risk a reviewed call carries: high, the floor no boss may
   // overrule; medium, hard to undo here or a write off the computer
-  export function floor(tool: string, input?: any): Risk {
+  // RED ZONE (security review 4 G1, G4, N1, Q2, DRAFT awaiting the user's
+  // sign-off): at: the path as it resolves (the caller's: absolute and
+  // real), floored as it is written too; a shell command's words with
+  // their quotes off and each -c payload, floored as well
+  export function floor(tool: string, input?: any, at: readonly string[] = []): Risk {
     if (tool === "write" || tool === "edit") {
-      return SECRETS.test(String(input?.path ?? input?.file_path ?? "")) ? "high" : "low";
+      const p = String(input?.path ?? input?.file_path ?? "");
+      if ([p, ...at].some((q) => SECRETS.test(q) || STEERS.test(q))) {
+        return "high";
+      }
+      return /(^|\/)\.\.(\/|$)/.test(p) ? "medium" : "low";
     }
     if (tool !== "shell") {
       return "medium";
     }
-    const c = typeof input?.command === "string" ? input.command : "";
-    if (/[^\x00-\x7f]/.test(c) || SECRETS.test(c) || HIGH.some((r) => r.test(c))) {
+    return floor_shell(typeof input?.command === "string" ? input.command : "", 0);
+  }
+
+  function floor_shell(c: string, depth: number): Risk {
+    // the line with every quote and backslash taken off: a word quoted in
+    // parts reads whole ("r"m, pu""sh); only ever raises what matches
+    const bare = c.replace(/["'\\]/g, "");
+    const texts = [c, bare];
+    const lexed = lex(c);
+    const payloads = typeof lexed === "string" ? [] : lexed.flatMap(payload);
+    const inner = depth < 3 ? payloads.map((p) => floor_shell(p, depth + 1)) : [];
+    if (/[^\x00-\x7f]/.test(c) || texts.some((t) => SECRETS.test(t) || HIGH.some((r) => r.test(t)) || git_runs(t)) || inner.includes("high")) {
       return "high";
     }
-    return MEDIUM.some((r) => r.test(c)) ? "medium" : "low";
+    const built = typeof lexed === "string" || /[$`]/.test(c) || /(^|[;&|(]\s*)(builtin\s+)?eval\b/.test(bare) || payloads.length > 0 || INTERPRETED.test(bare) || depth >= 3;
+    return built || inner.includes("medium") || texts.some((t) => MEDIUM.some((r) => r.test(t))) ? "medium" : "low";
+  }
+
+  // a command's -c (or -e) payload, when it runs code: a shell's or an
+  // interpreter's (python -c, node -e, perl -e...)
+  function payload(words: string[]): string[] {
+    const name = (words[0] ?? "").split("/").at(-1) ?? "";
+    if (!INTERPRETERS.test(name)) {
+      return [];
+    }
+    const k = words.findIndex((w, i) => i > 0 && /^-[a-zA-Z]*[ce]$|^--eval$/.test(w));
+    return k < 0 ? [] : [words[k + 1] ?? ""];
+  }
+
+  // whether a line's git config (or git -c) sets a key git runs a command
+  // from; a --get or --list of one only reads it
+  function git_runs(t: string): boolean {
+    return t.split(/[;&|\n]/).some((seg) => /\bgit\b/.test(seg) && (/\bconfig\b/.test(seg) && !/\s--(get|list)\b|\s-l\b/.test(seg) || /\s-c\s/.test(seg)) && GIT_RUNS.test(seg));
   }
 
   // a call's risk: the higher of its floor and the reviewer's label; no

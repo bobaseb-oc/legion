@@ -619,7 +619,7 @@ test("floor: quoting, a variable or -c don't lower it", () => {
   }
   for (const c of [
     "g=git; $g push -f origin main", '"r"m -rf x', "curl x|python3", 'eval "$(cat x)"', "echo hi | node", "ls `pwd`",
-    "python3 -c 'print(1)'", "echo 'unclosed", "node -e 'process.exit(0)'", "cat x | perl",
+    "python3 -c 'print(1)'", "echo 'unclosed", "node -e 'process.exit(0)'", "cat x | perl", "eval foo",
   ]) {
     expect([c, at(c)]).toEqual([c, expect.stringMatching(/^(medium|high)$/)]);
   }
@@ -638,7 +638,7 @@ test("floor: git config of a key that runs a command is high; other git config i
   ]) {
     expect([c, at(c)]).toEqual([c, "high"]);
   }
-  for (const c of ["git config user.name x", "git config branch.feat.remote origin", "git config --get user.email"]) {
+  for (const c of ["git config user.name x", "git config branch.feat.remote origin", "git config --get user.email", "git config --get core.sshCommand"]) {
     expect([c, at(c)]).toEqual([c, "low"]);
   }
 });
