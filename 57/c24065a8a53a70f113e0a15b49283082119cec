@@ -1,0 +1,36 @@
+Device.ts
+  s_e3a50519c7042a::t_a941ae63d2a54d 359
+  s_e3a50519c7042a::t_993fa0f73f8091 704-706
+  s_e3a50519c7042a::t_0431e9df72c0a7 540-541,543
+  s_e3a50519c7042a::t_2f96ec24ffca2b 459-463,465-475,479,481-486,494,496-517,520-525,527,529,531
+  s_e3a50519c7042a::t_3ceb3764fcadae 550-553
+  s_e3a50519c7042a::t_e9ad2c18468e59 597-605,608-609
+  s_e3a50519c7042a::t_5bcc5d01a7af57 675
+  s_e3a50519c7042a::t_05205032cfb70a 207-213
+  s_e3a50519c7042a::t_9c9af18815402b 424-427
+  s_e3a50519c7042a::t_897377e1f8e563 622
+  s_e3a50519c7042a::t_5ea43d624ed497 216-217
+  s_e3a50519c7042a::t_731c2c6daa91e9 526,528
+  s_e3a50519c7042a::t_a25e461e00bec4 205-206,214,226
+  s_e3a50519c7042a::t_fc7e313b04f8c1 530
+Server.test.ts
+  s_e3a50519c7042a::t_e8db72eebd3529 3443
+Inbox.ts
+  s_e3a50519c7042a::t_5110a7634e12d8 36,42-45,49,66-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "57c24065a8a53a70f113e0a15b49283082119cec",
+  "prompts": {},
+  "sessions": {
+    "s_e3a50519c7042a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "159d1ca3-6127-4426-8ddf-69d68ce4a06c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
