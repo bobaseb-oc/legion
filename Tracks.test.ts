@@ -694,15 +694,22 @@ const set = await todo(w, { items: [{ text: "write tests", status: "done" }, { t
 await todo(v, { items: [{ text: "gone soon", status: "pending" }] });
 const cleared = await todo(v, { items: [] });
 const saved = JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? null;
-console.log(JSON.stringify({ w, v, set, cleared, saved, pins: pins(w) }));
+const x = await start("short lived", true);
+await todo(x, { items: [{ text: "x step", status: "pending" }] });
+const had = Object.keys(JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? {});
+const dismissed = await safe(() => Chat.act(chat, "d1", { $: "dismiss", name: x }));
+const after = Object.keys(JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? {});
+console.log(JSON.stringify({ w, v, x, set, cleared, saved, pins: pins(w), had, dismissed, after }));
 process.exit(0);
 `;
 const SAVE_B = (w: string, v: string) => PRE(false) + `
 const before = chat.tools.agents.has(${JSON.stringify(w)});
+const early = view(${JSON.stringify(w)})?.items.map((x) => ({ text: x.text, status: x.status })) ?? null;
+const still = chat.tools.agents.has(${JSON.stringify(w)});
 const back = Tools.agent(chat.tools, ${JSON.stringify(w)});
 const other = Tools.agent(chat.tools, ${JSON.stringify(v)});
 const t = view(${JSON.stringify(w)});
-console.log(JSON.stringify({ before, todo: back?.todo ?? null, other: other?.todo ?? null, items: t?.items.map((x) => ({ text: x.text, status: x.status })) ?? null, pins: pins(${JSON.stringify(w)}) }));
+console.log(JSON.stringify({ before, early, still, todo: back?.todo ?? null, other: other?.todo ?? null, items: t?.items.map((x) => ({ text: x.text, status: x.status })) ?? null, pins: pins(${JSON.stringify(w)}) }));
 process.exit(0);
 `;
 
@@ -719,6 +726,24 @@ const save_run = () => (saving ??= (async () => {
   const b = await server_in(dir, "save-b.ts", SAVE_B(a.w, a.v));
   return { a, b };
 })());
+
+// a saved checklist shows on its track at startup, before anything takes
+// its agent back, and reading it for the view takes none back
+test("checklists: after a restart a top agent's saved list shows on its track before it is taken back", async () => {
+  const { b } = await save_run();
+  expect(b.before).toBe(false);
+  expect(b.early).toEqual([{ text: "write tests", status: "done" }, { text: "fix it", status: "doing" }]);
+  expect(b.still).toBe(false);
+}, WAIT);
+
+// a dismissed agent's saved checklist goes from view.json with it
+test("checklists: dismissing an agent drops its saved list from view.json", async () => {
+  const { a } = await save_run();
+  expect(a.had).toContain(a.x);
+  expect(a.dismissed).toEqual({});
+  expect(a.after).not.toContain(a.x);
+  expect(a.after).toContain(a.w);
+}, WAIT);
 
 test("checklists: a todo is saved to view.json, a cleared one is not", async () => {
   const { a } = await save_run();
