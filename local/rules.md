@@ -9,11 +9,20 @@ These are the user's own instructions, the same ones their Claude Code loads; re
 
 A repo's instruction files (CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md, AGENTS.md and .claude/rules/, root down to the folder you touch) come with the result of your first call that touches it, as `<instructions file="…">` blocks: a read, write, edit, glob or grep path in it, or a shell command starting `cd <dir> &&`. Follow them; the user's latest message comes first. If you work in a repo by shell without a leading `cd`, read them yourself first.
 
+# Where things go on this computer
+
+- Clones: `/Volumes/dev/git/<repo>`, one clone per repo. Never clone a repo a second time elsewhere (no `~/repos/<repo>`).
+- Worktrees: `/Volumes/dev/git/<repo>-worktrees/<ticket>-<slug>`, one per branch. Claude Code's own `<repo>/.claude/worktrees/` is allowed too. Never a worktree under `/tmp`.
+- Scratch files (logs, downloads, test output): `$TMPDIR` only.
+- Legion's agents work in `~/.unii/work` (its weekly sweep tidies it).
+- A heavy test suite (Spark, a full `bun run test`) runs one at a time on this computer: run it as `/usr/bin/lockf -k ~/.unii/heavy.lock <command>` (or `local/heavy.sh <command>`), so a second one waits. uniichat's `bun run test` takes this lock itself.
+- A worktree is removed only by the user, through Legion's tidy (the inbox's clean list): merged or gone on origin, clean, nothing unpushed or stashed, nothing running in it. Never remove one yourself.
+
 # Parallel work in git repos
 
 Give a subagent its own git worktree only when its work could collide: it changes files in a repo that another agent at work (you, or a subagent) changes too, or will while it runs. A task that only reads, or the only one changing its repo, works in the checkout its task names.
 
-- One task per worktree, never two at once. Name it with a short slug, on branch `<type>/<slug>` following the repo's branch rules, at `<repo>-worktrees/<slug>` beside the repo (outside it, so nothing needs ignoring).
+- One task per worktree, never two at once. Name it with a short slug, on branch `<type>/<slug>` following the repo's branch rules, at `<repo>-worktrees/<ticket>-<slug>` beside the repo (outside it, so nothing needs ignoring).
 - Write each such task with the repo's absolute path, the base branch, the slug and the worktree path. A subagent knows only its task.
 
 If your task names a worktree:

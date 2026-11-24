@@ -13,6 +13,7 @@ import { afterAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as Device from "./Device.ts";
+import * as Inbox from "./Inbox.ts";
 import * as View from "./View.ts";
 
 type Sock = { send: (s: string) => void };
@@ -284,11 +285,11 @@ test("a device reads its inbox with gh, acli and git; what fails is said, not th
   expect(inbox.errors).toEqual(["acli: ✗ Error: unauthorized: use 'acli jira auth login' to authenticate"]);
   // x has changes, y is merged and clean, z is clean and not merged (left out)
   expect(inbox.clean).toEqual([
-    { repo: "s", path: S + "/.wt/x", branch: "x", changes: 2, merged: false },
-    { repo: "s", path: S + "/.wt/y", branch: "y", changes: 0, merged: true },
+    { repo: "s", path: S + "/.wt/x", branch: "x", changes: 2, merged: false, gone: false },
+    { repo: "s", path: S + "/.wt/y", branch: "y", changes: 0, merged: true, gone: false },
   ]);
-  // what it ran reads only: no write, no push
-  expect(ran.every((c) => ["gh", "acli", "git"].includes(c[0]))).toBe(true);
+  // what it ran reads only: no write, no push (lsof: who works where; du: sizes)
+  expect(ran.every((c) => ["gh", "acli", "git", "lsof", "du"].includes(c[0]))).toBe(true);
   expect(ran.some((c) => c.filter((a) => !a.startsWith("query=")).join(" ").match(/\b(push|commit|create|edit|delete|POST)\b/))).toBe(false);
   // gh missing: said, the rest still read
   const none = await Device.device_inbox({ work: "/w", computer: false, spaces: [] }, async (cmd) => (cmd[0] === "gh" ? { code: 127, out: "not found" } : exec(cmd)), new Date(), nog) as any;
@@ -736,3 +737,204 @@ test("a terminal's own Ctrl+B sends its shell commands here away, the user's !co
   expect([...jobs.keys()]).toEqual(["c"]);
   expect(Device.device_away(jobs)).toBe(0);
 });
+
+// Tidy
+// ----
+// real repos: an origin, a clone r, and its worktrees at
+// r-worktrees/<name>, one of each kind the tidy tells apart
+function tidy_repos() {
+  const T = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-tidy-"));
+  const g = (dir: string, ...a: string[]) => {
+    const r = Bun.spawnSync(["git", "-C", dir, ...a]);
+    if (r.exitCode !== 0) {
+      throw new Error("git " + a.join(" ") + ": " + r.stderr.toString());
+    }
+    return r.stdout.toString().trim();
+  };
+  const R = T + "/r";
+  Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", T + "/origin.git"]);
+  Bun.spawnSync(["git", "init", "-q", "-b", "main", R]);
+  g(R, "remote", "add", "origin", T + "/origin.git");
+  g(R, "commit", "-q", "--allow-empty", "-m", "base");
+  g(R, "push", "-q", "-u", "origin", "main");
+  g(R, "remote", "set-head", "origin", "main");
+  const wt = (name: string) => {
+    g(R, "worktree", "add", "-q", "-b", name, T + "/r-worktrees/" + name, "main");
+    return T + "/r-worktrees/" + name;
+  };
+  const gone = (name: string) => {
+    const p = wt(name);
+    g(p, "push", "-q", "-u", "origin", name);
+    g(R, "push", "-q", "origin", "--delete", name);
+    g(R, "fetch", "-q", "--prune");
+    return p;
+  };
+  const w = { merged: wt("merged"), dirty: wt("dirty"), stashed: wt("stashed"), live: wt("live"), gone: gone("gone"), ahead: gone("ahead"), again: wt("again") };
+  fs.writeFileSync(w.dirty + "/f", "x");
+  fs.writeFileSync(w.stashed + "/f", "x");
+  g(w.stashed, "stash", "push", "-q", "-u");
+  g(w.ahead, "commit", "-q", "--allow-empty", "-m", "not pushed");
+  return { T, R, w, g };
+}
+
+// gh and acli answered by a fake (no network); git, lsof and du are real
+const tidy_exec: Device.Exec = async (cmd) => (["gh", "acli"].includes(cmd[0]) ? { code: 1, out: "" } : Device.exec(cmd));
+const nog2: Device.Reads = { events: async () => [], docs: async () => [], text: async () => "" };
+
+test("a device lists each worktree with merged, gone, changes, unpushed, stashes, size, age and use; the main checkout never", async () => {
+  const { R, w } = tidy_repos();
+  const sleeper = Bun.spawn(["sleep", "30"], { cwd: w.live });
+  try {
+    const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
+    const rows = new Map<string, any>(msg.inbox.clean.map((c: any) => [c.path, c]));
+    expect(rows.has(R)).toBe(false);
+    expect(rows.get(w.merged)).toMatchObject({ branch: "merged", merged: true, gone: false, changes: 0, unpushed: 0, stashes: 0, live: false });
+    expect(rows.get(w.dirty)).toMatchObject({ changes: 1 });
+    expect(rows.get(w.stashed)).toMatchObject({ changes: 0, stashes: 1 });
+    expect(rows.get(w.live)).toMatchObject({ live: true });
+    expect(rows.get(w.gone)).toMatchObject({ gone: true, unpushed: 0 });
+    expect(rows.get(w.ahead)).toMatchObject({ gone: true, unpushed: 1 });
+    expect(rows.get(w.merged).bytes).toBeGreaterThan(0);
+    expect(rows.get(w.merged).at).toBeGreaterThan(Date.now() - 3600e3);
+    // the server's own check: only the merged and the gone ones are safe
+    const { inbox_check } = await import("./Inbox.ts");
+    const kept = inbox_check(msg.inbox) as any;
+    const safe = kept.clean.filter((c: any) => c.safe).map((c: any) => c.path).sort();
+    expect(safe).toEqual([w.again, w.gone, w.merged].sort());
+  } finally {
+    sleeper.kill();
+  }
+});
+
+test("a check that fails makes a row unsafe (fail closed)", async () => {
+  const { R, w } = tidy_repos();
+  const failing: Device.Exec = async (cmd) => (cmd.includes("rev-list") || cmd[0] === "lsof" ? { code: 1, out: "failed" } : tidy_exec(cmd));
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, failing, new Date(), nog2) as any;
+  const { inbox_check } = await import("./Inbox.ts");
+  const kept = inbox_check(msg.inbox) as any;
+  expect(kept.clean.find((c: any) => c.path === w.merged).safe).toBe(false);
+});
+
+test("the tidy re-checks each worktree, removes only a safe one with git worktree remove (never --force, never rm), keeps the rest", async () => {
+  const { R, w, g } = tidy_repos();
+  // safe when listed, dirty by the time the tidy runs
+  fs.writeFileSync(w.again + "/late", "x");
+  const ran: string[][] = [];
+  const run: Device.Exec = async (cmd) => {
+    ran.push(cmd);
+    return tidy_exec(cmd);
+  };
+  const out = await Device.device_tidy([w.merged, w.again, w.dirty, "/nowhere/x"], run);
+  expect(out.$).toBe("tidied");
+  expect(out.removed).toEqual([w.merged]);
+  expect(out.kept.map((k) => k.path)).toEqual([w.again, w.dirty, "/nowhere/x"]);
+  expect(fs.existsSync(w.merged)).toBe(false);
+  expect(g(R, "worktree", "list", "--porcelain")).not.toContain(w.merged);
+  for (const p of [w.again, w.dirty]) {
+    expect(fs.existsSync(p)).toBe(true);
+  }
+  const removes = ran.filter((c) => c.includes("worktree") && c.includes("remove"));
+  expect(removes.length).toBe(1);
+  expect(removes[0]).toContain(w.merged);
+  expect(ran.some((c) => c.includes("--force") || c.includes("-f"))).toBe(false);
+  expect(ran.some((c) => c[0] === "rm" || c.includes("rm"))).toBe(false);
+});
+
+test("the tidy also looks under ~/repos and /private/tmp/claude-501, for its list only", async () => {
+  expect(Device.TIDY_ROOTS).toEqual(["~/repos", "/private/tmp/claude-501"]);
+  const { T, R } = tidy_repos();
+  const empty = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
+  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS };
+  process.env.UNII_SPACES = empty;
+  process.env.UNII_TIDY_ROOTS = T;
+  try {
+    const msg = await Device.device_inbox({ work: "/w", computer: false }, tidy_exec, new Date(), nog2) as any;
+    expect(msg.inbox.clean.some((c: any) => c.path.startsWith(T + "/r-worktrees/"))).toBe(true);
+    // not a space of the digest or the sidebar
+    expect(msg.inbox.spaces).not.toContain("r");
+  } finally {
+    process.env.UNII_SPACES = was.spaces;
+    process.env.UNII_TIDY_ROOTS = was.tidy;
+    void R;
+  }
+});
+
+test("legion tidy --list: a line per row with its checks, and safe", () => {
+  const rows = [{ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 3 * 2 ** 20, at: 0, live: false, safe: true }];
+  const text = Device.device_tidy_list(rows, 2 * 86400e3);
+  expect(text).toContain("safe");
+  expect(text.split("\n").find((l) => l.includes("/r-worktrees/a"))).toMatch(/r\s+a\s+.*merged.*3\.0 MB.*2d.*yes/);
+});
+
+// a branch deleted on GitHub (a merged PR's) is gone only once a fetch
+// prunes it: the scan fetches first, with the hardened git
+test("a scan prunes from origin first, so a branch deleted there shows gone", async () => {
+  const { R, w, g } = tidy_repos();
+  g(w.again, "push", "-q", "-u", "origin", "again");
+  g(R, "fetch", "-q");
+  g(R, "push", "-q", "origin", "--delete", "again");
+  g(R, "update-ref", "refs/remotes/origin/again", g(w.again, "rev-parse", "HEAD"));
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
+  const row = msg.inbox.clean.find((c: any) => c.path === w.again);
+  expect(row).toMatchObject({ gone: true, unpushed: 0, changes: 0 });
+});
+
+// a squash-merged PR's branch: its commits are on no remote once the
+// branch is deleted, so it counts as merged only when a merged PR's head
+// commit is exactly the worktree's HEAD (one gh call per repo, fail closed)
+function squashed() {
+  const t = tidy_repos();
+  const p = t.T + "/r-worktrees/sq";
+  t.g(t.R, "worktree", "add", "-q", "-b", "sq", p, "main");
+  t.g(p, "commit", "-q", "--allow-empty", "-m", "the PR's commit");
+  t.g(p, "push", "-q", "-u", "origin", "sq");
+  t.g(t.R, "push", "-q", "origin", "--delete", "sq");
+  t.g(t.R, "fetch", "-q", "--prune");
+  return { ...t, p, head: t.g(p, "rev-parse", "HEAD"), parent: t.g(p, "rev-parse", "HEAD~1") };
+}
+const gh_answers = (prs: unknown[] | null, calls: string[][] = []): Device.Exec => async (cmd) => {
+  if (cmd[0] === "gh" && cmd[1] === "pr") {
+    calls.push(cmd);
+    return prs === null ? { code: 1, out: "" } : { code: 0, out: JSON.stringify(prs) };
+  }
+  if (cmd[0] === "git" && cmd.slice(-3).join(" ") === "remote get-url origin") {
+    return { code: 0, out: "https://github.com/acme/r.git\n" };
+  }
+  return tidy_exec(cmd);
+};
+const sq_row = async (run: Device.Exec, R: string, p: string) => {
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, run, new Date(), nog2) as any;
+  const ok = Inbox.inbox_check(msg.inbox);
+  if (typeof ok === "string") {
+    throw new Error(ok);
+  }
+  return ok.clean.find((c) => c.path === p);
+};
+
+test("squash merge: a merged PR whose head is the worktree's HEAD makes it safe, with one gh call for the repo", async () => {
+  const { R, p, head } = squashed();
+  const calls: string[][] = [];
+  const row = await sq_row(gh_answers([{ headRefName: "sq", headRefOid: head }], calls), R, p);
+  expect(row).toMatchObject({ gone: true, unpushed: 1, squashed: true, safe: true });
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toContain("acme/r");
+}, 30e3);
+
+test("squash merge: a merged PR with an older head (a commit after the merge), none, or gh failing is not safe", async () => {
+  const { R, p, parent } = squashed();
+  for (const prs of [[{ headRefName: "sq", headRefOid: parent }], [], null, [{ headRefName: "other", headRefOid: parent }]]) {
+    const row = await sq_row(gh_answers(prs), R, p);
+    expect(row?.safe).toBe(false);
+    expect(row?.squashed).not.toBe(true);
+  }
+}, 30e3);
+
+test("squash merge: the remove checks the head again, so a commit after the scan keeps the worktree", async () => {
+  const { R, p, head, g } = squashed();
+  const run = gh_answers([{ headRefName: "sq", headRefOid: head }]);
+  expect((await sq_row(run, R, p))?.safe).toBe(true);
+  g(p, "commit", "-q", "--allow-empty", "-m", "after the merge");
+  const out = await Device.device_tidy([p], run);
+  expect(out.removed).toEqual([]);
+  expect(fs.existsSync(p)).toBe(true);
+}, 30e3);

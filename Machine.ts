@@ -21,6 +21,7 @@ import { Computer } from "./Computer.ts";
 import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import { Hooks, type Call, type Source } from "./Hooks.ts";
+import { CATALOG } from "./Models.ts";
 import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
 
 // Types
@@ -361,7 +362,7 @@ export namespace Machine {
         if (!fs.existsSync(dir)) {
           return { text: "No directory " + input.dir + " here.", fail: true };
         }
-        return await Machine.claude(dir, String(input.task), signal);
+        return await Machine.claude(dir, String(input.task), signal, input.model);
       }
       default: {
         return { text: "No tool " + job.name + ".", fail: true };
@@ -369,13 +370,27 @@ export namespace Machine {
     }
   }
 
+  // a Claude Code worker's command: the model the server sent (its
+  // claude_worker role) if it is a full Claude id of the catalog below opus,
+  // else the catalog's sonnet: never an alias, never opus; no sonnet in
+  // the catalog: null (the job fails, never runs Claude Code's default)
+  export function claude_args(task: string, model: unknown): string[] | null {
+    const ok = CATALOG["claude-api"].find((m) => m.id === model && m.tier !== undefined && m.tier !== "opus");
+    const id = ok?.id ?? CATALOG["claude-api"].find((m) => m.tier === "sonnet")?.id;
+    return id === undefined ? null : ["claude", "-p", task, "--model", id, ...CLAUDE];
+  }
+
   // a Claude Code worker: `claude -p` on the task, in auto mode (its
   // classifier allows or refuses each action: no one answers a prompt
   // headless), in its own process group (a stop kills it and its
   // children); its stream-json events read into transcript lines, its
   // result last (Machine.claude_out)
-  export async function claude(cwd: string, task: string, signal: AbortSignal): Promise<Out> {
-    const proc = Bun.spawn(["claude", "-p", task, ...CLAUDE], { cwd, env: job_env(CLAUDE_ENV), stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true });
+  export async function claude(cwd: string, task: string, signal: AbortSignal, model?: unknown): Promise<Out> {
+    const args = Machine.claude_args(task, model);
+    if (args === null) {
+      return { text: "No sonnet model in the catalog (local/models.json) to run Claude Code on.", fail: true };
+    }
+    const proc = Bun.spawn(args, { cwd, env: job_env(CLAUDE_ENV), stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true });
     SHELLS.add(proc);
     const kill = () => Machine.kill(-proc.pid);
     signal.addEventListener("abort", kill, { once: true });

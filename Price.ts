@@ -1,15 +1,15 @@
 // Price
 // =====
 // What a call costs, in micro-USD: its usage, as its vendor tells it, at
-// its model's RATES (list prices of 2026-10, USD per million tokens; LONG
-// past a long prompt) times SPEEDS, plus web searches; a recording, at
+// its model's RATES (the catalog's list prices, USD per million tokens;
+// LONG past a long prompt) times SPEEDS, plus web searches; a recording, at
 // MINUTES. A request's payer books it (AskAI.ts Bill; Billing.ts), and
 // an import's estimate is priced by it.
 
+import { CATALOG, type Rate } from "./Models.ts";
+
 // Types
 // =====
-
-type Rate = { input: number; write: number; read: number; output: number };
 
 export type Usage = Rate & { searches: number; seconds: number; speed: string };
 
@@ -19,23 +19,18 @@ export type Usage = Rate & { searches: number; seconds: number; speed: string };
 // USD per web search (Anthropic and OpenAI: $10 per 1,000)
 const SEARCH = 0.01;
 
-const RATES: Record<string, Rate> = {
-  "claude-opus-5-5"   : { input: 4,   write: 5,    read: 0.2,  output: 20  },
-  "claude-sonnet-5-5" : { input: 2,   write: 2.5,  read: 0.1,  output: 10  },
-  "claude-haiku-5-5"  : { input: 0.1, write: 0.125, read: 0.01, output: 0.5 },
-  "gpt-6-astra"       : { input: 10,  write: 12.5, read: 1,    output: 50  },
-  "gpt-6.1-sol"       : { input: 2,   write: 2,    read: 0.1,  output: 10  },
-  "gpt-6-luna"        : { input: 0.1, write: 0.1,  read: 0.01, output: 0.5 },
-};
+// each model's list rates by its id, and LONG's for its models with
+// one: the catalog's (Models.ts, local/models.json)
+const ENTRIES = Object.values(CATALOG).flat();
+
+const RATES: Record<string, Rate> = Object.fromEntries(ENTRIES.map((m) => [m.id, m.rate]));
 
 // a prompt (its input, cache writes and reads) over PROMPT tokens costs a
-// model listed in LONG these rates, for all its tokens (Anthropic prices
+// model with `long` rates those, for all its tokens (Anthropic prices
 // Haiku 5.5 so)
 const PROMPT = 100000;
 
-const LONG: Record<string, Rate> = {
-  "claude-haiku-5-5"  : { input: 0.5, write: 0.625, read: 0.05, output: 2.5 },
-};
+const LONG: Record<string, Rate> = Object.fromEntries(ENTRIES.flatMap((m) => (m.long === undefined ? [] : [[m.id, m.long]])));
 
 const MINUTES: Record<string, number> = {
   "gpt-transcribe" : 0.0045,

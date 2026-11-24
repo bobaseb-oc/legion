@@ -109,15 +109,17 @@ test("claude runs headless in auto mode; its events come back as a transcript, i
   process.env.PATH = bin + ":" + path;
   try {
     const work = DIR + "/work";
-    const out = await Machine.run({ name: "claude", input: { task: "find files" }, cwd: "Bot" }, work, new AbortController().signal);
+    const out = await Machine.run({ name: "claude", input: { task: "find files", model: "claude-haiku-5-5" }, cwd: "Bot" }, work, new AbortController().signal);
     expect(out.fail).toBe(false);
     expect(out.text).toBe("unii: Looking.\ntool: Bash({\"command\":\"ls\"})\necho: a.txt\n\nResult ($0.0123): Found a.txt.");
     const args = fs.readFileSync(seen, "utf8").split("\n");
-    expect(args.slice(0, 7)).toEqual(["-p", "find files", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose"]);
-    expect(args[7]).toBe(fs.realpathSync(work) + "/Bot");
+    expect(args.slice(0, 9)).toEqual(["-p", "find files", "--model", "claude-haiku-5-5", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose"]);
+    expect(args[9]).toBe(fs.realpathSync(work) + "/Bot");
     const there = fs.mkdtempSync(os.tmpdir() + "/unii-repo-");
     await Machine.run({ name: "claude", input: { task: "x", dir: there }, cwd: "Bot" }, work, new AbortController().signal);
-    expect(fs.readFileSync(seen, "utf8").split("\n")[7]).toBe(fs.realpathSync(there));
+    const again = fs.readFileSync(seen, "utf8").split("\n");
+    expect(again.slice(2, 4)).toEqual(["--model", "claude-sonnet-5-5"]);
+    expect(again[9]).toBe(fs.realpathSync(there));
   } finally {
     process.env.PATH = path;
   }
@@ -441,4 +443,22 @@ test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, ser
   } finally {
     process.env.UNII_DIR = was;
   }
+});
+
+// a Claude Code worker runs the full model id the server sent (never an
+// alias, which gateway discovery re-resolves), if it is a Claude id of
+// the catalog below opus; any other (none, opus, not an id) runs sonnet's
+test("a Claude Code worker's flags: --model the id sent, else the catalog's sonnet", () => {
+  const model = (sent: unknown) => {
+    const args = Machine.claude_args("the task", sent) ?? [];
+    expect(args.slice(0, 3)).toEqual(["claude", "-p", "the task"]);
+    expect(args.filter((a) => a === "--model").length).toBe(1);
+    return args[args.indexOf("--model") + 1];
+  };
+  expect(model("claude-haiku-5-5")).toBe("claude-haiku-5-5");
+  expect(model("claude-sonnet-5-5")).toBe("claude-sonnet-5-5");
+  for (const bad of [undefined, null, "", "claude-opus-5-5", "opus", "sonnet", "--dangerously-skip-permissions", 5]) {
+    expect(model(bad)).toBe("claude-sonnet-5-5");
+  }
+  expect(Machine.claude_args("t", "claude-haiku-5-5")).toContain("--permission-mode");
 });

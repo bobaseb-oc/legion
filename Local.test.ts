@@ -187,3 +187,33 @@ test("the terminal reads import files whole, never as Bun.file streams", () => {
     expect(body(name)).toContain("import_blob(");
   }
 });
+
+// one heavy test suite at a time on this computer: local/heavy.sh runs a
+// command under /usr/bin/lockf -k on one lock file (macOS has no flock),
+// so a second waits for the first; `bun run test` (test/run.sh) takes it
+test("two commands through local/heavy.sh on one lock run one after the other", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-heavy-");
+  const log = dir + "/log";
+  const env = { ...process.env, UNII_HEAVY_LOCK: dir + "/heavy.lock" };
+  const job = (name: string) => Bun.spawn(["bash", import.meta.dir + "/local/heavy.sh", "bash", "-c", `echo ${name}-start >> ${log}; sleep 0.4; echo ${name}-end >> ${log}`], { env });
+  const a = job("a");
+  await Bun.sleep(100);
+  const b = job("b");
+  expect([await a.exited, await b.exited]).toEqual([0, 0]);
+  expect(fs.readFileSync(log, "utf8").trim().split("\n")).toEqual(["a-start", "a-end", "b-start", "b-end"]);
+});
+
+test("bun run test takes the heavy-test lock", () => {
+  const run = fs.readFileSync(import.meta.dir + "/test/run.sh", "utf8");
+  expect(run).toContain("local/heavy.sh");
+  const heavy = fs.readFileSync(import.meta.dir + "/local/heavy.sh", "utf8");
+  expect(heavy).toContain("/usr/bin/lockf -k");
+});
+
+// the one place rule every agent reads (local/rules.md)
+test("rules.md says where clones, worktrees and scratch files go, and the heavy-test lock", () => {
+  const rules = fs.readFileSync(import.meta.dir + "/local/rules.md", "utf8");
+  for (const s of ["/Volumes/dev/git/<repo>", "<repo>-worktrees/<ticket>-<slug>", "$TMPDIR", "~/.unii/work", "lockf -k ~/.unii/heavy.lock"]) {
+    expect(rules).toContain(s);
+  }
+});

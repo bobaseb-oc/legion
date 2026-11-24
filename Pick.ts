@@ -11,6 +11,7 @@
 // doesn't offer gives way to def, never to a pick like it.
 
 import type { Vendor } from "./AskAI.ts";
+import { CATALOG } from "./Models.ts";
 
 // Types
 // =====
@@ -37,19 +38,11 @@ export type Offer = { vendors: Vendor[]; models: string[] };
 
 export const VENDORS: Vendor[] = ["claude-api", "openai-api"];
 
-const OPUS  : Model = { label: "opus-5.5",   id: "claude-opus-5-5",   speeds: ["slow", "fast"] };
-const SONNET: Model = { label: "sonnet-5.5", id: "claude-sonnet-5-5", speeds: ["slow"] };
-const HAIKU : Model = { label: "haiku-5.5",  id: "claude-haiku-5-5",  speeds: ["slow"] };
-const OPENAI: Model[] = [
-  { label: "gpt-6-luna",  id: "gpt-6-luna",  speeds: ["slow", "fast"] },
-  { label: "gpt-6.1-sol", id: "gpt-6.1-sol", speeds: ["slow", "fast"] },
-  { label: "gpt-6-astra", id: "gpt-6-astra", speeds: ["slow", "fast", "ultrafast"] },
-];
-
-// each vendor's models, at the speeds it runs them
+// each vendor's models, at the speeds it runs them: the catalog's
+// (Models.ts, local/models.json), Claude's strongest first
 const MODELS: Record<Vendor, Model[]> = {
-  "claude-api": [OPUS, SONNET, HAIKU],
-  "openai-api": OPENAI,
+  "claude-api": CATALOG["claude-api"].map(({ label, id, speeds }) => ({ label, id, speeds })),
+  "openai-api": CATALOG["openai-api"].map(({ label, id, speeds }) => ({ label, id, speeds })),
 };
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -65,6 +58,12 @@ export namespace Pick {
 
   export function model(vendor: Vendor, label: string): Model | undefined {
     return MODELS[vendor].find((m) => m.label === label);
+  }
+
+  // the label a config names by tier ("sonnet") or by label ("sonnet-5.5"),
+  // so a role outlives a model's release; neither: undefined
+  export function tier(vendor: Vendor, name: string): string | undefined {
+    return (CATALOG[vendor].find((m) => m.tier === name) ?? CATALOG[vendor].find((m) => m.label === name))?.label;
   }
 
   export function on(pick: Pick, vendor: Vendor, model: Model): Pick {

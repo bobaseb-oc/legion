@@ -411,7 +411,7 @@ test("a Claude Code worker asks first; approved it runs on its device and report
   expect(Tools.approve(tools, name, true)).toContain("Approved");
   await until(() => sent.some((m) => m.$ === "job"));
   const job = sent.find((m) => m.$ === "job");
-  expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x" } });
+  expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x", model: "claude-sonnet-5-5" } });
   expect(job.job.input.task).toContain("fix the bug");
   expect(Tools.crew(tools)[1].status).toBe("working");
   Tools.done(tools, "mac", job.id, { text: "unii: on it\n\nResult ($0.0100): fixed it", fail: false });
@@ -691,6 +691,51 @@ test("agents found by part of a name or title, any case: working, done, archived
   expect(many.length).toBe(20);
   expect(many[0].name).toBe("Many-y");
   expect(many.map((h) => h.date)).toEqual([...many.map((h) => h.date)].sort().reverse());
+  Tools.close(tools);
+  Memory.stop(mem);
+}));
+
+// RED ZONE (user authority over agents' models, DRAFT awaiting the user's
+// sign-off): Unii may propose a model above a tier's (Opus) for one
+// spawn; it waits as a call put to the user (Tools.ask_user, answered by
+// the consent act behind SAYS: never a device's or an agent's key, as the
+// "consent" test in Server.test.ts shows), and only their yes starts it
+test("Unii may propose Opus for one spawn: only the user's yes starts it, and only that one", () => faked(async () => {
+  const mem = Memory.load(DIR + "/opus", () => SHARE);
+  const tools = served(mem, []);
+  const ctl = () => new AbortController().signal;
+  calls.length = 0;
+  script = () => answer("done");
+  try {
+    const asked = Tools.call(tools, "main", "spawn", { tasks: ["the hard part"], model: "opus-5.5" }, ctl(), "o1");
+    await until(() => Tools.consents(tools).length === 1);
+    const [c] = Tools.consents(tools);
+    expect(c).toMatchObject({ who: "main", tool: "spawn", what: expect.stringContaining("opus-5.5") });
+    expect(tools.agents.size).toBe(0);
+    expect(Tools.consent(tools, c!.id, true)).toBe(true);
+    expect((await asked).fail).toBe(false);
+    const [hard] = [...tools.agents.values()];
+    expect(hard!.role).toMatchObject({ $: "sub", tier: "manager", model: "opus-5.5", above: true });
+    await until(() => calls.length >= 1);
+    expect(calls[0]!.model).toBe("claude-opus-5-5");
+    // a second one is asked again: the yes was for that spawn only; a no starts nothing
+    const again = Tools.call(tools, "main", "spawn", { tasks: ["another hard part"], model: "opus-5.5" }, ctl(), "o2");
+    await until(() => Tools.consents(tools).length === 1);
+    expect(Tools.consent(tools, Tools.consents(tools)[0]!.id, false)).toBe(true);
+    expect((await again).fail).toBe(true);
+    expect(tools.agents.size).toBe(1);
+    // the next spawn with no model runs on its tier's, not the one granted
+    expect(await Tools.spawn(tools, "main", ["an easy part"], null, null, "manager")).toContain("Started ");
+    const easy = [...tools.agents.values()].find((a) => a !== hard)!;
+    expect(easy.role).toMatchObject({ model: null });
+    expect((easy.role as any).above).toBeUndefined();
+    // a manager can't propose a model above its workers': refused, nothing asked
+    const mgr = await Tools.call(tools, hard!.name, "spawn", { tasks: ["w"], model: "opus-5.5" }, ctl(), "o3");
+    expect(mgr.fail).toBe(true);
+    expect(Tools.consents(tools)).toEqual([]);
+  } finally {
+    script = null;
+  }
   Tools.close(tools);
   Memory.stop(mem);
 }));

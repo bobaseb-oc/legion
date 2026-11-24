@@ -344,3 +344,142 @@ test("the server: a reply that matches no track is an error on the page, and the
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ cards: [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }], error: "The page couldn't be written: no card matched a track." });
 });
+
+// Themes: the Tracks page groups the top agents into themes, one card per
+// theme. A theme is fixed once made: an agent keeps its theme and the
+// theme its name; a new agent joins the closest theme (the observer's
+// pick), else one named after itself while fewer than THEMES exist
+
+const themed = (themes: Array<{ theme: unknown; tracks: unknown }>) => JSON.stringify({ themes, cards: [] });
+
+test("themes: fixed once made; a new agent joins an existing theme (any case), else one of its own; at most THEMES; names not in the crew ignored", () => {
+  const one = Explain.explain_assign(themed([{ theme: " Payments ", tracks: ["A", "B", "Z"] }]), {}, ["A", "B"]);
+  expect(one).toEqual({ A: "Payments", B: "Payments" });
+  const two = Explain.explain_assign(themed([{ theme: "Other", tracks: ["A"] }, { theme: "payments", tracks: ["C"] }]), one, ["A", "B", "C"]);
+  expect(two).toEqual({ A: "Payments", B: "Payments", C: "Payments" });
+  expect(Explain.explain_assign("{}", {}, ["D"])).toEqual({ D: "D" });
+  expect(Explain.explain_assign("not json", { A: "P" }, ["A", "D"])).toEqual({ A: "P", D: "D" });
+  expect(Explain.explain_assign(themed([{ theme: "", tracks: ["E"] }, { theme: 7, tracks: ["F"] }]), {}, ["E", "F"])).toEqual({ E: "E", F: "F" });
+  expect(Explain.explain_assign(themed([{ theme: "x".repeat(500), tracks: ["G"] }]), {}, ["G"]).G).toHaveLength(Explain.TITLE);
+  const full: Record<string, string> = {};
+  for (let k = 1; k <= Explain.THEMES; k++) full["a" + k] = "T" + k;
+  const capped = Explain.explain_assign(themed([{ theme: "New", tracks: ["N"] }]), full, [...Object.keys(full), "N", "M"]);
+  expect(capped.N).toBe("T1");
+  expect(capped.M).toBe("T1");
+  expect(new Set(Object.values(capped)).size).toBe(Explain.THEMES);
+  expect(Explain.THEMES).toBe(Explain.CARDS);
+});
+
+test("themes: their names in crew order, an agent with none its own; the brief the observer reads lists each theme's agents and those not in one yet", () => {
+  expect(Explain.theme_names({ A: "P", B: "Q", C: "P" }, ["C", "B", "A", "D"])).toEqual(["P", "Q", "D"]);
+  const brief = Explain.theme_brief({ A: "Payments", B: "Payments" }, ["A", "B", "C"]);
+  expect(brief).toContain("- Payments: A, B");
+  expect(brief).toContain("Not in a theme yet: C");
+  expect(Explain.theme_brief({}, [])).toBe("");
+});
+
+test("the status report: due with none or REPORT_EVERY after the last; the observer's report a string, cut; else null", () => {
+  const ex = Explain.explain_new();
+  expect(Explain.report_due(ex, T0)).toBe(true);
+  const done = { ...ex, report: { text: "All fine", at: T0 } };
+  expect(Explain.report_due(done, T0 + 29 * MIN)).toBe(false);
+  expect(Explain.report_due(done, T0 + 30 * MIN)).toBe(true);
+  expect(Explain.REPORT_EVERY).toBe(30 * MIN);
+  expect(Explain.explain_report('Here: {"cards": [], "report": " All  fine "}')).toBe("All fine");
+  expect(Explain.explain_report(JSON.stringify({ report: "r".repeat(9000) }))).toHaveLength(Explain.REPORT);
+  expect(Explain.explain_report(JSON.stringify({ report: 7 }))).toBeNull();
+  expect(Explain.explain_report(JSON.stringify({ report: "  " }))).toBeNull();
+  expect(Explain.explain_report("no idea")).toBeNull();
+});
+
+test("loaded from view.json: themes and report kept; malformed ones dropped, never a throw", () => {
+  expect(Explain.explain_load(null)).toEqual(Explain.explain_new());
+  expect(Explain.explain_load("x")).toEqual(Explain.explain_new());
+  const ok = Explain.explain_load({ ...Explain.explain_new(), cards: [], themes: { A: "P", B: "Q" }, report: { text: "Fine", at: T0 }, writing: true, asking: "q" });
+  expect(ok).toMatchObject({ themes: { A: "P", B: "Q" }, report: { text: "Fine", at: T0 }, writing: false, asking: null });
+  expect(Explain.explain_load({ themes: "x", report: "y" })).toMatchObject({ themes: {}, report: null });
+  const bad = Explain.explain_load({ themes: { A: "P", B: 7, ["C".repeat(300)]: "Q", D: "x".repeat(500), E: "" }, report: { text: 7, at: T0 } });
+  expect(bad.themes).toEqual({ A: "P" });
+  expect(bad.report).toBeNull();
+  const many: Record<string, string> = {};
+  for (let k = 1; k <= Explain.THEMES + 3; k++) many["a" + k] = "T" + k;
+  expect(new Set(Object.values(Explain.explain_load({ themes: many }).themes ?? {})).size).toBe(Explain.THEMES);
+  const lots: Record<string, string> = {};
+  for (let k = 0; k < Explain.THEMED + 50; k++) lots["a" + k] = "T";
+  expect(Object.keys(Explain.explain_load({ themes: lots }).themes ?? {})).toHaveLength(Explain.THEMED);
+  expect(Explain.explain_load({ report: { text: "r".repeat(9000), at: T0 } }).report?.text).toHaveLength(Explain.REPORT);
+});
+
+const THEMED_RUN = SERVER.split("const card =")[0] + `
+const reply = (i, out) => asks[i].sink.end({ ok: true, text: JSON.stringify(out), left: [] });
+const text = (i) => asks[i].ask.blocks.map((b) => b.text).join("");
+const card = (track, title) => ({ track, title, what: "w", why: "y", status: "s", watch: "nothing" });
+top(chat, "Owl");
+top(chat, "Ant");
+chat.mem.goal = "Ship the Tracks page";
+chat.busy = true;
+const r1 = Chat.observe(chat, T0 + 1);
+await until(() => asks.length === 1);
+reply(0, { themes: [{ theme: "Tracks page", tracks: ["Owl", "Ant"] }], cards: [card("Tracks page", "One page for all")], report: "Both agents build the Tracks page." });
+await r1;
+const one = { themes: { ...chat.mem.explain.themes }, cards: chat.mem.explain.cards.map((c) => c.track + ":" + c.title), report: chat.mem.explain.report?.text ?? null, asked: text(0).includes(Explain.REPORT_ASK), system: asks[0].ask.system };
+chat.mem.goal = "Ship the Tracks page, with themes";
+top(chat, "Cat");
+chat.busy = false;
+const r2 = Chat.observe(chat, T0 + Explain.EVERY + 2);
+await until(() => asks.length === 2);
+const brief = text(1);
+reply(1, { themes: [{ theme: "Other", tracks: ["Owl"] }, { theme: "tracks PAGE", tracks: ["Cat"] }], cards: [card("Tracks page", "Still one page")] });
+await r2;
+const two = { themes: { ...chat.mem.explain.themes }, cards: chat.mem.explain.cards.map((c) => c.track + ":" + c.title), report: chat.mem.explain.report?.text ?? null, asked: text(1).includes(Explain.REPORT_ASK) };
+chat.mem.goal = "Ship the Tracks page, with themes and a report";
+chat.busy = true;
+const r3 = Chat.observe(chat, T0 + Explain.REPORT_EVERY + 3);
+await until(() => asks.length === 3);
+const asked3 = text(2).includes(Explain.REPORT_ASK);
+reply(2, { cards: [card("Tracks page", "Nearly there")], report: "Nearly done." });
+await r3;
+const report3 = chat.mem.explain.report?.text ?? null;
+chat.mem.goal = "Ship it all";
+chat.busy = false;
+const r4 = Chat.observe(chat, T0 + 2 * Explain.REPORT_EVERY + 4);
+await until(() => asks.length === 4);
+const asked4 = text(3).includes(Explain.REPORT_ASK);
+reply(3, { cards: [card("Tracks page", "Done")] });
+await r4;
+const calls = asks.length;
+await Chat.observe(chat, T0 + 3 * Explain.REPORT_EVERY);
+const unchanged = asks.length - calls;
+const gone = await Chat.act(chat, "d1", { $: "dismiss", name: "Cat" }, "");
+const kept = Memory.load(chat.mem.dir, () => null).explain;
+console.log(JSON.stringify({ gone, one, brief, two, asked3, report3, asked4, unchanged, kept: { themes: kept.themes, report: kept.report?.text ?? null } }));
+process.exit(0);
+`;
+
+test("the server: themes fixed across runs, a new agent joins one; the report asked only when due and agents are at work; nothing asked when nothing changed; themes and report kept in view.json", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/themes.ts", THEMED_RUN);
+  const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.one).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page" }, cards: ["Tracks page:One page for all"], report: "Both agents build the Tracks page.", asked: true, system: Explain.OBSERVE });
+  expect(out.brief).toContain("- Tracks page: Owl, Ant");
+  expect(out.brief).toContain("Not in a theme yet: Cat");
+  expect(out.brief).toMatch(/<themes>[\s\S]*<\/themes>[\s\S]*<snapshot>/);
+  expect(out.two).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page", Cat: "Tracks page" }, cards: ["Tracks page:Still one page"], report: "Both agents build the Tracks page.", asked: false });
+  expect(out.asked3).toBe(true);
+  expect(out.report3).toBe("Nearly done.");
+  expect(out.asked4).toBe(false);
+  expect(out.unchanged).toBe(0);
+  expect(out.gone).toEqual({});
+  // a dismissed agent leaves its theme; the theme stays for the others
+  expect(out.kept).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page" }, report: "Nearly done." });
+});
+
+test("a dismissed agent leaves its theme: the theme keeps its name while others are in it, and is gone with its last", () => {
+  const themes = { A: "P", B: "P", C: "Q" };
+  expect(Explain.theme_drop(themes, "A")).toEqual({ B: "P", C: "Q" });
+  expect(Explain.theme_names(Explain.theme_drop(themes, "C"), ["A", "B"])).toEqual(["P"]);
+  expect(Object.values(Explain.theme_drop(themes, "C"))).not.toContain("Q");
+  expect(Explain.theme_drop(themes, "Z")).toEqual(themes);
+  expect(themes).toEqual({ A: "P", B: "P", C: "Q" });
+});

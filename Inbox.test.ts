@@ -162,3 +162,32 @@ test("Google's part of the report checked: Meet and Docs links only, Drive ids o
   expect(typeof Inbox.inbox_check({ ...base, google: { ...google, docs: [{ ...google.docs[0], id: "../x" }] } })).toBe("string");
   expect(typeof Inbox.inbox_check({ ...base, google: { ...google, docs: [{ ...google.docs[0], url: "https://evil.example/doc" }] } })).toBe("string");
 });
+
+// a worktree to tidy: safe only when its branch is merged or gone on
+// origin, it is clean, has nothing on no remote, no stash of its branch
+// and no process in it; the server works safe out itself (a device's own
+// is ignored), and a field a device didn't send counts against it
+test("a worktree row is safe only when merged or gone, clean, pushed, unstashed and not in use", () => {
+  const row = (over: Record<string, any> = {}) => ({ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 4096, at: 1, live: false, ...over });
+  const safe = (over: Record<string, any> = {}) => ((Inbox.inbox_check(report({ clean: [row(over)] })) as Inbox.Inbox).clean[0] as any).safe;
+  expect(safe()).toBe(true);
+  expect(safe({ merged: false, gone: true })).toBe(true);
+  expect(safe({ merged: false, gone: false })).toBe(false);
+  expect(safe({ changes: 1 })).toBe(false);
+  expect(safe({ unpushed: 2 })).toBe(false);
+  expect(safe({ stashes: 1 })).toBe(false);
+  expect(safe({ live: true })).toBe(false);
+  // not sent (an older device, or a check that failed): never safe
+  for (const k of ["unpushed", "stashes", "live"]) {
+    expect(safe({ [k]: undefined })).toBe(false);
+  }
+  // a device's own safe is not trusted
+  expect(safe({ changes: 1, safe: true })).toBe(false);
+  // an older device's row (no new fields) is still kept, not safe
+  const old = Inbox.inbox_check(report()) as Inbox.Inbox;
+  expect(old.clean.map((c: any) => [c.path, c.safe])).toEqual([["/r/.wt/a", false]]);
+  // the new fields are kept as sent, bad ones refused
+  expect((Inbox.inbox_check(report({ clean: [row()] })) as Inbox.Inbox).clean[0]).toMatchObject({ gone: false, unpushed: 0, stashes: 0, bytes: 4096, at: 1, live: false });
+  expect(Inbox.inbox_check(report({ clean: [row({ unpushed: -1 })] }))).toBeString();
+  expect(Inbox.inbox_check(report({ clean: [row({ live: "no" })] }))).toBeString();
+});

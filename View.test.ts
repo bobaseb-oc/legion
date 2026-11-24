@@ -719,3 +719,13 @@ test("AC26: #tracks and #explain both route to the tracks page", () => {
   expect(View.view_route("#tracks")).toEqual({ mode: "tracks", name: null });
   expect(View.view_route("#explain")).toEqual({ mode: "tracks", name: null });
 });
+
+// the Tidy act (a safe worktree's Remove, confirmed): the server asked to
+// have the devices re-check and remove it; its confirm names each path
+test("Tidy asks the server to tidy those worktrees; its question names them", () => {
+  const v = View.view_new();
+  expect(View.view_act(v, { $: "Tidy", paths: ["/w/a", "/w/b"] })).toEqual([{ $: "tidy", paths: ["/w/a", "/w/b"] }]);
+  expect(View.view_act(v, { $: "Tidy", paths: [] })).toEqual([]);
+  expect(View.tidy_ask(["/w/a"])).toContain("/w/a");
+  expect(View.view_hear(v, { $: "tidy", paths: ["/w/a"] })).toEqual([]);
+});

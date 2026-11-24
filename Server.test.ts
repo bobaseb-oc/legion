@@ -3427,3 +3427,47 @@ test("PLP-2924 AC5: one process, two bridge passes with the same open question: 
   const { a } = await records_run();
   expect(a.ac5).toBe(1);
 }, 60_000);
+
+// The tidy (removing worktrees): only the user's say in a view, only a row
+// the latest inbox shows as safe (Inbox.inbox_safe), sent to the devices
+// to re-check and remove; a device's key can't ask for it, and only a
+// device tells what it removed
+const TIDY = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const sent = [];
+chat.socks.add({ send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set(), seen: new Set() } });
+const row = (path, over) => ({ repo: "r", path, branch: "b", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 1, at: 1, live: false, ...over });
+const inbox = { at: 1, login: "me", reviews: [], mine: [], merged: 0, today: 0, tickets: null, notes: [], errors: [], clean: [row("/w/safe"), row("/w/dirty", { changes: 2 })] };
+await Chat.act(chat, "t0", { $: "inbox", inbox }, "mac");
+chat.tools.devices.set("mac", { terms: new Set(["t1"]), jobs: new Map() });
+const byDevice = await Chat.act(chat, "t1", { $: "tidy", paths: ["/w/safe"] }, "mac");
+const unsafe = await Chat.act(chat, "t2", { $: "tidy", paths: ["/w/dirty"] }, "");
+const unknown = await Chat.act(chat, "t3", { $: "tidy", paths: ["/elsewhere"] }, "");
+const before = sent.filter((m) => m.$ === "tidy").length;
+const ok = await Chat.act(chat, "t4", { $: "tidy", paths: ["/w/safe"] }, "");
+const tidies = sent.filter((m) => m.$ === "tidy");
+const viewTidied = await Chat.act(chat, "t5", { $: "tidied", removed: ["/w/safe"], kept: [] }, "");
+const told = await Chat.act(chat, "t6", { $: "tidied", removed: ["/w/safe"], kept: [{ path: "/w/dirty", why: "changes" }] }, "mac");
+console.log(JSON.stringify({ byDevice: byDevice.error ?? null, unsafe: unsafe.error ?? null, unknown: unknown.error ?? null, before, ok, tidies, viewTidied: viewTidied.error ?? null, told, noted: JSON.stringify(sent).includes("/w/safe") && JSON.stringify(sent).includes("Removed") }));
+process.exit(0);
+`;
+
+test("a tidy is the user's say in a view, of a safe row only; the devices are asked; only a device tells what it removed", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/tidy.ts", TIDY);
+  const proc = Bun.spawn([process.execPath, dir + "/tidy.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.byDevice).toMatch(/user's say/);
+  expect(out.unsafe).toMatch(/not safe/i);
+  expect(out.unknown).toMatch(/not safe/i);
+  expect(out.before).toBe(0);
+  expect(out.ok).toEqual({});
+  expect(out.tidies).toEqual([{ $: "tidy", paths: ["/w/safe"] }]);
+  expect(out.viewTidied).toMatch(/Only a device/);
+  expect(out.told).toEqual({});
+  expect(out.noted).toBe(true);
+});

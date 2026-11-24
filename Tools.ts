@@ -120,7 +120,7 @@ export type Agent = {
 export type Tier = "manager" | "worker";
 // cli: Claude Code itself on a device (Machine.claude), in auto mode, once
 // the person approves; in `dir` there (null: its work dir)
-export type Role = { $: "sub"; tier: Tier; effort: string | null; model: string | null } | { $: "hands"; device: string } | { $: "cli"; device: string; dir: string | null };
+export type Role = { $: "sub"; tier: Tier; effort: string | null; model: string | null; above?: true } | { $: "hands"; device: string } | { $: "cli"; device: string; dir: string | null };
 
 // an agent's label (Tools.labels): its goal, the repos its work touches
 export type Label = { title?: string; repos?: string[] };
@@ -427,12 +427,14 @@ const SPAWN = "Start one agent per task, in parallel, and return their names at 
 const AS = "manager (the default): splits its task among workers of its own and checks their work, for a task of several parts; worker: does its task itself, for a part.";
 const AS_WORKER = "worker (the default): does its task itself; claude: Claude Code itself does it on a device (give device, and dir: the repo there), in auto mode, once the user approves it: for coding work in a repo.";
 const MODEL = { type: "string", enum: LABELS, description: "The model it runs on: its tier's (the default) or a cheaper one below it, as for a simple task." };
+// Unii's may name one above the tier's: the user is asked first (Tools.dispatch "spawn")
+const MODEL_MAIN = { ...MODEL, description: MODEL.description + " For a task too hard for its tier's model, you may name a stronger one: the user is asked first, and only their yes starts it on that model (this spawn only); a no starts nothing, so say why it needs it in the task's title." };
 function boss(main: boolean): Spec[] {
   const labels = {
     titles: { type: "array", items: STR, description: "Each task's goal in a few words, in order (\"Fix flaky login tests\"): the label the user sees for it in the crew. Always give one per task: an agent with none shows only its made-up name (a title cut from the task's first line stands in)." },
     repos: { type: "array", items: { type: "array", items: STR }, description: "The repos each task's work touches, in order: shown with its label." },
   };
-  const tasks = { tasks: { type: "array", items: STR }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as their model does." }, model: MODEL };
+  const tasks = { tasks: { type: "array", items: STR }, effort: { type: "string", enum: EFFORTS, description: "How hard they think; by default, as their model does." }, model: main ? MODEL_MAIN : MODEL };
   // Claude Code workers come from managers only (as: "claude"), so only
   // theirs offers it, and the device and dir it needs
   const as = { as: { type: "string", enum: main ? ["manager", "worker"] : ["worker", "claude"], description: main ? AS : AS_WORKER } };
@@ -1114,10 +1116,16 @@ export namespace Tools {
         const tier: Tier = who === "main" && args.as !== "worker" ? "manager" : "worker";
         const model = args.model === undefined ? null : String(args.model);
         const pick = Tools.child(tier, model);
-        if (typeof pick === "string") {
+        // Unii's proposal of a model above the tier's: put to the user, and
+        // only their yes starts this one spawn on it (never a manager's)
+        const above = typeof pick === "string" && who === "main" && typeof Tools.child(tier, model, true) !== "string";
+        if (typeof pick === "string" && !above) {
           return { text: pick, fail: true };
         }
-        return { text: await Tools.spawn(tools, who, (args.tasks ?? []).map(String), effort, model, tier, labels), fail: false };
+        if (above && !await Tools.ask_user(tools, who, name, args, signal)) {
+          return { text: "The user didn't approve " + model + " for this " + tier + ": " + pick, fail: true };
+        }
+        return { text: await Tools.spawn(tools, who, (args.tasks ?? []).map(String), effort, model, tier, labels, above), fail: false };
       }
       case "tell": {
         if (!Tools.boss(tools, who)) {
@@ -1517,7 +1525,7 @@ export namespace Tools {
   export function crew(tools: Tools): Crew[] {
     return [...tools.agents.values()].filter((a) => !a.hidden).map((a): Crew => {
       const role = a.role;
-      const pick = role.$ === "hands" ? tools.hooks.pick() : role.$ === "cli" ? null : Tools.child(role.tier, role.model);
+      const pick = role.$ === "hands" ? tools.hooks.pick() : role.$ === "cli" ? null : Tools.child(role.tier, role.model, role.above === true);
       const model = pick === null ? "claude-code" : typeof pick === "string" ? role.$ === "sub" && role.model !== null ? role.model : "?" : pick.model;
       const status = Tools.status(tools, a);
       const tier = role.$ === "hands" ? "computer" : role.$ === "cli" ? "claude" : role.tier;
@@ -1580,7 +1588,10 @@ export namespace Tools {
   // what a child of its tier runs on: its tier's model (config.MANAGER,
   // WORKER) or one below it of the same vendor, as named. A string: why
   // not
-  export function child(tier: Tier, label: string | null): Pick | string {
+  // RED ZONE (user authority over agents' models, DRAFT awaiting the
+  // user's sign-off): above, a model above the tier's too, of its vendor:
+  // only for a spawn the user said yes to (Tools.dispatch "spawn")
+  export function child(tier: Tier, label: string | null, above = false): Pick | string {
     const top = tier === "manager" ? config.MANAGER : config.WORKER;
     if (label === null || label === top.model) {
       return top;
@@ -1591,7 +1602,7 @@ export namespace Tools {
     if (k < 0) {
       return "No model " + label + " for a " + tier + " here; one of " + models.slice(Math.max(0, at)).map((m) => m.label).join(", ") + ".";
     }
-    return k < at ? "A " + tier + " runs on " + top.model + " or a model below it, not " + label + "." : Pick.on(top, top.vendor, models[k]);
+    return k < at && !above ? "A " + tier + " runs on " + top.model + " or a model below it, not " + label + "." : Pick.on(top, top.vendor, models[k]);
   }
 
   // an agent's note: what it is, who started it, its model and effort
@@ -1638,8 +1649,8 @@ export namespace Tools {
 
   // agents `who` starts (Unii or a manager), of a tier, on a model
   // (Tools.child), each its task ending with `who`'s latest lines
-  export async function spawn(tools: Tools, who: string, tasks: string[], effort: string | null, model: string | null, tier: Tier, labels: Label[] = []): Promise<string> {
-    const pick = Tools.child(tier, model);
+  export async function spawn(tools: Tools, who: string, tasks: string[], effort: string | null, model: string | null, tier: Tier, labels: Label[] = [], above = false): Promise<string> {
+    const pick = Tools.child(tier, model, above);
     if (typeof pick === "string") {
       return pick;
     }
@@ -1647,7 +1658,7 @@ export namespace Tools {
     if (typeof view === "string") {
       return view;
     }
-    const names = tasks.map((task, k) => Tools.start(tools, who, { $: "sub", tier, effort, model }, task + Tools.brief(view, who), false, Tools.titling(labels[k], task)));
+    const names = tasks.map((task, k) => Tools.start(tools, who, { $: "sub", tier, effort, model, ...(above ? { above: true as const } : {}) }, task + Tools.brief(view, who), false, Tools.titling(labels[k], task)));
     return "Started " + names.join(", ") + ". Each one's report will reach you as a message when it finishes.";
   }
 
@@ -2248,7 +2259,7 @@ export namespace Tools {
     const abort = (agent.abort = new AbortController());
     Object.assign(agent, { runs: true, since: Date.now() });
     tools.hooks.change();
-    const job = { name: "claude", input: { task: agent.task ?? "", dir: role.dir ?? undefined }, cwd: agent.name };
+    const job = { name: "claude", input: { task: agent.task ?? "", dir: role.dir ?? undefined, model: config.CLAUDE_WORKER }, cwd: agent.name };
     await Tools.claude_end(tools, agent, Tools.job(tools, role.device, job, abort.signal, crypto.randomUUID()));
   }
 
@@ -2376,7 +2387,7 @@ export namespace Tools {
     const role = agent.role;
     switch (role.$) {
       case "sub": {
-        const given = Tools.child(role.tier, role.model);
+        const given = Tools.child(role.tier, role.model, role.above === true);
         const run = Pick.ask(typeof given === "string" ? Tools.child(role.tier, null) as Pick : given);
         const system = Tools.system(role.tier === "manager" ? MGR : SUB);
         const blocks = [...seen.view, Tools.devices(tools), seen.log];
