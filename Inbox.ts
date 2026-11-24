@@ -32,6 +32,7 @@ export type Ticket = { key: string; title: string; status: string; priority: str
 export type Clean = {
   repo: string; path: string; branch: string | null; changes: number; merged: boolean;
   gone?: boolean; unpushed?: number; stashes?: number; bytes?: number; at?: number; live?: boolean; safe?: boolean;
+  squashed?: boolean; // its HEAD is exactly a merged PR's head (Device.device_squashes)
 };
 
 // RED ZONE (DRAFT awaiting the user's sign-off): a worktree may be removed
@@ -39,7 +40,9 @@ export type Clean = {
 // commit on no remote, no stash of its branch, and no process works in it.
 // What isn't known counts against it (fail closed)
 export function inbox_safe(c: Clean): boolean {
-  return (c.merged || c.gone === true) && c.changes === 0 && c.unpushed === 0 && c.stashes === 0 && c.live === false;
+  // a squash merge's own commits are on no remote: only with HEAD exactly
+  // the merged PR's head do they not count
+  return (c.merged || c.gone === true || c.squashed === true) && c.changes === 0 && (c.unpushed === 0 || c.squashed === true) && c.stashes === 0 && c.live === false;
 }
 
 // a device's row checked: what it sent of the tidy's fields, then safe
@@ -51,7 +54,7 @@ function clean_row(c: any): Clean {
       row[k] = num(c[k]);
     }
   }
-  for (const k of ["gone", "live"] as const) {
+  for (const k of ["gone", "live", "squashed"] as const) {
     if (c?.[k] !== undefined) {
       row[k] = bool(c[k]);
     }

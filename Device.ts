@@ -416,9 +416,10 @@ async function device_clean(space: string, run: Exec, cwds: string[] | null = nu
   await run(device_git(space, "fetch", "--prune", "--quiet", "--no-recurse-submodules", "origin"));
   const base = await run(device_git(space, "rev-parse", "--abbrev-ref", "origin/HEAD"));
   const merged = base.code !== 0 ? [] : (await run(device_git(space, "branch", "--merged", base.out.trim(), "--format=%(refname:short)"))).out.split("\n").map((b) => b.trim());
+  const squashes = await device_squashes(space, run);
   const rows: Inbox.Clean[] = [];
   for (const t of trees) {
-    rows.push(await device_row(path.basename(space), t, merged, cwds, run));
+    rows.push(await device_row(path.basename(space), t, merged, cwds, run, squashes));
   }
   return rows.filter((r) => all || r.changes > 0 || r.merged || r.gone === true);
 }
@@ -438,7 +439,33 @@ function lines(text: string): string[] {
 // commit, and whether a process works in it. A check that fails leaves
 // its field out, which counts against removing it (Inbox.inbox_safe); a
 // status that fails, all of them
-async function device_row(repo: string, t: { path: string; branch: string | null }, merged: string[], cwds: string[] | null, run: Exec): Promise<Inbox.Clean> {
+// RED ZONE (DRAFT awaiting the user's sign-off): a squash merge leaves a
+// branch's commits on no remote, so a PR's merge shows only on GitHub: the
+// repo's last merged PRs, one gh call per repo per scan (its timeout is
+// run's), as "<branch> <head commit>". gh missing, failing or not JSON:
+// none (fail closed). A worktree counts as squash-merged only when its
+// HEAD is exactly a merged PR's head, so a commit after the merge breaks it
+const SQUASHES = 100;
+async function device_squashes(space: string, run: Exec): Promise<Set<string>> {
+  const url = await run(device_git(space, "remote", "get-url", "origin"));
+  const m = url.code === 0 ? /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url.out.trim()) : null;
+  if (m === null) {
+    return new Set();
+  }
+  const r = await run(["gh", "pr", "list", "--repo", m[1]!, "--state", "merged", "--limit", String(SQUASHES), "--json", "headRefName,headRefOid"]);
+  let prs: unknown = null;
+  try {
+    prs = r.code === 0 ? JSON.parse(r.out) : null;
+  } catch {
+    prs = null;
+  }
+  if (!Array.isArray(prs)) {
+    return new Set();
+  }
+  return new Set(prs.filter((x: any) => typeof x?.headRefName === "string" && /^[0-9a-f]{40}$/.test(String(x?.headRefOid))).map((x: any) => x.headRefName + " " + x.headRefOid));
+}
+
+async function device_row(repo: string, t: { path: string; branch: string | null }, merged: string[], cwds: string[] | null, run: Exec, squashes: Set<string> = new Set()): Promise<Inbox.Clean> {
   const row: Inbox.Clean = { repo, path: t.path, branch: t.branch, changes: 0, merged: t.branch !== null && merged.includes(t.branch) };
   const st = await device_trusted(t.path, run) ? await run(device_git(t.path, "status", "--porcelain")) : { code: 1, out: "" };
   if (st.code !== 0) {
@@ -448,13 +475,17 @@ async function device_row(repo: string, t: { path: string; branch: string | null
   const b = t.branch;
   const track = b === null ? null : await run(device_git(t.path, "for-each-ref", "--format=%(upstream:track)", "refs/heads/" + b));
   row.gone = track !== null && track.code === 0 && track.out.includes("[gone]");
+  const head = b === null || squashes.size === 0 ? null : await run(device_git(t.path, "rev-parse", "HEAD"));
+  if (head !== null) {
+    row.squashed = head.code === 0 && squashes.has(b + " " + head.out.trim());
+  }
   row.unpushed = count(await run(device_git(t.path, "rev-list", "--count", "HEAD", "--not", "--remotes")));
   const stash = await run(device_git(t.path, "stash", "list", "--format=%gs"));
   row.stashes = stash.code !== 0 ? undefined : lines(stash.out).filter((l) => b === null || l.startsWith("WIP on " + b + ":") || l.startsWith("On " + b + ":")).length;
   const at = count(await run(device_git(t.path, "log", "-1", "--format=%ct")));
   row.at = at === undefined ? undefined : at * 1000;
   // du is slow on big trees: sized only a row that may be safe
-  row.bytes = (row.merged || row.gone) && row.changes === 0 && row.unpushed === 0 ? await device_bytes(t.path, run) : undefined;
+  row.bytes = (row.merged || row.gone || row.squashed) && row.changes === 0 && (row.unpushed === 0 || row.squashed) ? await device_bytes(t.path, run) : undefined;
   row.live = device_live(t.path, cwds);
   return row;
 }
@@ -513,9 +544,9 @@ function tidy_why(c: Inbox.Clean | undefined): string {
     return "not a worktree to clean up now";
   }
   const why = [
-    c.merged || c.gone === true ? "" : "its branch is neither merged nor gone",
+    c.merged || c.gone === true || c.squashed === true ? "" : "its branch is neither merged nor gone",
     c.changes === 0 ? "" : "it has changes",
-    c.unpushed === 0 ? "" : "it has commits on no remote",
+    c.unpushed === 0 || c.squashed === true ? "" : "it has commits on no remote (and its HEAD is no merged PR's head)",
     c.stashes === 0 ? "" : "its branch has stashes",
     c.live === false ? "" : "a process works in it",
   ].filter((w) => w !== "");
