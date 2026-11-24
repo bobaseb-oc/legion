@@ -711,7 +711,8 @@ export namespace Tools {
     const asks: string[] = [];
     for (let i = (mem?.count ?? 0) - 1; i >= 0 && asks.length < REVIEW_ASKS; i--) {
       const m = Memory.message(mem, i);
-      if (m?.kind === "user" && m.text.trim() !== "") {
+      // a check's nudge is user-kind for the turn, never the user's (G3)
+      if (m?.kind === "user" && m.text.trim() !== "" && !Directives.checked(m.text)) {
         asks.unshift(m.text);
       }
     }
@@ -781,11 +782,29 @@ export namespace Tools {
     return [at, Machine.real(at)];
   }
 
+  // RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): a
+  // spawn above its tier's model (only Unii's is put to the user: the
+  // spawn tool) said first, before tasks that may be cut: how many start,
+  // on what, instead of what; null for any other call
+  export function above_shown(name: string, input: any): string | null {
+    const model = input?.model;
+    if (name !== "spawn" || typeof model !== "string") {
+      return null;
+    }
+    const tier: Tier = input.as === "worker" ? "worker" : "manager";
+    const top = Tools.child(tier, null);
+    if (typeof Tools.child(tier, model) !== "string" || typeof Tools.child(tier, model, true) === "string" || typeof top === "string") {
+      return null;
+    }
+    const n = Array.isArray(input.tasks) ? input.tasks.length : 0;
+    return "Start " + n + " " + tier + (n === 1 ? "" : "s") + " on " + model + " instead of " + top.model + ": ";
+  }
+
   // a call as a person reads it: its command or tool and input, cut, and
   // where it runs
   export function shown(name: string, args: any): string {
     const { device, ...input } = args ?? {};
-    const all = name === "shell" ? String(input.command) : name + " " + JSON.stringify(input);
+    const all = name === "shell" ? String(input.command) : (Tools.above_shown(name, input) ?? "") + name + " " + JSON.stringify(input);
     return (all.length > 2000 ? all.slice(0, 2000) + "… (" + (all.length - 2000) + " more characters not shown)" : all) + " (on " + Tools.where(device) + ")";
   }
 

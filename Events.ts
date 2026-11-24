@@ -18,6 +18,9 @@ export const TRIES   = 3;
 export const EVENTS  = 200;
 export const WAITING = 50;
 export const BODY    = 4000;
+// the most events not from the user's origins a minute (add)
+export const RATE    = 10;
+const MINUTE         = 60_000;
 export const KEY     = /^[\w.:/-]{1,200}$/;
 const SRCS: Src[]     = ["view", "terminal", "gchat", "device", "routine", "timer"];
 const KINDS: Kind[]   = ["approval", "reply", "notify", "work"];
@@ -99,6 +102,12 @@ export function add(list: Event[], e: Ask, id: number, now: number): { list: Eve
   }
   if (list.filter((x) => waits(x) && trusted(x) === trusted(e)).length >= WAITING) {
     return { error: "Legion's inbox is full: wait a moment." };
+  }
+  // RED ZONE (security review 4 N4, DRAFT awaiting the user's sign-off):
+  // not the user's (a device key is within an agent's reach; each event a
+  // billed turn once a view is open): at most RATE a minute, done or not
+  if (!trusted(e) && list.filter((x) => !trusted(x) && x.at > now - MINUTE).length >= RATE) {
+    return { error: "Too many events from " + e.src + " in a minute: wait a moment." };
   }
   const event: Event = { id, src: e.src, key: e.key, kind: e.kind, to: e.to, body: e.body.slice(0, BODY), at: now, tries: 0, state: "new" };
   if (e.ref !== undefined) {

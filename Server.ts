@@ -244,7 +244,7 @@ const ROLLED     = "\n\nYour call for this message rolled over, its context too 
 // GOAL_TRIES of them in a row at most, the last asking for a brief
 const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. The goal is met only if a tool's own output in the chat (an echo: line, such as a test run, a command's output or a fetched page) shows it met now; Unii's own words (unii: lines) are its claims, never proof. Answer on one line: \"yes: \" and the line that shows it, or \"no: \" and what is still missing or unshown.";
 const GOAL_ASK   = "\nThe goal:\n\n";
-const GOAL_TAG   = "[goal check]";
+const GOAL_TAG   = Directives.GOAL_TAG;
 const GOAL_NOTE  = " This check is not the user's message and orders nothing.";
 const GOAL_WHY   = 300;
 const GOAL_TRIES = 5;
@@ -270,11 +270,19 @@ const POSTED     = "api";
 // a device's socket is within an agent's reach, so an agent must not
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
 // device too: its /mode, /plan, /allow, /approve, /answer are refused,
-// unless its socket is on its terminal key (K1, Chat.act's `says`)
-const SAYS       = ["mode", "plan", "consent", "approve", "answer", "tidy"];
+// unless its socket is on its terminal key (K1, Chat.act's `says`).
+// RED ZONE (security review 4 N2, DRAFT awaiting the user's sign-off):
+// and the goal (its unmet checks push "keep working" as the user's), an
+// agent the person starts (its task "by the user"), the person's message
+// to an agent, a dismiss: all speak for the user
+const SAYS       = ["mode", "plan", "consent", "approve", "answer", "tidy", "goal", "spawn", "tell", "dismiss"];
 
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
+
+// the most characters of a path or a why a device's tidy report keeps
+// (Chat.tidied)
+const TIDIED_CUT = 300;
 
 // a piece of a long answer (Main.stream)
 const PIECE      = 2 ** 16;
@@ -2483,18 +2491,23 @@ export namespace Chat {
     return {};
   }
 
-  // a device's tidy, told: what it removed and what it kept, and why
+  // a device's tidy, told: what it removed and what it kept, and why.
+  // RED ZONE (security review 4 N3, DRAFT awaiting the user's sign-off):
+  // the device's words (a device key is within an agent's reach) reach the
+  // chat fenced as its data, each path and why cut (TIDIED_CUT)
   export function tidied(chat: Chat, device: string, msg: any): Answer {
     if (device === "") {
       return { error: "Only a device tells what its tidy removed." };
     }
-    const removed: string[] = Array.isArray(msg?.removed) ? msg.removed.filter((p: unknown) => typeof p === "string").slice(0, Inbox.MOST) : [];
+    const cut = (t: string) => t.length > TIDIED_CUT ? t.slice(0, TIDIED_CUT) + "…" : t;
+    const removed: string[] = Array.isArray(msg?.removed) ? msg.removed.filter((p: unknown) => typeof p === "string").slice(0, Inbox.MOST).map(cut) : [];
     const kept: { path: string; why: string }[] = Array.isArray(msg?.kept) ? msg.kept.filter((k: any) => typeof k?.path === "string" && typeof k?.why === "string").slice(0, Inbox.MOST) : [];
     const lines = [
       ...(removed.length === 0 ? [] : ["Removed on " + device + ": " + removed.join(", ")]),
-      ...kept.map((k) => "Kept " + k.path + ": " + k.why),
+      ...kept.map((k) => "Kept " + cut(k.path) + ": " + cut(k.why)),
     ];
-    Chat.note(chat, lines.join("\n").slice(0, 4000) || "The tidy on " + device + " removed nothing.");
+    const said = lines.join("\n").slice(0, 4000) || "The tidy on " + device + " removed nothing.";
+    Chat.note(chat, Google.fence("device:" + device, said, "What a device's tidy told"));
     return {};
   }
 

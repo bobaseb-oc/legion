@@ -31,6 +31,15 @@ export namespace Directives {
   export const TAG = "[checker, not the user]";
   export const REASON = 200;
   export const SYSTEM = CHECK;
+  // the goal check's nudge's label (Server.ts Chat.goal)
+  export const GOAL_TAG = "[goal check]";
+
+  // RED ZONE (security review 4 G3, DRAFT awaiting the user's sign-off):
+  // whether a user-kind message is a check's nudge (this one's or the goal
+  // check's), never the user's own: the reviewer skips it (Tools.reviewed)
+  export function checked(text: string): boolean {
+    return text.startsWith(TAG) || text.startsWith(GOAL_TAG);
+  }
 
   // what the turn ending now did: the messages back to the latest user one
   export function turn(msgs: Msg[]): Turn {

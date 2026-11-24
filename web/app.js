@@ -177,7 +177,7 @@ function hist_ago(at, now) {
 }
 function hist_said(v, typed) {
   const mine = [...v.whole].sort((a, b) => a[0] - b[0]).flatMap(([, e]) => {
-    if (e.kind !== "user") {
+    if (e.kind !== "user" || e.text.trimStart().startsWith("!")) {
       return [];
     }
     const at = e.date === undefined ? NaN : Date.parse(e.date);
