@@ -669,8 +669,12 @@ if (process.env.STEP === "post") {
 } else {
   await tick(Date.now());
   const q = sweeps()[0];
-  // view.json's record, hand-edited: a thread of its own for this question
-  chat.mem.gchat.posted.push({ key: "q" + q.id, tk: "forged", thread: SPACE + "/threads/forged", at: Date.now() - 60_000 });
+  // view.json hand-edited (an agent's shell can): a thread of its own for
+  // this question; the bridge routes only by what this process posted
+  const vf = chat.mem.dir + "/view.json";
+  const v = JSON.parse(fs.readFileSync(vf, "utf8"));
+  v.gchat = { ...v.gchat, posted: [...(v.gchat?.posted ?? []), { key: "q" + q.id, tk: "forged", thread: SPACE + "/threads/forged", at: Date.now() - 60_000 }] };
+  fs.writeFileSync(vf, JSON.stringify(v));
   await pass();
   const mine = thread(q);
   await yes(process.env.OLD, "r1");
