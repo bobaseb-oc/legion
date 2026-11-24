@@ -27,6 +27,7 @@ import * as Cockpit from "./Cockpit.ts";
 import * as Cost from "./Cost.ts";
 import * as Deck from "./Deck.ts";
 import * as Device from "./Device.ts";
+import * as Hist from "./Hist.ts";
 import * as Import from "./Import.ts";
 import { Machine } from "./Machine.ts";
 import * as Notify from "./Notify.ts";
@@ -575,10 +576,12 @@ function term_recap(t: Term, rows: View.Row[]): void {
   term_draw(t);
 }
 
-// the input's history: the user's messages known
+// the input's history: the user's messages known, with when each was
+// sent (Ctrl+R shows it)
 function term_history(t: Term): void {
-  const sent = [...t.v.whole].sort((a, b) => a[0] - b[0]).flatMap(([, e]) => (e.kind === "user" ? [e.text] : []));
-  t.scr.ed.hist = sent;
+  const sent = Hist.hist_said(t.v, []);
+  t.scr.ed.hist = sent.map((s) => s.text);
+  t.scr.ed.ats  = sent.map((s) => s.at);
   t.scr.ed.at   = sent.length;
 }
 

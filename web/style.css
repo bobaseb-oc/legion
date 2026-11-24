@@ -693,15 +693,16 @@ body.focus .hcols { grid-template-columns: 1fr; }
 #side .sfoot button { padding: 3px 8px; border-radius: 6px; text-align: left; color: var(--mid); }
 #side .sfoot button:hover { background: var(--block); color: var(--ink); }
 #bar { margin-top: 4px; text-align: center; color: var(--soft); font: 12px var(--sans); }
-#palette { width: min(620px, 92vw); max-height: 70vh; padding: 0; border: 1px solid var(--hair); border-radius: 12px; background: var(--lift); color: var(--ink); box-shadow: var(--shadow); }
-#palette::backdrop { background: var(--veil); }
-#pq { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--hair); background: none; color: inherit; font: 15px var(--sans); outline: none; }
-#palette .plist { max-height: calc(70vh - 50px); overflow-y: auto; padding: 6px; }
-#palette .pi { display: flex; width: 100%; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; text-align: left; }
-#palette .pi.here, #palette .pi:hover { background: var(--block); }
-#palette .pi .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#palette .pi .meta { color: var(--mid); font-size: 12px; }
-#palette .pnone { padding: 10px 14px; color: var(--mid); }
+#palette, #hist { width: min(620px, 92vw); max-height: 70vh; padding: 0; border: 1px solid var(--hair); border-radius: 12px; background: var(--lift); color: var(--ink); box-shadow: var(--shadow); }
+#palette::backdrop, #hist::backdrop { background: var(--veil); }
+#pq, #hq { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--hair); background: none; color: inherit; font: 15px var(--sans); outline: none; }
+:is(#palette, #hist) .plist { max-height: calc(70vh - 50px); overflow-y: auto; padding: 6px; }
+:is(#palette, #hist) .pi { display: flex; width: 100%; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; text-align: left; }
+:is(#palette, #hist) :is(.pi.here, .pi:hover) { background: var(--block); }
+:is(#palette, #hist) .pi .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#palette, #hist) .pi .meta { color: var(--mid); font-size: 12px; }
+#hist mark { background: none; color: var(--ink); font-weight: 700; }
+:is(#palette, #hist) .pnone { padding: 10px 14px; color: var(--mid); }
 #machine { max-width: 460px; }
 
 /* Routines: each a card (off: faded), then the form to add one */

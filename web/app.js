@@ -123,6 +123,69 @@ The ` + title.toLowerCase() + `.
   };
 }
 
+// Hist.ts
+var HIST = 1000;
+function hist_list(said) {
+  const seen = new Set;
+  const out = [];
+  for (let k = said.length - 1;k >= 0 && out.length < HIST; k--) {
+    const s = said[k];
+    if (s.text.trim() !== "" && !seen.has(s.text)) {
+      seen.add(s.text);
+      out.push(s);
+    }
+  }
+  return out;
+}
+function hist_marks(q, text) {
+  const a = q.toLowerCase();
+  const b = text.toLowerCase();
+  const whole = b.indexOf(a);
+  if (whole >= 0) {
+    return Array.from({ length: a.length }, (_, k) => whole + k);
+  }
+  const marks = [];
+  let from = 0;
+  for (const ch of a) {
+    const at = b.indexOf(ch, from);
+    if (at < 0) {
+      return null;
+    }
+    marks.push(at);
+    from = at + 1;
+  }
+  return marks;
+}
+function hist_find(list, q) {
+  const lower = q.toLowerCase();
+  const found = list.flatMap((s) => {
+    const marks = hist_marks(q, s.text);
+    return marks === null ? [] : [{ ...s, marks }];
+  });
+  const whole = (f) => f.text.toLowerCase().includes(lower);
+  return [...found.filter(whole), ...found.filter((f) => !whole(f))];
+}
+function hist_move(sel, n, d) {
+  return Math.max(0, Math.min(n - 1, sel + d));
+}
+function hist_ago(at, now) {
+  if (at === null) {
+    return "";
+  }
+  const s = Math.max(0, Math.floor((now - at) / 1000));
+  return s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
+}
+function hist_said(v, typed) {
+  const mine = [...v.whole].sort((a, b) => a[0] - b[0]).flatMap(([, e]) => {
+    if (e.kind !== "user") {
+      return [];
+    }
+    const at = e.date === undefined ? NaN : Date.parse(e.date);
+    return [{ text: e.text, at: Number.isFinite(at) ? at : null }];
+  });
+  return [...mine, ...typed];
+}
+
 // Clip.ts
 var CAP = 30000;
 function clip_end(str, at) {
@@ -3325,6 +3388,23 @@ function span_html(s) {
     }
   }
 }
+function hist_html(found, sel, now) {
+  if (found.length === 0) {
+    return [`<p class="meta pnone">No match.</p>`];
+  }
+  return found.slice(0, 50).map((f, k) => `<button class="pi${k === sel ? " here" : ""}" data-hi="${k}"><span class="t">${hist_marked(f)}</span><span class="meta">${esc2(hist_ago(f.at, now))}</span></button>`);
+}
+function hist_marked(f) {
+  const marks = new Set(f.marks);
+  let out = "";
+  let open2 = false;
+  [...f.text].forEach((ch, k) => {
+    const on = marks.has(k);
+    out += (on && !open2 ? "<mark>" : !on && open2 ? "</mark>" : "") + esc2(ch);
+    open2 = on;
+  });
+  return out + (open2 ? "</mark>" : "");
+}
 
 // Cockpit.ts
 var DAY3 = 86400000;
@@ -4232,6 +4312,8 @@ var C = {
   before: null,
   stamped: -1,
   pal: 0,
+  hsel: 0,
+  typed: [],
   doc: null,
   reading: new Map,
   away: null,
@@ -4344,6 +4426,11 @@ function chat() {
       act({ $: "Mode" });
       return;
     }
+    if (ev.ctrlKey && !ev.metaKey && ev.key.toLowerCase() === "r" && !P.guest) {
+      ev.preventDefault();
+      hist_open();
+      return;
+    }
     if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229 && (DESK.matches || P.guest)) {
       ev.preventDefault();
       submit();
@@ -4402,6 +4489,12 @@ function chat() {
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
   document.addEventListener("keydown", palette_keys);
+  $("#hist").addEventListener("keydown", hist_keys);
+  $("#hq").addEventListener("input", () => {
+    C.hsel = 0;
+    hist_draw();
+  });
+  $("#hist .plist").addEventListener("click", hist_click);
   document.addEventListener("keydown", shell_keys);
   setInterval(() => (v.shells ?? []).some((s) => s.ended === undefined) && shell_times(), 1000);
   $("#pq").oninput = () => {
@@ -4495,6 +4588,7 @@ function submit() {
     return;
   }
   act({ $: "Send", text, images: P.imgs });
+  C.typed.push({ text, at: Date.now() });
   pics([]);
   BOX2.value = "";
   BOX2.dispatchEvent(new Event("input"));
@@ -5391,6 +5485,47 @@ function palette_keys(ev) {
     ev.preventDefault();
     palette_run(C.pal);
   }
+}
+function hist_finds() {
+  return hist_find(hist_list(hist_said(v, C.typed)), $("#hq").value);
+}
+function hist_open() {
+  $("#hq").value = "";
+  C.hsel = 0;
+  hist_draw();
+  $("#hist").showModal();
+  $("#hq").focus();
+}
+function hist_draw() {
+  markup($("#hist .plist"), hist_html(hist_finds(), C.hsel, Date.now()));
+  document.querySelector("#hist .pi.here")?.scrollIntoView({ block: "nearest" });
+}
+function hist_keys(ev) {
+  const key = ev.ctrlKey && !ev.metaKey ? "Ctrl+" + ev.key.toLowerCase() : ev.key;
+  const d = { ArrowDown: 1, "Ctrl+r": 1, ArrowUp: -1, "Ctrl+s": -1 }[key];
+  if (d !== undefined) {
+    ev.preventDefault();
+    C.hsel = hist_move(C.hsel, Math.min(50, hist_finds().length), d);
+    hist_draw();
+  } else if (ev.key === "Enter" && !ev.isComposing) {
+    ev.preventDefault();
+    hist_take(C.hsel);
+  }
+}
+function hist_click(ev) {
+  const b = ev.target.closest("[data-hi]");
+  if (b !== null) {
+    hist_take(Number(b.dataset.hi));
+  }
+}
+function hist_take(k) {
+  const hit = hist_finds()[k];
+  $("#hist").close();
+  if (hit !== undefined) {
+    BOX2.value = hit.text;
+    BOX2.dispatchEvent(new Event("input"));
+  }
+  BOX2.focus();
 }
 function palette_open() {
   const dialog = $("#palette");

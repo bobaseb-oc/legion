@@ -14,6 +14,7 @@
 // only (another company's would need Sign in with Apple).
 
 import * as Demo from "../../Demo.ts";
+import * as Hist from "../../Hist.ts";
 import * as Import from "../../Import.ts";
 import { theme_css } from "../../Theme.ts";
 import * as View from "../../View.ts";
@@ -130,6 +131,8 @@ const C = {
   before  : null as Record<string, string> | null,
   stamped : -1,
   pal     : 0, // the palette's pick
+  hsel    : 0, // Ctrl+R's pick
+  typed   : [] as Hist.Said[], // what this page sent (its !commands too), for Ctrl+R
   doc     : null as string | null, // the transcript picked
   reading : new Map<string, number>(), // transcripts asked to be summarized, not yet: since when
   away    : null as Cockpit.Seen | null, // the look Home's away card counts from (away_active)
@@ -277,6 +280,11 @@ function chat(): void {
       act({ $: "Mode" });
       return;
     }
+    if (ev.ctrlKey && !ev.metaKey && ev.key.toLowerCase() === "r" && !P.guest) {
+      ev.preventDefault();
+      hist_open();
+      return;
+    }
     if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing && ev.keyCode !== 229 && (DESK.matches || P.guest)) {
       ev.preventDefault();
       submit();
@@ -337,6 +345,9 @@ function chat(): void {
   $("#page").addEventListener("submit", files_save);
   document.addEventListener("keydown", files_keys);
   document.addEventListener("keydown", palette_keys);
+  $("#hist").addEventListener("keydown", hist_keys);
+  $("#hq").addEventListener("input", () => { C.hsel = 0; hist_draw(); });
+  $("#hist .plist").addEventListener("click", hist_click);
   document.addEventListener("keydown", shell_keys);
   setInterval(() => (v.shells ?? []).some((s) => s.ended === undefined) && shell_times(), 1000);
   $("#pq").oninput = () => {
@@ -456,6 +467,7 @@ function submit(): void {
     return;
   }
   act({ $: "Send", text, images: P.imgs });
+  C.typed.push({ text, at: Date.now() });
   pics([]);
   BOX.value = "";
   BOX.dispatchEvent(new Event("input"));
@@ -1568,6 +1580,57 @@ function palette_keys(ev: KeyboardEvent): void {
     ev.preventDefault();
     palette_run(C.pal);
   }
+}
+
+// Ctrl+R in the box: what was sent searched (Hist.ts), the best first;
+// Down or Ctrl+R older, Up or Ctrl+S newer, Enter or a click puts it in
+// the box unsent, Esc closes (the dialog's own), the box as it was
+function hist_finds(): Hist.Found[] {
+  return Hist.hist_find(Hist.hist_list(Hist.hist_said(v, C.typed)), $<HTMLInputElement>("#hq").value);
+}
+
+function hist_open(): void {
+  $<HTMLInputElement>("#hq").value = "";
+  C.hsel = 0;
+  hist_draw();
+  $<HTMLDialogElement>("#hist").showModal();
+  $("#hq").focus();
+}
+
+function hist_draw(): void {
+  markup($("#hist .plist"), Html.hist_html(hist_finds(), C.hsel, Date.now()));
+  document.querySelector("#hist .pi.here")?.scrollIntoView({ block: "nearest" });
+}
+
+function hist_keys(ev: KeyboardEvent): void {
+  const key = ev.ctrlKey && !ev.metaKey ? "Ctrl+" + ev.key.toLowerCase() : ev.key;
+  const d = ({ "ArrowDown": 1, "Ctrl+r": 1, "ArrowUp": -1, "Ctrl+s": -1 } as Record<string, number>)[key];
+  if (d !== undefined) {
+    ev.preventDefault();
+    C.hsel = Hist.hist_move(C.hsel, Math.min(50, hist_finds().length), d);
+    hist_draw();
+  } else if (ev.key === "Enter" && !ev.isComposing) {
+    ev.preventDefault();
+    hist_take(C.hsel);
+  }
+}
+
+function hist_click(ev: MouseEvent): void {
+  const b = (ev.target as HTMLElement).closest<HTMLElement>("[data-hi]");
+  if (b !== null) {
+    hist_take(Number(b.dataset.hi));
+  }
+}
+
+// a hit into the box, for editing; none (no match): the box as it was
+function hist_take(k: number): void {
+  const hit = hist_finds()[k];
+  $<HTMLDialogElement>("#hist").close();
+  if (hit !== undefined) {
+    BOX.value = hit.text;
+    BOX.dispatchEvent(new Event("input"));
+  }
+  BOX.focus();
 }
 
 function palette_open(): void {
