@@ -2088,6 +2088,29 @@ export namespace Tools {
     tools.hooks.change();
   }
 
+  // the saved checklists of top agents not taken back yet, for their
+  // tracks at startup: each agent's parent read once from its log's note
+  // (Memory.agent_ends, its head only), never taken back here (read only)
+  const parents = new WeakMap<Tools, Map<string, string | null>>();
+  export function saved_tops(tools: Tools): Record<string, Todo[]> {
+    const known = parents.get(tools) ?? new Map<string, string | null>();
+    parents.set(tools, known);
+    const out: Record<string, Todo[]> = {};
+    for (const [name, list] of Object.entries(tools.mem.checklists)) {
+      if (tools.agents.has(name)) {
+        continue;
+      }
+      if (!known.has(name)) {
+        const head = Memory.agent_ends(tools.mem, name)?.head[0];
+        known.set(name, head?.kind === "note" ? Tools.noted(String(head.text))?.parent ?? null : null);
+      }
+      if (known.get(name) === "main") {
+        out[name] = list;
+      }
+    }
+    return out;
+  }
+
   // the orchestrator's close or removal of stale items on another agent's
   // checklist: items is that list as main wants it, each an item it has
   // (by text) with its status as it was or done; the rest removed; any

@@ -155,19 +155,22 @@ export function track_names(crew: Crew[]): string[] {
 // the tracks as the views show them: each top agent's (editable: a live
 // "sub" agent's, as Tools.crew tells its tier), then the pins of tracks
 // with no agent live (orphaned, read-only). queued: an edit told it idle,
-// after its last run began (its next run reads it)
-export function track_views(crew: Crew[], tracks: Record<string, Track>): TrackView[] {
+// after its last run began (its next run reads it). saved: the saved
+// checklists of top agents not taken back yet (Tools.saved_tops), shown
+// read-only on their tracks until they are
+export function track_views(crew: Crew[], tracks: Record<string, Track>, saved: Record<string, Todo[]> = {}): TrackView[] {
   const tops = crew.filter((c) => c.parent === "main");
   const view = (name: string, c: Crew | null): TrackView => {
     const t = tracks[name];
     const dropped = t?.dropped ?? [];
-    const items = (c?.todo ?? []).map((x) => dropped.includes(x.text) ? { ...x, dropped: true } : { ...x });
+    const items = (c?.todo ?? (c === null ? saved[name] : undefined) ?? []).map((x) => dropped.includes(x.text) ? { ...x, dropped: true } : { ...x });
     const queued = c !== null && t?.queued !== undefined && t.queued > c.since;
     const sub = c !== null && (c.tier === "manager" || c.tier === "worker");
     return { name, ...(c?.title === undefined ? {} : { title: c.title }), tier: c?.tier ?? "worker", editable: sub, orphaned: c === null, queued, items, pins: t?.pins ?? [] };
   };
   const live = new Set(tops.map((c) => c.name));
-  return [...tops.map((c) => view(c.name, c)), ...Object.keys(tracks).filter((n) => !live.has(n)).map((n) => view(n, null))];
+  const idle = [...new Set([...Object.keys(tracks), ...Object.keys(saved)])].filter((n) => !live.has(n));
+  return [...tops.map((c) => view(c.name, c)), ...idle.map((n) => view(n, null))];
 }
 
 // what the observer reads for a question: the cards, the snapshot, the

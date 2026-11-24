@@ -1508,7 +1508,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, pace: chat.mem.pace, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools).map(({ fp, ...c }) => c), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, pace: chat.mem.pace, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools).map(({ fp, ...c }) => c), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks, Tools.saved_tops(chat.tools)) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1918,9 +1918,17 @@ export namespace Chat {
         }
         agent.hidden = true;
         Tools.ungrant(chat.tools, [agent.name]);
-        // its track goes with it: the user's pins on it pruned
-        if (agent.parent === "main" && agent.name in chat.mem.tracks) {
+        // its track goes with it: the user's pins on it pruned; its saved
+        // checklist too (view.json keeps no list of a dismissed agent)
+        const pinned = agent.parent === "main" && agent.name in chat.mem.tracks;
+        const listed = agent.name in chat.mem.checklists;
+        if (pinned) {
           delete chat.mem.tracks[agent.name];
+        }
+        if (listed) {
+          delete chat.mem.checklists[agent.name];
+        }
+        if (pinned || listed) {
           Memory.save(chat.mem);
         }
         Chat.change(chat);
