@@ -3850,7 +3850,11 @@ function row_acts(s, r) {
 function detail_html(r) {
   const p = r.pr;
   if (p === undefined) {
-    return r.clean === undefined ? "" : `<div class="ibd"><code>${esc2(r.clean.path)}</code></div>`;
+    if (r.clean === undefined) {
+      return "";
+    }
+    const envs = (r.clean.envs ?? []).length === 0 ? "" : `<p class="fail">${esc2("kept: .env files git can't give back: " + (r.clean.envs ?? []).join(", "))}</p>`;
+    return `<div class="ibd"><code>${esc2(r.clean.path)}</code>${envs}</div>`;
   }
   const checks = p.failing.length === 0 ? "" : `<p class="fail">${p.failing.map(esc2).join(" · ")}</p>`;
   const body = p.body.trim() === "" ? "" : `<div class="body">${esc2(p.body)}</div>`;

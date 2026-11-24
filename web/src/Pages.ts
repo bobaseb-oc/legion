@@ -57,7 +57,12 @@ function row_acts(s: Cockpit.SectionId, r: Cockpit.Row): string {
 function detail_html(r: Cockpit.Row): string {
   const p = r.pr;
   if (p === undefined) {
-    return r.clean === undefined ? "" : `<div class="ibd"><code>${esc(r.clean.path)}</code></div>`;
+    if (r.clean === undefined) {
+      return "";
+    }
+    // security review 4 D2: .env files git can't give back keep it (Inbox.inbox_safe)
+    const envs = (r.clean.envs ?? []).length === 0 ? "" : `<p class="fail">${esc("kept: .env files git can't give back: " + (r.clean.envs ?? []).join(", "))}</p>`;
+    return `<div class="ibd"><code>${esc(r.clean.path)}</code>${envs}</div>`;
   }
   const checks = p.failing.length === 0 ? "" : `<p class="fail">${p.failing.map(esc).join(" · ")}</p>`;
   const body = p.body.trim() === "" ? "" : `<div class="body">${esc(p.body)}</div>`;

@@ -698,3 +698,10 @@ test("SR4 E2: the Tracks page labels the report and the cards as the observer's,
   v.explain = { ...v.explain, cards: [{ ...card, title: "" }], report: null };
   expect(Pages.tracks_html(v, NOW).join("")).not.toContain(Explain.OBSERVED);
 });
+
+// security review 4 D2: a worktree's .env files git can't give back are named in its details, escaped
+test("the details card of a worktree names its .env files, escaped (security review 4 D2)", () => {
+  const s = Cockpit.inbox_sections(inbox({ clean: [{ repo: "r", path: "/w", branch: "b", changes: 0, merged: true, envs: [".env", ".env.<x>"] }] }), [], "", NOW);
+  const html = Pages.inbox_html(s, ui({ detail: "clean:/w" })).join("");
+  expect(html).toContain("kept: .env files git can't give back: .env, .env.&lt;x&gt;");
+});
