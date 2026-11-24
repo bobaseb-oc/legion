@@ -447,6 +447,44 @@ console.log(JSON.stringify({ none, one, first: first && first.job, empty, device
 process.exit(0);
 `;
 
+// RED ZONE (PLP-2946, DRAFT awaiting the user's sign-off): a !command
+// that ends while Unii's turn runs goes into that call too, as a note
+// ("note: The user ran on ..."), never a new message or a turn; with no
+// call running it is only logged, for the next turn's view
+const BANG_TURN = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+const asks = [];
+const sent = [];
+AskAI.ask = (ask, on) => { if (ask.server !== undefined) asks.push(ask); const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = (say) => sent.push(say); return call; };
+const jobs = [];
+Tools.attach(chat.tools, "t1", "mac", "u1", { send: (x) => { if (x.$ === "job") jobs.push(x); }, live: () => true, computer: false, work: "~/w" });
+const until = async (f) => { for (let k = 0; k < 300 && !f(); k++) await Bun.sleep(10); return f(); };
+const notes = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i)).filter((m) => m.kind === "note").map((m) => m.text);
+// no call: logged only, no turn
+await Chat.act(chat, "b1", { $: "bang", command: "echo idle" }, "");
+Tools.done(chat.tools, "mac", jobs.at(-1).id, { text: "idle\\n(exit 0 in 0.0 s)", fail: false });
+await until(() => notes().length === 1);
+const idle = { asks: asks.length, busy: chat.busy, sent: sent.length };
+// a turn runs (its call never ends): the note goes into it
+Chat.take(chat, Chat.push(chat, null, "user", "do a long thing"));
+await until(() => asks.length === 1);
+const before = sent.length;
+await Chat.act(chat, "b2", { $: "bang", command: "git status" }, "");
+Tools.done(chat.tools, "mac", jobs.at(-1).id, { text: "clean\\n(exit 0 in 0.0 s)", fail: false });
+await until(() => notes().length === 2);
+await until(() => sent.length > before);
+console.log(JSON.stringify({ idle, live: sent.slice(before), logged: notes()[1], asks: asks.length, wait: chat.wait.length }));
+process.exit(0);
+`;
+
 // a device killed (no quit) keeps its link, dead: the user's !command, its
 // device not named, runs on the one device whose link is live; with only a
 // dead one, no device is open
@@ -1336,6 +1374,15 @@ test("!command: a killed device's dead link is not open; the command runs on the
   const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ alone: "No device is open: run legion (or legion device) on one.", ran: {}, dead: 0, live: ["ls"] });
+});
+
+test("!command: one that ends amid Unii's turn goes into the running call as a note; none runs, only logged", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/bang-turn.ts", BANG_TURN);
+  const proc = Bun.spawn([process.execPath, dir + "/bang-turn.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  const text = "The user ran on mac:\n$ git status\nclean\n(exit 0 in 0.0 s)";
+  expect(out).toEqual({ idle: { asks: 0, busy: false, sent: 0 }, live: [{ text: "note: " + text, imgs: [] }], logged: text, asks: 1, wait: 0 });
 });
 
 test("a look to every device waits only for live links: the live one's refusal is told at once", async () => {
