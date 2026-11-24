@@ -54,3 +54,20 @@ test("a tier names its vendor's model of that tier; a label stays itself; neithe
   expect(Pick.tier("claude-api", sonnet.label)).toBe(sonnet.label);
   expect(Pick.tier("claude-api", "gpt-9")).toBeUndefined();
 });
+
+// the web app is built from View.ts, which reads the catalog through
+// Pick.ts: in a browser there are no files (Bun's node:fs there is an
+// empty shim), so loading the bundle must get past every module's setup:
+// with no DOM here, the first error is a browser global missing
+// (document, matchMedia), never fs
+test("the browser bundle loads without files: the catalog is bundled", async () => {
+  const out = await Bun.build({ entrypoints: [import.meta.dir + "/web/src/main.ts"], target: "browser" });
+  expect(out.success).toBe(true);
+  const file = fs.mkdtempSync((process.env.TMPDIR ?? "/tmp") + "/bundle-") + "/app.js";
+  fs.writeFileSync(file, await out.outputs[0]!.text());
+  const run = Bun.spawnSync(["bun", "-e", "globalThis.window = globalThis; await import(" + JSON.stringify(file) + ")"], { stderr: "pipe" });
+  const err = run.stderr.toString();
+  expect(err).not.toContain("readFileSync");
+  expect(err).not.toContain("existsSync");
+  expect(err).toMatch(/ReferenceError: \w+ is not defined/);
+});
