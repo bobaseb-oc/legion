@@ -786,6 +786,10 @@ pre.code .sha { font: inherit; color: var(--accent); padding: 0; text-decoration
 .xcard { padding: 8px 12px; border-radius: 8px; background: var(--block); }
 .xcard h3 { margin: 2px 0 6px; }
 .xcard p { margin: 4px 0; }
+.xcard.theme .track { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(127, 127, 127, 0.25); }
+.xcard.theme .track h4 { margin: 2px 0 4px; }
+.xreport { padding: 8px 12px; border-radius: 8px; background: var(--block); margin-bottom: 10px; }
+.xreport h3 { margin: 2px 0 6px; }
 .xqa .xq { font-weight: 600; margin-top: 8px; }
 .xqa .xa { margin: 2px 0 6px; white-space: pre-wrap; }
 .xask input { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; margin-top: 8px; }

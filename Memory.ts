@@ -74,7 +74,7 @@ import type { Assignment, Decided, Draft, Hit, Mine, Pin, Question, Summary, Tra
 import { FOUND, PINNED, PINS, SHOWN } from "./View.ts";
 import * as Routines from "./Routines.ts";
 import type { Routine, Timer } from "./Routines.ts";
-import { DROPPED, DROPPED_TEXT, explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
+import { DROPPED, DROPPED_TEXT, explain_load, explain_new, PIN_TEXT, PINS as TRACK_PINS, type Explain } from "./Explain.ts";
 import { gchat_new, type Gchat } from "./Gchat.ts";
 import * as Events from "./Events.ts";
 import * as Outbox from "./Outbox.ts";
@@ -332,7 +332,7 @@ export namespace Memory {
     mem.assigned = Array.isArray(saved?.assigned) ? saved.assigned : [];
     mem.assigns = Number.isInteger(saved?.assigns) ? saved!.assigns! : 0;
     mem.tracks = Memory.tracks_read(saved?.tracks);
-    mem.explain = typeof saved?.explain === "object" && saved.explain !== null ? { ...explain_new(), ...saved.explain, writing: false, asking: null } : explain_new();
+    mem.explain = explain_load(saved?.explain ?? null); // its themes and report checked (Explain.explain_load)
     // an older view.json's gchat.posted and outbox are not read
     mem.gchat = Array.isArray(saved?.gchat?.acted) ? { acted: saved.gchat.acted } : gchat_new();
     mem.pace = Outbox.pace_read(saved?.pace);
