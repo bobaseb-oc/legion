@@ -203,3 +203,10 @@ test("AC25: the terminal's Tracks page draws an item's text with its escapes cle
   expect(all).toContain("Pin [2Jme");
   expect(all.replace(OWNS, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
 });
+
+// security review 4, E4: the terminal's /copy cleans what it puts on the
+// clipboard (Md.copy_clean): no ESC, no bidi control reaches a paste
+test("SR4 E4: copy_osc copies the cleaned text", () => {
+  const out = Paint.copy_osc("ls\x1b[201~ ‮evil\nok");
+  expect(Buffer.from(out.slice(7, -1), "base64").toString("utf8")).toBe("ls[201~ evil\nok");
+});
