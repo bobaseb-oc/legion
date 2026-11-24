@@ -13,6 +13,7 @@ import { afterAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as Device from "./Device.ts";
+import * as Inbox from "./Inbox.ts";
 import * as View from "./View.ts";
 
 type Sock = { send: (s: string) => void };
@@ -877,3 +878,63 @@ test("a scan prunes from origin first, so a branch deleted there shows gone", as
   const row = msg.inbox.clean.find((c: any) => c.path === w.again);
   expect(row).toMatchObject({ gone: true, unpushed: 0, changes: 0 });
 });
+
+// a squash-merged PR's branch: its commits are on no remote once the
+// branch is deleted, so it counts as merged only when a merged PR's head
+// commit is exactly the worktree's HEAD (one gh call per repo, fail closed)
+function squashed() {
+  const t = tidy_repos();
+  const p = t.T + "/r-worktrees/sq";
+  t.g(t.R, "worktree", "add", "-q", "-b", "sq", p, "main");
+  t.g(p, "commit", "-q", "--allow-empty", "-m", "the PR's commit");
+  t.g(p, "push", "-q", "-u", "origin", "sq");
+  t.g(t.R, "push", "-q", "origin", "--delete", "sq");
+  t.g(t.R, "fetch", "-q", "--prune");
+  return { ...t, p, head: t.g(p, "rev-parse", "HEAD"), parent: t.g(p, "rev-parse", "HEAD~1") };
+}
+const gh_answers = (prs: unknown[] | null, calls: string[][] = []): Device.Exec => async (cmd) => {
+  if (cmd[0] === "gh" && cmd[1] === "pr") {
+    calls.push(cmd);
+    return prs === null ? { code: 1, out: "" } : { code: 0, out: JSON.stringify(prs) };
+  }
+  if (cmd[0] === "git" && cmd.slice(-3).join(" ") === "remote get-url origin") {
+    return { code: 0, out: "https://github.com/acme/r.git\n" };
+  }
+  return tidy_exec(cmd);
+};
+const sq_row = async (run: Device.Exec, R: string, p: string) => {
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, run, new Date(), nog2) as any;
+  const ok = Inbox.inbox_check(msg.inbox);
+  if (typeof ok === "string") {
+    throw new Error(ok);
+  }
+  return ok.clean.find((c) => c.path === p);
+};
+
+test("squash merge: a merged PR whose head is the worktree's HEAD makes it safe, with one gh call for the repo", async () => {
+  const { R, p, head } = squashed();
+  const calls: string[][] = [];
+  const row = await sq_row(gh_answers([{ headRefName: "sq", headRefOid: head }], calls), R, p);
+  expect(row).toMatchObject({ gone: true, unpushed: 1, squashed: true, safe: true });
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toContain("acme/r");
+}, 30e3);
+
+test("squash merge: a merged PR with an older head (a commit after the merge), none, or gh failing is not safe", async () => {
+  const { R, p, parent } = squashed();
+  for (const prs of [[{ headRefName: "sq", headRefOid: parent }], [], null, [{ headRefName: "other", headRefOid: parent }]]) {
+    const row = await sq_row(gh_answers(prs), R, p);
+    expect(row?.safe).toBe(false);
+    expect(row?.squashed).not.toBe(true);
+  }
+}, 30e3);
+
+test("squash merge: the remove checks the head again, so a commit after the scan keeps the worktree", async () => {
+  const { R, p, head, g } = squashed();
+  const run = gh_answers([{ headRefName: "sq", headRefOid: head }]);
+  expect((await sq_row(run, R, p))?.safe).toBe(true);
+  g(p, "commit", "-q", "--allow-empty", "-m", "after the merge");
+  const out = await Device.device_tidy([p], run);
+  expect(out.removed).toEqual([]);
+  expect(fs.existsSync(p)).toBe(true);
+}, 30e3);
