@@ -864,3 +864,16 @@ test("legion tidy --list: a line per row with its checks, and safe", () => {
   expect(text).toContain("safe");
   expect(text.split("\n").find((l) => l.includes("/r-worktrees/a"))).toMatch(/r\s+a\s+.*merged.*3\.0 MB.*2d.*yes/);
 });
+
+// a branch deleted on GitHub (a merged PR's) is gone only once a fetch
+// prunes it: the scan fetches first, with the hardened git
+test("a scan prunes from origin first, so a branch deleted there shows gone", async () => {
+  const { R, w, g } = tidy_repos();
+  g(w.again, "push", "-q", "-u", "origin", "again");
+  g(R, "fetch", "-q");
+  g(R, "push", "-q", "origin", "--delete", "again");
+  g(R, "update-ref", "refs/remotes/origin/again", g(w.again, "rev-parse", "HEAD"));
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
+  const row = msg.inbox.clean.find((c: any) => c.path === w.again);
+  expect(row).toMatchObject({ gone: true, unpushed: 0, changes: 0 });
+});
