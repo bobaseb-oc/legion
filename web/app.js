@@ -2398,6 +2398,10 @@ function view_pill(v) {
   const need = view_needs(v).length + asked;
   return v.crew.filter((c) => c.status === "working").length + " working" + (need > 0 ? ", " + need + " need you" : "");
 }
+function status_reset(reset) {
+  const at = reset === null ? NaN : Date.parse(reset);
+  return Number.isFinite(at) ? ", resets " + new Date(at).toISOString().slice(11, 16) + " UTC" : "";
+}
 function status_text(s) {
   const usd = (n) => n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
   return [
@@ -2405,8 +2409,8 @@ function status_text(s) {
     s.dir + (s.branch === null ? "" : " ⎇ " + s.branch),
     s.model,
     ...s.working === 0 ? [] : [s.working + (s.working === 1 ? " agent" : " agents") + " at work"],
-    ...s.spend.spend === null ? [] : [usd(s.spend.spend) + (s.spend.stale ? "*" : "") + " today"],
-    ...s.budget ? ["gateway $" + Math.round(s.budget.spend) + "/$" + Math.round(s.budget.max)] : [],
+    ...s.budget || s.spend.spend === null ? [] : [usd(s.spend.spend) + (s.spend.stale ? "*" : "") + " today"],
+    ...s.budget ? ["gateway $" + Math.round(s.budget.spend) + "/$" + Math.round(s.budget.max) + status_reset(s.budget.reset ?? null)] : [],
     ...s.busy ? ["⚠ AI service busy"] : [],
     ...s.mode === undefined ? [] : [s.mode + " mode"],
     ...!s.waiting ? [] : [s.waiting + " waiting for you"],
