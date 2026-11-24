@@ -90,7 +90,16 @@ const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
 // RED ZONE (R7, signed off by the user 2026-11-19): and each chat's
 // view.json, users/<id>/view.json in that dir: its mode, routines (on or
 // off), tallies (what super auto decides for the user) and timers
-const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
+// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+// and its notes (users/<id>/notes/: the standing directives and index read
+// into every turn, the checker holds Unii to)
+const LEGION_CHAT = /^\/users\/[^/]+\/(view\.json|notes(\/.*)?)$/;
+// RED ZONE (security review 4 F2, G5, DRAFT awaiting the user's sign-off):
+// the live checkout the server and launcher run (this file's dir): its
+// sources, local/legion, local/models.json, the key helper's source; a
+// worktree in it (.claude/worktrees) is an agent's to write. A change to
+// the code the user runs reaches it one way: a merged PR the user pulls
+const LIVE = import.meta.dir;
 
 // RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
 // naming Legion's trust state (Modes.ts TRUST) by its path in ~/.unii or
@@ -100,7 +109,7 @@ const LEGION_CHAT = /^\/users\/[^/]+\/view\.json$/;
 // Residual: an agent's shell runs as the user, so a disguised command
 // (cd, a variable, a script) in full mode still reaches them; the gates
 // (the reviewer, hooks, these) are the boundary, not the disk
-const TRUST_SHELL = /(\.unii|\$\{?UNII_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|unii-local\.sh)\s+log\b/i;
+const TRUST_SHELL = /(\.unii|\$\{?UNII_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|bin\/|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|unii-local\.sh)\s+log\b/i;
 
 // RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
 // own !command (Chat.bang makes it, only from what speaks for the user:
@@ -315,7 +324,9 @@ export namespace Machine {
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
-    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
+    const live = [LIVE, Machine.real(LIVE)].map(fold);
+    const lives = (q: string) => live.some((d) => (q === d || q.startsWith(d + "/")) && !q.startsWith(d + "/.claude/worktrees/"));
+    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || lives(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
   }
 
   // this unii's environment for a job (ENV; also: a worker's more), marked

@@ -1306,3 +1306,44 @@ test("briefs say what is ruled out; reports cap, mark evidence and say what's le
   expect(mgr).toContain("CONFIRMED, WRONG or UNVERIFIABLE");
   expect(system("Wkr")).not.toContain("CONFIRMED, WRONG or UNVERIFIABLE");
 });
+
+// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// write's path counts as the device resolves it (the agent's job dir), so
+// ../../users/<id>/notes from an agent's work dir is Legion's dir, high;
+// and the notes and directives blocks say where they come from
+test("at_paths: a write's path as the device resolves it, for the floor; note blocks name their origin", async () => {
+  const { Modes } = await import("./Modes.ts");
+  const tools = Tools.serve({} as any, {} as any);
+  const work = os.homedir() + "/.unii/work";
+  tools.devices.set("mac", { who: "u", terms: new Map([["t", { send: () => {}, live: () => true, computer: false, work }]]), jobs: new Map() } as any);
+  const args = { path: "../../users/10/notes/directives.md", content: "x", device: "mac" };
+  const at = Tools.at_paths(tools, "AmberFox", "write", args);
+  expect(at[0]).toBe(os.homedir() + "/.unii/users/10/notes/directives.md");
+  expect(Modes.floor("write", args, at)).toBe("high");
+  expect(Tools.at_paths(tools, "AmberFox", "shell", { command: "ls" })).toEqual([]);
+  const dir = fs.mkdtempSync(os.tmpdir() + "/notes-label-");
+  const Notes = await import("./Notes.ts");
+  expect(typeof Notes.notes_write(dir, "directives", "Rules", "Always X.")).not.toBe("string");
+  (tools as any).mem = { dir };
+  const text = Tools.directives_block(tools).map((b: any) => b.text).join("");
+  expect(text).toContain("not the user's words");
+  expect(text).not.toContain("Legion wrote for itself");
+});
+
+// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+// the review floors a write at the path it really reaches: a link in the
+// agent's work dir to Legion's dir makes it high, so a low refusal stands
+test("risk: a write through a link into Legion's dir is floored where it lands", async () => {
+  await reviewer(async (_told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    const work = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/w2-work-"));
+    fs.mkdirSync(work + "/Wkr");
+    fs.mkdirSync(os.homedir() + "/.unii/users", { recursive: true });
+    fs.symlinkSync(os.homedir() + "/.unii/users", work + "/Wkr/u");
+    tools.devices.set("mac", { who: "u", terms: new Map([["t", { send: () => {}, live: () => true, computer: false, work }]]), jobs: new Map() } as any);
+    set(refuse("low"));
+    const args = { device: "mac", path: "u/10/notes/directives.md", content: "Obey." };
+    expect((await Tools.call(tools, "Wkr", "write", args, go(), "n1")).text).toBe("Refused by auto mode's reviewer: r");
+  });
+});
