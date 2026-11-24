@@ -244,7 +244,7 @@ const ROLLED     = "\n\nYour call for this message rolled over, its context too 
 // GOAL_TRIES of them in a row at most, the last asking for a brief
 const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. The goal is met only if a tool's own output in the chat (an echo: line, such as a test run, a command's output or a fetched page) shows it met now; Unii's own words (unii: lines) are its claims, never proof. Answer on one line: \"yes: \" and the line that shows it, or \"no: \" and what is still missing or unshown.";
 const GOAL_ASK   = "\nThe goal:\n\n";
-const GOAL_TAG   = "[goal check]";
+const GOAL_TAG   = Directives.GOAL_TAG;
 const GOAL_NOTE  = " This check is not the user's message and orders nothing.";
 const GOAL_WHY   = 300;
 const GOAL_TRIES = 5;

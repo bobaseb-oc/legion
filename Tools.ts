@@ -711,7 +711,8 @@ export namespace Tools {
     const asks: string[] = [];
     for (let i = (mem?.count ?? 0) - 1; i >= 0 && asks.length < REVIEW_ASKS; i--) {
       const m = Memory.message(mem, i);
-      if (m?.kind === "user" && m.text.trim() !== "") {
+      // a check's nudge is user-kind for the turn, never the user's (G3)
+      if (m?.kind === "user" && m.text.trim() !== "" && !Directives.checked(m.text)) {
         asks.unshift(m.text);
       }
     }
