@@ -37,6 +37,11 @@ function link_html(url: string, text = "↗"): string {
 // what a PR row can have done to it: a review request reviewed, a PR of
 // the user's that fails, conflicts or had changes asked fixed (Cockpit.FIX)
 function row_acts(s: Cockpit.SectionId, r: Cockpit.Row): string {
+  // a worktree the server shows as safe (Inbox.inbox_safe): Remove,
+  // confirmed (View.tidy_ask), then checked again on the device
+  if (r.clean?.safe === true) {
+    return `<button class="ra"${act_html({ $: "Tidy", paths: [r.clean.path] })} title="merged or gone, clean, pushed, no stash, not in use: remove it (git worktree remove)">Remove</button>`;
+  }
   if (r.pr === undefined) {
     return "";
   }

@@ -284,11 +284,11 @@ test("a device reads its inbox with gh, acli and git; what fails is said, not th
   expect(inbox.errors).toEqual(["acli: ✗ Error: unauthorized: use 'acli jira auth login' to authenticate"]);
   // x has changes, y is merged and clean, z is clean and not merged (left out)
   expect(inbox.clean).toEqual([
-    { repo: "s", path: S + "/.wt/x", branch: "x", changes: 2, merged: false },
-    { repo: "s", path: S + "/.wt/y", branch: "y", changes: 0, merged: true },
+    { repo: "s", path: S + "/.wt/x", branch: "x", changes: 2, merged: false, gone: false },
+    { repo: "s", path: S + "/.wt/y", branch: "y", changes: 0, merged: true, gone: false },
   ]);
-  // what it ran reads only: no write, no push
-  expect(ran.every((c) => ["gh", "acli", "git"].includes(c[0]))).toBe(true);
+  // what it ran reads only: no write, no push (lsof: who works where; du: sizes)
+  expect(ran.every((c) => ["gh", "acli", "git", "lsof", "du"].includes(c[0]))).toBe(true);
   expect(ran.some((c) => c.filter((a) => !a.startsWith("query=")).join(" ").match(/\b(push|commit|create|edit|delete|POST)\b/))).toBe(false);
   // gh missing: said, the rest still read
   const none = await Device.device_inbox({ work: "/w", computer: false, spaces: [] }, async (cmd) => (cmd[0] === "gh" ? { code: 127, out: "not found" } : exec(cmd)), new Date(), nog) as any;

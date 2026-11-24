@@ -274,6 +274,7 @@ export type Server =
   | { $: "job"; id: string; job: unknown }
   | { $: "inbox"; inbox: Inbox | null } // the cockpit's inbox, a device's latest report (Inbox.ts)
   | { $: "fetch" }                        // to devices: read the inbox now
+  | { $: "tidy"; paths: string[] }        // to devices: the user's Remove of those worktrees, each checked again (Device.device_tidy)
   | { $: "themes"; themes: { key: string; by: Record<string, string[]> } } // the digest's themes (Chat.themes)
   | { $: "read"; id: string }             // to devices: read that transcript Doc (Device.device_transcript)
   | { $: "summary"; id: string; summary: Summary } // a transcript's summary (Chat.transcript)
@@ -341,6 +342,8 @@ export type Client =
   | { $: "status"; dir: string; branch: string | null; spend: number | null; stale: boolean; week?: number | null } // a device's report
   | { $: "inbox"; inbox: Inbox } // a device's inbox (Device.device_inbox)
   | { $: "fetch" } // the inbox read anew by the devices
+  | { $: "tidy"; paths: string[] } // a view: the user's Remove of worktrees the inbox shows as safe
+  | { $: "tidied"; removed: string[]; kept: { path: string; why: string }[] } // a device: what its tidy removed, and what it kept and why
   | { $: "review"; prs: string[]; how: "review" | "fix"; claude: boolean } // inbox PRs (their links), an agent each
   | { $: "themes" } // the digest's merged PRs summarized by theme
   | { $: "transcript"; id: string; text?: string; error?: string } // a view: that transcript summarized; a device: its text, or why not
@@ -413,6 +416,7 @@ export type Act =
   | { $: "Consent"; n: number; yes: boolean }   // a waiting call: run it, or not
   | { $: "Review"; prs: string[]; how: "review" | "fix"; claude?: boolean } // PRs of the inbox, each to a Legion agent (claude: a Claude Code worker under a manager)
   | { $: "Fetch" }                              // the inbox read anew (its Refresh)
+  | { $: "Tidy"; paths: string[] }               // safe worktrees removed (a Remove, confirmed: tidy_ask)
   | { $: "Archive"; names: string[] }           // agents out of the crew (Home's Archive, Archive all)
   | ({ $: "Routine" } & RoutineOp)              // a routine added, on or off, dropped, run now (Routines.ts)
   | { $: "Timer"; n: number }                   // an agent's pending timer closed (the Routines page)
@@ -737,6 +741,7 @@ export function view_hear(v: View, msg: Server): Client[] {
     case "zoom":
     case "jobs":
     case "job":
+    case "tidy":
     case "fetch": {
       return [];
     }
@@ -957,6 +962,9 @@ export function view_act(v: View, act: Act): Client[] {
     }
     case "Fetch": {
       return [{ $: "fetch" }];
+    }
+    case "Tidy": {
+      return act.paths.length === 0 ? [] : [{ $: "tidy", paths: act.paths }];
     }
     case "Archive": {
       return act.names.map((name) => ({ $: "dismiss", name }));
@@ -1726,6 +1734,11 @@ export function view_drop(v: View, arg: string): Act | string {
 }
 
 // what an undo does, asked before it (the web's confirm, the terminal's yes)
+// the Remove's confirm: which worktrees, and what is checked first
+export function tidy_ask(paths: string[]): string {
+  return "Remove " + (paths.length === 1 ? "this worktree" : "these " + paths.length + " worktrees") + "?\n\n" + paths.join("\n") + "\n\nEach is checked again first, and kept if it has changes, commits on no remote, stashes, or a process in it. Its branch stays.";
+}
+
 export function undo_ask(name: string): string {
   return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
 }

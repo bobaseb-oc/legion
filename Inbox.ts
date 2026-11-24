@@ -25,7 +25,39 @@ export type Pr = {
 export type Ticket = { key: string; title: string; status: string; priority: string; updated: string; url: string };
 
 // a worktree to clean up: uncommitted changes in it, or its branch merged
-export type Clean = { repo: string; path: string; branch: string | null; changes: number; merged: boolean };
+// or gone on origin (as of the repo's last fetch). For the tidy: its
+// commits on no remote, its branch's stashes, its size (bytes) and last
+// commit (ms), whether a process works in it, and safe, which only the
+// server works out (inbox_safe). A field left out: not known
+export type Clean = {
+  repo: string; path: string; branch: string | null; changes: number; merged: boolean;
+  gone?: boolean; unpushed?: number; stashes?: number; bytes?: number; at?: number; live?: boolean; safe?: boolean;
+};
+
+// RED ZONE (DRAFT awaiting the user's sign-off): a worktree may be removed
+// only when its branch is merged or gone on origin, it has no change, no
+// commit on no remote, no stash of its branch, and no process works in it.
+// What isn't known counts against it (fail closed)
+export function inbox_safe(c: Clean): boolean {
+  return (c.merged || c.gone === true) && c.changes === 0 && c.unpushed === 0 && c.stashes === 0 && c.live === false;
+}
+
+// a device's row checked: what it sent of the tidy's fields, then safe
+// worked out here, never taken from the device
+function clean_row(c: any): Clean {
+  const row: Clean = { repo: str(c?.repo), path: str(c?.path), branch: c?.branch === null ? null : str(c?.branch), changes: num(c?.changes), merged: bool(c?.merged) };
+  for (const k of ["unpushed", "stashes", "bytes", "at"] as const) {
+    if (c?.[k] !== undefined) {
+      row[k] = num(c[k]);
+    }
+  }
+  for (const k of ["gone", "live"] as const) {
+    if (c?.[k] !== undefined) {
+      row[k] = bool(c[k]);
+    }
+  }
+  return { ...row, safe: inbox_safe(row) };
+}
 
 // a GitHub notification (activity; ci and security ones are alerts)
 export const KINDS = ["review", "assign", "mention", "ci", "security", "other"] as const;
@@ -300,7 +332,7 @@ export function inbox_check(x: any): Inbox | string {
       tickets: x.tickets === null ? null : list(x.tickets, (t) => ({
         key: str(t?.key, 40), title: str(t?.title), status: str(t?.status, 60), priority: str(t?.priority, 60), updated: str(t?.updated, 60), url: link(t?.url),
       })),
-      clean: list(x.clean, (c) => ({ repo: str(c?.repo), path: str(c?.path), branch: c?.branch === null ? null : str(c?.branch), changes: num(c?.changes), merged: bool(c?.merged) })),
+      clean: list(x.clean, clean_row),
       notes: list(x.notes, (n) => ({ kind: one(n?.kind, KINDS), title: str(n?.title), repo: str(n?.repo), url: link(n?.url), at: str(n?.at, 60), unread: bool(n?.unread) })),
       errors: list(x.errors, (e) => str(e)),
       spaces: x.spaces === undefined ? [] : list(x.spaces, (r) => str(r, 120)),

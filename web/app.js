@@ -1823,6 +1823,7 @@ function view_hear(v, msg) {
     case "zoom":
     case "jobs":
     case "job":
+    case "tidy":
     case "fetch": {
       return [];
     }
@@ -2031,6 +2032,9 @@ function view_act(v, act) {
     }
     case "Fetch": {
       return [{ $: "fetch" }];
+    }
+    case "Tidy": {
+      return act.paths.length === 0 ? [] : [{ $: "tidy", paths: act.paths }];
     }
     case "Archive": {
       return act.names.map((name) => ({ $: "dismiss", name }));
@@ -2446,6 +2450,14 @@ function view_tallies_text(v) {
     const how = Modes.FLOOR.includes(k) ? "(always asks)" : Modes.unlocked(k, x) ? "✓ unlocked" : x.n < 20 ? "(needs 20)" : "(needs 85%)";
     return k + " " + x.took + "/" + x.n + (x.est ? " estimated " : " ") + how;
   }).join(" · ");
+}
+function tidy_ask(paths) {
+  return "Remove " + (paths.length === 1 ? "this worktree" : "these " + paths.length + " worktrees") + `?
+
+` + paths.join(`
+`) + `
+
+Each is checked again first, and kept if it has changes, commits on no remote, stashes, or a process in it. Its branch stays.`;
 }
 function undo_ask(name) {
   return "Undo " + name + "'s last turn? The files it changed in its repos go back as they were before it (a commit it made: refused). The state now is kept, so this can be undone too.";
@@ -3633,6 +3645,9 @@ function link_html(url, text = "↗") {
   return url === "" ? "" : `<a class="go" href="${esc2(url)}" target="_blank" rel="noopener noreferrer" title="open">${text}</a>`;
 }
 function row_acts(s, r) {
+  if (r.clean?.safe === true) {
+    return `<button class="ra"${act_html2({ $: "Tidy", paths: [r.clean.path] })} title="merged or gone, clean, pushed, no stash, not in use: remove it (git worktree remove)">Remove</button>`;
+  }
   if (r.pr === undefined) {
     return "";
   }
@@ -4530,6 +4545,9 @@ function click(ev) {
   }
   const parsed = a === undefined ? undefined : JSON.parse(a);
   if (parsed?.$ === "Undo" && !confirm(undo_ask(parsed.name))) {
+    return;
+  }
+  if (parsed?.$ === "Tidy" && !confirm(tidy_ask(parsed.paths))) {
     return;
   }
   if (parsed !== undefined) {

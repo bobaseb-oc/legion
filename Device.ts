@@ -332,6 +332,9 @@ export async function device_inbox(rules: Rules, run: Exec, now: Date, g: Reads 
   const vars = Object.entries(Inbox.inbox_vars(now)).flatMap(([k, v]) => ["-f", k + "=" + v]);
   const { spaces, listed } = device_spaces(rules, now.getTime());
   const worktreed = listed ? spaces : spaces.filter((s) => fs.existsSync(s.path + "/.git/worktrees"));
+  // the tidy's extra roots, for the worktrees to clean up only
+  const tidied = listed ? [] : tidy_spaces(now.getTime(), spaces);
+  const cwds = await device_cwds(run);
   const active = spaces.filter((s) => listed || device_active(s, now.getTime()));
   const jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
   // Google's: both read, or none (fail closed), the reason said
@@ -343,7 +346,7 @@ export async function device_inbox(rules: Rules, run: Exec, now: Date, g: Reads 
     run(["gh", "api", "graphql", "-f", "query=" + Inbox.QUERY, ...vars]),
     run(["gh", "api", "notifications?participating=true&per_page=30"]),
     run(["acli", "jira", "workitem", "search", "--jql", jql, "--json", "--limit", "50"]),
-    Promise.all(worktreed.map((s) => device_clean(s.path, run))).then((x) => x.flat()),
+    Promise.all([...worktreed, ...tidied].map((s) => device_clean(s.path, run, cwds))).then((x) => x.flat()),
     device_digest(active.slice(0, DIGESTED).map((s) => s.path), run, now, said),
   ]);
   const gh = Inbox.inbox_github(json(gql, "gh") ?? {});
@@ -395,9 +398,11 @@ async function device_digest(spaces: string[], run: Exec, now: Date, said: (tool
   return digest;
 }
 
-// a space's worktrees to clean up: uncommitted changes, or a merged
-// branch; none of a space git may not run in (device_trusted)
-async function device_clean(space: string, run: Exec): Promise<Inbox.Clean[]> {
+// a space's worktrees to clean up: uncommitted changes, a merged branch,
+// or one gone on origin (all: every linked worktree, legion tidy --list);
+// none of a space git may not run in (device_trusted). Each row's checks
+// in turn (device_row), not all of a space's at once
+async function device_clean(space: string, run: Exec, cwds: string[] | null = null, all = false): Promise<Inbox.Clean[]> {
   if (!await device_trusted(space, run)) {
     return [];
   }
@@ -408,13 +413,192 @@ async function device_clean(space: string, run: Exec): Promise<Inbox.Clean[]> {
   }
   const base = await run(device_git(space, "rev-parse", "--abbrev-ref", "origin/HEAD"));
   const merged = base.code !== 0 ? [] : (await run(device_git(space, "branch", "--merged", base.out.trim(), "--format=%(refname:short)"))).out.split("\n").map((b) => b.trim());
-  const repo = path.basename(space);
-  const rows = await Promise.all(trees.map(async (t) => {
-    const st = await device_trusted(t.path, run) ? await run(device_git(t.path, "status", "--porcelain")) : { code: 1, out: "" };
-    const changes = st.code === 0 ? st.out.split("\n").filter((l) => l.trim() !== "").length : 0;
-    return { repo, path: t.path, branch: t.branch, changes, merged: t.branch !== null && merged.includes(t.branch) };
-  }));
-  return rows.filter((r) => r.changes > 0 || r.merged);
+  const rows: Inbox.Clean[] = [];
+  for (const t of trees) {
+    rows.push(await device_row(path.basename(space), t, merged, cwds, run));
+  }
+  return rows.filter((r) => all || r.changes > 0 || r.merged || r.gone === true);
+}
+
+// a git count's answer: the number, else not known
+function count(r: { code: number; out: string }): number | undefined {
+  const n = Number(r.out.trim());
+  return r.code === 0 && r.out.trim() !== "" && Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
+function lines(text: string): string[] {
+  return text.split("\n").filter((l) => l.trim() !== "");
+}
+
+// a worktree's row: its changes, merged or gone on origin (as of its last
+// fetch), its commits on no remote, its branch's stashes, size, last
+// commit, and whether a process works in it. A check that fails leaves
+// its field out, which counts against removing it (Inbox.inbox_safe); a
+// status that fails, all of them
+async function device_row(repo: string, t: { path: string; branch: string | null }, merged: string[], cwds: string[] | null, run: Exec): Promise<Inbox.Clean> {
+  const row: Inbox.Clean = { repo, path: t.path, branch: t.branch, changes: 0, merged: t.branch !== null && merged.includes(t.branch) };
+  const st = await device_trusted(t.path, run) ? await run(device_git(t.path, "status", "--porcelain")) : { code: 1, out: "" };
+  if (st.code !== 0) {
+    return row;
+  }
+  row.changes = lines(st.out).length;
+  const b = t.branch;
+  const track = b === null ? null : await run(device_git(t.path, "for-each-ref", "--format=%(upstream:track)", "refs/heads/" + b));
+  row.gone = track !== null && track.code === 0 && track.out.includes("[gone]");
+  row.unpushed = count(await run(device_git(t.path, "rev-list", "--count", "HEAD", "--not", "--remotes")));
+  const stash = await run(device_git(t.path, "stash", "list", "--format=%gs"));
+  row.stashes = stash.code !== 0 ? undefined : lines(stash.out).filter((l) => b === null || l.startsWith("WIP on " + b + ":") || l.startsWith("On " + b + ":")).length;
+  const at = count(await run(device_git(t.path, "log", "-1", "--format=%ct")));
+  row.at = at === undefined ? undefined : at * 1000;
+  // du is slow on big trees: sized only a row that may be safe
+  row.bytes = (row.merged || row.gone) && row.changes === 0 && row.unpushed === 0 ? await device_bytes(t.path, run) : undefined;
+  row.live = device_live(t.path, cwds);
+  return row;
+}
+
+// whether a process works in the worktree (its cwd in it), from lsof's
+// list; not known (no list, or the path gone): undefined
+function device_live(p: string, cwds: string[] | null): boolean | undefined {
+  let real: string;
+  try {
+    real = fs.realpathSync(p);
+  } catch {
+    return undefined;
+  }
+  return cwds === null ? undefined : cwds.some((c) => c === real || c.startsWith(real + "/"));
+}
+
+// the cwd of each of this user's processes (lsof, once a scan); null: not known
+async function device_cwds(run: Exec): Promise<string[] | null> {
+  const r = await run(["lsof", "-a", "-u", String(process.getuid?.() ?? ""), "-d", "cwd", "-Fn"]);
+  return r.code !== 0 ? null : r.out.split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1));
+}
+
+// a worktree's size on disk (du), kept SIZE_KEPT: a big one takes a while
+const SIZES = new Map<string, { at: number; bytes: number }>();
+const SIZE_KEPT = 6 * 3600e3;
+async function device_bytes(p: string, run: Exec): Promise<number | undefined> {
+  const hit = SIZES.get(p);
+  if (hit !== undefined && Date.now() - hit.at < SIZE_KEPT) {
+    return hit.bytes;
+  }
+  const r = await run(["du", "-sk", p]);
+  const kb = r.code === 0 ? Number(r.out.trim().split(/\s/)[0]) : NaN;
+  if (!Number.isFinite(kb)) {
+    return undefined;
+  }
+  SIZES.set(p, { at: Date.now(), bytes: kb * 1024 });
+  return kb * 1024;
+}
+
+// Tidy
+// ----
+// The worktrees to clean up are also looked for under TIDY_ROOTS
+// (UNII_TIDY_ROOTS: others, comma-separated), for that list only: not
+// spaces of the digest or the sidebar
+export const TIDY_ROOTS = ["~/repos", "/private/tmp/claude-501"];
+
+function tidy_spaces(now: number, have: Space[]): Space[] {
+  const seen = new Set(have.map((s) => s.path));
+  const roots = device_roots(process.env.UNII_TIDY_ROOTS ?? TIDY_ROOTS.join(","));
+  return device_discover(roots, now).filter((s) => !seen.has(s.path) && fs.existsSync(s.path + "/.git/worktrees"));
+}
+
+// why a worktree is kept, not removed
+function tidy_why(c: Inbox.Clean | undefined): string {
+  if (c === undefined) {
+    return "not a worktree to clean up now";
+  }
+  const why = [
+    c.merged || c.gone === true ? "" : "its branch is neither merged nor gone",
+    c.changes === 0 ? "" : "it has changes",
+    c.unpushed === 0 ? "" : "it has commits on no remote",
+    c.stashes === 0 ? "" : "its branch has stashes",
+    c.live === false ? "" : "a process works in it",
+  ].filter((w) => w !== "");
+  return why.join(", ") || "not safe";
+}
+
+// RED ZONE (DRAFT awaiting the user's sign-off): one worktree of the
+// user's Remove. Its row is worked out again here (device_clean of its
+// own repo) and must still be safe (Inbox.inbox_safe); only a linked
+// worktree, never a repo's main checkout. Removed by git worktree remove
+// (no --force: git also refuses a changed one) and a prune; never rm.
+// null: removed; else why it was kept
+async function device_tidy_one(p: string, cwds: string[] | null, run: Exec): Promise<string | null> {
+  if (!path.isAbsolute(p) || !await device_trusted(p, run)) {
+    return "not a worktree git may run in";
+  }
+  const common = await run(device_git(p, "rev-parse", "--path-format=absolute", "--git-common-dir"));
+  const main = common.code === 0 ? path.dirname(common.out.trim()) : "";
+  if (main === "" || path.resolve(main) === path.resolve(p)) {
+    return "not a linked worktree";
+  }
+  const row = (await device_clean(main, run, cwds)).find((r) => r.path === p);
+  if (row === undefined || !Inbox.inbox_safe(row)) {
+    return tidy_why(row);
+  }
+  const rm = await run(device_git(main, "worktree", "remove", p));
+  if (rm.code !== 0) {
+    return "git: " + (rm.out.trim().split("\n")[0] ?? "").slice(0, 200);
+  }
+  await run(device_git(main, "worktree", "prune"));
+  return null;
+}
+
+// the server's "tidy" (the user's Remove in a view, of rows it showed as
+// safe): each re-checked and removed or kept, in turn; what was done
+export async function device_tidy(paths: string[], run: Exec = exec): Promise<{ $: "tidied"; removed: string[]; kept: { path: string; why: string }[] }> {
+  const cwds = await device_cwds(run);
+  const out = { $: "tidied" as const, removed: [] as string[], kept: [] as { path: string; why: string }[] };
+  for (const p of paths.filter((x) => typeof x === "string").slice(0, Inbox.MOST)) {
+    const why = await device_tidy_one(p, cwds, run);
+    if (why === null) {
+      out.removed.push(p);
+    } else {
+      out.kept.push({ path: p, why });
+    }
+  }
+  return out;
+}
+
+// every linked worktree under the roots and TIDY_ROOTS, with its checks
+// and safe (legion tidy --list; read-only)
+export async function device_tidy_scan(run: Exec = exec, now = Date.now()): Promise<Inbox.Clean[]> {
+  const spaces = device_discover(device_roots(process.env.UNII_SPACES), now);
+  const all = [...spaces, ...tidy_spaces(now, spaces)].filter((s) => fs.existsSync(s.path + "/.git/worktrees"));
+  const cwds = await device_cwds(run);
+  const rows: Inbox.Clean[] = [];
+  for (const s of all) {
+    rows.push(...await device_clean(s.path, run, cwds, true));
+  }
+  return rows.map((r) => ({ ...r, safe: Inbox.inbox_safe(r) }));
+}
+
+function size(bytes: number | undefined): string {
+  if (bytes === undefined) {
+    return "?";
+  }
+  const mb = bytes / 2 ** 20;
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : mb.toFixed(1) + " MB";
+}
+
+function age(at: number | undefined, now: number): string {
+  if (at === undefined) {
+    return "?";
+  }
+  const h = Math.max(0, Math.floor((now - at) / 3600e3));
+  return h >= 48 ? Math.floor(h / 24) + "d" : h + "h";
+}
+
+// the rows as legion tidy --list prints them: a header, a line each
+export function device_tidy_list(rows: Inbox.Clean[], now = Date.now()): string {
+  const yn = (b: boolean | undefined) => (b === undefined ? "?" : b ? "yes" : "no");
+  const n = (x: number | undefined) => (x === undefined ? "?" : String(x));
+  const head = ["repo", "branch", "merged", "gone", "changes", "unpushed", "stashes", "live", "size", "age", "safe", "path"];
+  const body = rows.map((r) => [r.repo, r.branch ?? "(detached)", r.merged ? "merged" : "-", r.gone === true ? "gone" : "-", n(r.changes), n(r.unpushed), n(r.stashes), yn(r.live), size(r.bytes), age(r.at, now), yn(r.safe), r.path]);
+  const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => b[i]!.length)));
+  return [head, ...body].map((cols) => cols.map((c, i) => (i === cols.length - 1 ? c : c.padEnd(widths[i]!))).join("  ")).join("\n");
 }
 
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): how
@@ -1063,6 +1247,13 @@ export function device_reads(rules: Rules, send: (msg: View.Client) => void, run
     }
     if (msg.$ === "handoff") {
       void device_handoff(rules, msg.id, String(msg.agent), msg.brief).then(send);
+    }
+    // the user's Remove of worktrees: each re-checked, then the inbox anew
+    if (msg.$ === "tidy") {
+      void device_tidy(msg.paths, run).then((out) => {
+        send(out);
+        return inbox();
+      });
     }
   };
 }
