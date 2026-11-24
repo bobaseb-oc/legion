@@ -1,0 +1,21 @@
+Tools.test.ts
+  s_4507a2d79edab1::t_b8ac46701ea4ad 245
+Tools.ts
+  s_4507a2d79edab1::t_2020214930708d 454-459,651,1057-1062,2065-2078,2089-2120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "41ec743347e1812b8563a7cd2c133186c022bc65",
+  "prompts": {},
+  "sessions": {
+    "s_4507a2d79edab1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a52d5c7cff8b3829e",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
