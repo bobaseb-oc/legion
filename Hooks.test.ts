@@ -386,3 +386,54 @@ test("an allowlisted plugin's hook that crashes or times out refuses the call, t
   expect((await pre(hooked("exit 0"))).deny).toBeNull();
   expect((await pre(hooked("echo nope >&2; exit 2"))).deny).toBe("nope");
 });
+
+// PLP-2945 (RED ZONE, DRAFT awaiting the user's sign-off): with Legion's
+// own oncorps-shared-skills checkout ($UNII_DIR/shared-skills), the gate's
+// hooks.json comes from it, not from Claude Code's install; in it, the
+// gated plugin missing, or its source out of the checkout, refuses the call
+function checkout(source: string | null, body = "exit 0"): string {
+  const unii = fs.mkdtempSync(DIR + "/unii-");
+  const dir = unii + "/shared-skills";
+  fs.mkdirSync(dir + "/.claude-plugin", { recursive: true });
+  const plugins = source === null ? [] : [{ name: "oc-coding-assistant", source }];
+  fs.writeFileSync(dir + "/.claude-plugin/marketplace.json", JSON.stringify({ name: "oncorps-shared-skills", plugins }));
+  fs.mkdirSync(dir + "/skills/oc-coding-assistant/hooks", { recursive: true });
+  fs.writeFileSync(dir + "/skills/oc-coding-assistant/hooks/hooks.json", JSON.stringify({ hooks: { PreToolUse: [group("Bash", body)] } }));
+  return unii;
+}
+async function legion<T>(unii: string, conf: string, f: () => Promise<T> | T): Promise<T> {
+  const was = process.env.UNII_DIR;
+  process.env.UNII_DIR = unii;
+  try {
+    return await within(conf, f);
+  } finally {
+    was === undefined ? delete process.env.UNII_DIR : (process.env.UNII_DIR = was);
+  }
+}
+
+test("with Legion's checkout, the gate is its oc-coding-assistant, not Claude Code's", async () => {
+  const deny = `echo "{\\"hookSpecificOutput\\":{\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"root=$CLAUDE_PLUGIN_ROOT\\"}}"`;
+  const unii = checkout("./skills/oc-coding-assistant", deny);
+  const root = unii + "/shared-skills/skills/oc-coding-assistant";
+  const conf = plugged([[OCKEY, true, "user"]]);
+  const plugs = await legion(unii, conf, () => Hooks.sources(DIR).filter((s) => s.plugin !== undefined));
+  expect(plugs).toEqual([{ file: root + "/hooks/hooks.json", managed: false, plugin: root, key: OCKEY }]);
+  const gate = await legion(unii, conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(gate.deny).toBe("root=" + root);
+  // with no OnCorps install in Claude Code, the checkout still gates
+  const bare = plugged([["other@m", true, "user"]]);
+  expect((await legion(unii, bare, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toBe("root=" + root);
+});
+
+test("in Legion's checkout, a missing gated plugin or one sourced outside it refuses the call", async () => {
+  const conf = plugged([[OCKEY, true, "user"]]);
+  const gone = await legion(checkout(null), conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(gone.deny).toContain("can't read the hooks of " + OCKEY);
+  const out = checkout("../../");
+  const far = await legion(out, conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()));
+  expect(far.deny).toContain("not under");
+  // its hooks.json unreadable
+  const bad = checkout("./skills/oc-coding-assistant");
+  fs.writeFileSync(bad + "/shared-skills/skills/oc-coding-assistant/hooks/hooks.json", "{ not json");
+  expect((await legion(bad, conf, () => Hooks.pre(Hooks.sources(DIR), "Bash", { command: "ls" }, DIR, "A", live()))).deny).toContain("can't read the hooks of " + OCKEY);
+});

@@ -1,0 +1,5 @@
+{
+  "repo": "https://github.com/OnCorps/oncorps-shared-skills.git",
+  "ref": "0.x",
+  "plugins": ["oc-coding-assistant", "xlsx", "pageindex", "extract-check-requirements", "review-associations"]
+}

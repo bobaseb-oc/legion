@@ -21,6 +21,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Out } from "./Agent.ts";
 import type { Job } from "./Machine.ts";
+import { MARKET, Shared } from "./Shared.ts";
 
 // Types
 // =====
@@ -29,7 +30,8 @@ import type { Job } from "./Machine.ts";
 // (its .claude/settings*.json, which an agent working there can write);
 // plugin: a plugin's hooks.json, its root (its hooks' $CLAUDE_PLUGIN_ROOT)
 // and its key (name@marketplace)
-export type Source = { file: string; managed: boolean; project?: boolean; plugin?: string; key?: string };
+// lost: why a gated plugin's hooks can't be read (PLP-2945): the call is refused
+export type Source = { file: string; managed: boolean; project?: boolean; plugin?: string; key?: string; lost?: string };
 
 // a tool call as Claude Code names it: its tool, its input
 export type Call = { tool: string; input: Record<string, unknown> };
@@ -91,8 +93,22 @@ export namespace Hooks {
       { file: Hooks.home() + "/settings.json", managed: false },
       { file: project + "/.claude/settings.json", managed: false, project: true },
       { file: project + "/.claude/settings.local.json", managed: false, project: true },
-      ...Hooks.plugins(Hooks.home()).filter((p) => HOOKED.includes(p.key)).map((p) => ({ file: p.root + "/hooks/hooks.json", managed: false, plugin: p.root, key: p.key })),
+      ...gated().map((p): Source => (p.root === null
+        ? { file: "", managed: false, plugin: "", key: p.key, lost: "can't read the hooks of " + p.key + ": it is not in " + Shared.dir() + "/.claude-plugin/marketplace.json" }
+        : { file: p.root + "/hooks/hooks.json", managed: false, plugin: p.root, key: p.key })),
     ];
+  }
+
+  // RED ZONE (PLP-2945, DRAFT awaiting the user's sign-off): the gated
+  // plugins (HOOKED): from Legion's own oncorps-shared-skills checkout when
+  // there is one (Shared.ts), each whether its marketplace lists it or not
+  // (unlisted, root null: closed), and never Claude Code's copy then; with
+  // no checkout, Claude Code's enabled install
+  function gated(): { key: string; root: string | null }[] {
+    if (Shared.ready()) {
+      return HOOKED.filter((k) => k.endsWith("@" + MARKET)).map((key) => ({ key, root: Shared.root(key.split("@")[0]!) }));
+    }
+    return Hooks.plugins(Hooks.home()).filter((p) => HOOKED.includes(p.key));
   }
 
   // the plugins enabled for the user (settings.json enabledPlugins) at
@@ -248,8 +264,12 @@ export namespace Hooks {
     const read: { s: Source; json: any }[] = [];
     let lost: string | null = null;
     for (const s of src) {
+      if (s.lost !== undefined) {
+        lost ??= s.lost;
+        continue;
+      }
       if (s.plugin !== undefined && !plugged(s.plugin)) {
-        lost ??= "the root of " + s.key + " (" + s.plugin + ") is not under " + Hooks.home() + "/plugins";
+        lost ??= "the root of " + s.key + " (" + s.plugin + ") is not under " + Hooks.home() + "/plugins or " + Shared.dir();
         continue;
       }
       if (!fs.existsSync(s.file)) {
@@ -298,14 +318,11 @@ export namespace Hooks {
     return { hooks, broken: null };
   }
 
-  // whether a plugin's root really is under the user's plugins dir, both
-  // by their real paths (no link or ".." out of it)
+  // whether a plugin's root really is under the user's plugins dir, or in
+  // Legion's checkout (PLP-2945), both by their real paths (no link or
+  // ".." out of it)
   function plugged(root: string): boolean {
-    try {
-      return fs.realpathSync(root).startsWith(fs.realpathSync(Hooks.home() + "/plugins") + path.sep);
-    } catch {
-      return false;
-    }
+    return Shared.inside(root, Hooks.home() + "/plugins") || Shared.inside(root, Shared.dir());
   }
 
   // whether a matcher takes a tool: "" or "*" every tool, else a regex of
