@@ -607,3 +607,32 @@ test("the Tracks page keys each track's box by the track's name, the same whatev
   expect(keys(["Alpha", "Bravo"], "Bravo")).toEqual(keys(["Bravo"], "Bravo"));
   expect(keys(["Alpha", "Bravo"], "Alpha")).not.toEqual(keys(["Alpha", "Bravo"], "Bravo"));
 });
+
+// the Tracks page grouped by theme (Explain.explain_assign): one card per
+// theme with its agents' checklists and the user's pins under it, the
+// status report on top; an agent with no theme is its own
+test("the Tracks page by theme: one card per theme, its agents' items and the user's pins under it; the status report on top, escaped", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  const mine = { n: 1, text: "Check <the> totals", status: "pending" as const, at: NOW };
+  v.tracks = [
+    { name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [{ text: "Draw the page", status: "doing" }], pins: [] },
+    { name: "Ant", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [mine] },
+    { name: "Cat", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] },
+  ];
+  const card = (track: string, title: string) => ({ track, title, what: "w", why: "y", status: "s", watch: "nothing" });
+  v.explain = { cards: [card("Tracks page", "One <page>"), card("Cat", "Cat alone")], at: NOW, hash: "h", tried: null, qa: [], writing: false, asking: null, themes: { Owl: "Tracks page", Ant: "Tracks page" }, report: { text: "All <on> track.", at: NOW - 60_000 } };
+  const html = Pages.tracks_html(v, NOW).join("");
+  expect(html.match(/class="xcard theme"/g)).toHaveLength(2);
+  expect(html.match(/One &lt;page&gt;/g)).toHaveLength(1);
+  expect(html).toContain("Cat alone");
+  const page = html.indexOf("One &lt;page&gt;");
+  const cat = html.indexOf("Cat alone");
+  for (const s of ["Draw the page", "Check &lt;the&gt; totals", 'data-track="Owl"', 'data-track="Ant"']) {
+    const at = html.indexOf(s);
+    expect([s, at > page && at < cat]).toEqual([s, true]);
+  }
+  expect(html).toContain("All &lt;on&gt; track.");
+  expect(html.indexOf("All &lt;on&gt; track.")).toBeLessThan(page);
+  expect(html).not.toContain("<on>");
+});
