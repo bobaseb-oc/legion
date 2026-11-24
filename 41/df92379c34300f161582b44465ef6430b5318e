@@ -1,0 +1,19 @@
+Modes.ts
+  s_e3a50519c7042a::t_95015ade24bce5 265-266,278,281,283-284,287,290-292,295-297,299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "41df92379c34300f161582b44465ef6430b5318e",
+  "prompts": {},
+  "sessions": {
+    "s_e3a50519c7042a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "159d1ca3-6127-4426-8ddf-69d68ce4a06c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
