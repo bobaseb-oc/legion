@@ -54,3 +54,14 @@ test("a tier names its vendor's model of that tier; a label stays itself; neithe
   expect(Pick.tier("claude-api", sonnet.label)).toBe(sonnet.label);
   expect(Pick.tier("claude-api", "gpt-9")).toBeUndefined();
 });
+
+// the web app is built from View.ts, which reads the catalog through
+// Pick.ts: in a browser there are no files, so the built bundle reads
+// none (a node:fs call there throws at load and leaves the page blank)
+test("the browser bundle reads no file for the catalog", async () => {
+  const out = await Bun.build({ entrypoints: [import.meta.dir + "/web/src/main.ts"], target: "browser" });
+  expect(out.success).toBe(true);
+  const js = await out.outputs[0]!.text();
+  expect(js).not.toMatch(/\bfs\.(readFileSync|existsSync)\(/);
+  expect(js).toContain("claude-sonnet-5-5");
+});
