@@ -649,3 +649,33 @@ test("the Tracks page by theme: one card per theme, its agents' items and the us
   expect(html.indexOf("All &lt;on&gt; track.")).toBeLessThan(page);
   expect(html).not.toContain("<on>");
 });
+
+// main.ts markup() keeps each entry's first element only (html_parse), so
+// every Tracks entry must be one element: a report and the theme cards in
+// one entry showed the report alone (the cards dropped in the browser)
+test("the Tracks page: every entry is one element, so the browser drops no theme card", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  v.tracks = [{ name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] }];
+  const card = { track: "Tracks page", title: "One page", what: "w", why: "y", status: "s", watch: "nothing" };
+  const report = { text: "All on track.", at: NOW - 60_000 };
+  const VOID = new Set(["input", "br", "img", "hr", "meta", "link"]);
+  const tops = (html: string) => {
+    let depth = 0;
+    let n = 0;
+    for (const [, close, tag] of html.matchAll(/<(\/?)([a-z][a-z0-9]*)\b[^>]*>/g)) {
+      if (close === "/") depth--;
+      else if (!VOID.has(tag!)) {
+        if (depth === 0) n++;
+        depth++;
+      } else if (depth === 0) n++;
+    }
+    return n;
+  };
+  for (const with_report of [true, false]) {
+    v.explain = { cards: [card], at: NOW, hash: "h", tried: null, qa: [], writing: false, asking: null, themes: { Owl: "Tracks page" }, ...(with_report ? { report } : {}) };
+    const entries = Pages.tracks_html(v, NOW);
+    expect(entries.map(tops)).toEqual(entries.map(() => 1));
+    expect(entries.join("")).toContain('class="xcard theme"');
+  }
+});
