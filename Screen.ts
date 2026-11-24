@@ -8,8 +8,9 @@
 // flags 1 and 4 only (4: alternates), so dead keys still compose. The
 // input (Ed) draws as rows starting `> ` and takes its editing keys
 // (ed_key, EDITING) here; Up and Down past its ends walk the messages
-// sent.
+// sent; Ctrl+R searches them (Hist.ts).
 
+import * as Hist from "./Hist.ts";
 import * as Paint from "./Paint.ts";
 import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
@@ -29,7 +30,15 @@ type Ed = {
   moved : boolean;
   w     : number;
   tall  : number; // the rows it held since taken: a box shrinks only on Enter, else a gap would open above it
+  ats?  : (number | null)[]; // when each of hist was sent (ms), where known
+  find? : Find | null;       // Ctrl+R's search, while open
 };
+
+// Ctrl+R's search: its query, the hit selected (0: the best)
+type Find = { q: string; sel: number };
+
+// the hits Ctrl+R's search shows at most
+const FINDS = 5;
 
 // where the cursor shows: a row of the lines drawn, a column
 type Spot = { row: number; col: number };
@@ -59,7 +68,7 @@ export type Screen = {
 // =========
 
 // the editing keys, as /help lists them
-export const EDITING = "Arrows, Home, End, Ctrl+A, E, U, K, W, Alt+B, F, D, as in a shell; Shift+Enter or Ctrl+J, a new line; Up and Down past the ends, the messages sent.";
+export const EDITING = "Arrows, Home, End, Ctrl+A, E, U, K, W, Alt+B, F, D, as in a shell; Shift+Enter or Ctrl+J, a new line; Up and Down past the ends, the messages sent; Ctrl+R searches them.";
 
 const PASTE_ON  = "\x1b[200~";
 const PASTE_OFF = "\x1b[201~";
@@ -241,7 +250,7 @@ function screen_key(scr: Screen, data: string): number {
 // input; any other goes to Term.ts
 // (all of them, grabbed)
 function screen_press(scr: Screen, key: string): void {
-  if (scr.keys?.(key)) {
+  if (!scr.ed.find && scr.keys?.(key)) {
     return;
   }
   if (scr.grab || !ed_key(scr.ed, key)) {
@@ -362,6 +371,9 @@ function seq_text(params: string, end: string): string | null {
 // leaves the mode
 export function screen_input(scr: Screen, w: number, max: number, hint: string, off: boolean): { lines: Paint.Line[]; at: Spot } {
   const ed    = scr.ed;
+  if (ed.find) {
+    return find_input(ed, w, max);
+  }
   const shell = !off && View.view_shell(ed.text);
   const cut   = shell ? ed.text.indexOf("!") + 1 : 0;
   const mark  = shell ? Paint.Run("! ", Paint.SHELL) : Paint.Run(Theme.GLYPH.input, Paint.DIM);
@@ -414,6 +426,10 @@ function ed_layout(ed: Ed): { rows: string[]; places: Place[]; at: number } {
 
 // text typed or pasted, at the cursor
 export function ed_type(ed: Ed, s: string): void {
+  if (ed.find) {
+    ed.find = { q: ed.find.q + s.replace(/\s+/g, " "), sel: 0 };
+    return;
+  }
   ed.text = ed.text.slice(0, ed.pos) + s + ed.text.slice(ed.pos);
   ed.pos += s.length;
 }
@@ -421,6 +437,13 @@ export function ed_type(ed: Ed, s: string): void {
 // an editing key: a new line, a move, a character or word erased;
 // whether key is one
 export function ed_key(ed: Ed, key: string): boolean {
+  if (ed.find) {
+    return ed_find_key(ed, key);
+  }
+  if (key === "Ctrl+R") {
+    ed.find = { q: "", sel: 0 };
+    return true;
+  }
   const { places, at } = ed_layout(ed);
   const back = places[Math.max(0, at - 1)].pos;
   const next = places[Math.min(places.length - 1, at + 1)].pos;
@@ -504,7 +527,68 @@ export function ed_take(ed: Ed): string {
   const text = ed.text;
   if (text.trim() !== "" && text !== ed.hist[ed.hist.length - 1]) {
     ed.hist.push(text);
+    (ed.ats ??= [])[ed.hist.length - 1] = Date.now();
   }
   Object.assign(ed, { text: "", pos: 0, at: ed.hist.length, draft: "", moved: false, tall: 1 });
   return text;
+}
+
+// Ctrl+R
+// ------
+
+// the search's hits in the history, best first
+function ed_finds(ed: Ed): Hist.Found[] {
+  const said = ed.hist.map((text, k) => ({ text, at: ed.ats?.[k] ?? null }));
+  return Hist.hist_find(Hist.hist_list(said), ed.find?.q ?? "");
+}
+
+// a key while Ctrl+R's search is open, all of them its: Up, Ctrl+R and
+// Down, Ctrl+S move (older, newer); Backspace edits the query; Enter puts
+// the hit in the input, unsent; Esc, Ctrl+C or Ctrl+G close it, the input
+// as it was
+function ed_find_key(ed: Ed, key: string): boolean {
+  const find  = ed.find!;
+  const finds = ed_finds(ed);
+  const d = ({ "Up": 1, "Ctrl+R": 1, "Down": -1, "Ctrl+S": -1 } as Record<string, number>)[key];
+  if (d !== undefined) {
+    ed.find = { ...find, sel: Hist.hist_move(find.sel, finds.length, d) };
+  } else if (key === "Backspace") {
+    ed.find = { q: find.q.slice(0, -1), sel: 0 };
+  } else if (key === "Enter") {
+    const hit = finds[find.sel];
+    ed.find = null;
+    if (hit !== undefined) {
+      Object.assign(ed, { text: hit.text, pos: hit.text.length, at: ed.hist.length, draft: "", moved: false });
+    }
+  } else if (key === "Esc" || key === "Ctrl+C" || key === "Ctrl+G") {
+    ed.find = null;
+  }
+  return true;
+}
+
+// the search drawn: its hits (the best nearest the query, older above),
+// the selected one marked, its matched characters bold, how long ago;
+// then the query, the cursor at its end
+function find_input(ed: Ed, w: number, max: number): { lines: Paint.Line[]; at: Spot } {
+  const find  = ed.find!;
+  const finds = ed_finds(ed);
+  const n     = Math.max(0, Math.min(FINDS, max - 1));
+  const first = Math.max(0, Math.min(find.sel - n + 1, finds.length - n));
+  const shown = finds.slice(first, first + n).map((f, k) => find_line(f, k + first === find.sel, w)).reverse();
+  const none  = finds.length === 0 ? [Paint.Run("  no match", Paint.DIM)] : [];
+  const query = [Paint.Run("⌕ ", Paint.DIM), Paint.Run(find.q, Paint.INK), ...none];
+  const lines = [...shown, query];
+  ed.tall = Math.min(Math.max(ed.tall, lines.length), Math.max(1, max));
+  lines.unshift(...Array.from({ length: Math.max(0, ed.tall - lines.length) }, () => [Paint.Run("")]));
+  return { lines, at: { row: lines.length - 1, col: 2 + find.q.length } };
+}
+
+// one hit: on one row, cut to w; its marks bold
+function find_line(f: Hist.Found, here: boolean, w: number): Paint.Line {
+  const ago  = Hist.hist_ago(f.at, Date.now());
+  const text = [...f.text.replace(/\s+/g, " ")].slice(0, Math.max(1, w - 4 - ago.length));
+  const ink  = here ? Paint.INK : Paint.DIM;
+  const bold = { ...ink, b: true, d: false };
+  const marks = new Set(f.marks);
+  return [Paint.Run(here ? "› " : "  ", ink), ...text.map((ch, k) => Paint.Run(ch, marks.has(k) ? bold : ink)), Paint.Run(ago === "" ? "" : "  " + ago, Paint.DIM)];
 }

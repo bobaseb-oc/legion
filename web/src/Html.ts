@@ -7,6 +7,7 @@
 // (main.ts), so `credit_html` works wherever it is put.
 
 import * as Call from "../../Call.ts";
+import * as Hist from "../../Hist.ts";
 import * as Md from "../../Md.ts";
 import { hl_lang, hl_lines } from "../../Hl.ts";
 import * as Theme from "../../Theme.ts";
@@ -505,4 +506,30 @@ function span_html(s: Md.Span): string {
       return `<button class="name"${act_html({ $: "Goto", name: s.x })}>[${esc(s.x)}]</button>`;
     }
   }
+}
+
+// Ctrl+R
+// ======
+
+// the history search's hits (Hist.hist_find), the selected one here: each
+// its text, the query's characters marked, and how long ago; escaped a
+// character at a time, so a mark never splits an entity
+export function hist_html(found: Hist.Found[], sel: number, now: number): string[] {
+  if (found.length === 0) {
+    return [`<p class="meta pnone">No match.</p>`];
+  }
+  return found.slice(0, 50).map((f, k) => `<button class="pi${k === sel ? " here" : ""}" data-hi="${k}"><span class="t">${hist_marked(f)}</span><span class="meta">${esc(Hist.hist_ago(f.at, now))}</span></button>`);
+}
+
+// a hit's text, its marked characters' runs in <mark>
+function hist_marked(f: Hist.Found): string {
+  const marks = new Set(f.marks);
+  let out = "";
+  let open = false;
+  [...f.text].forEach((ch, k) => {
+    const on = marks.has(k);
+    out += (on && !open ? "<mark>" : !on && open ? "</mark>" : "") + esc(ch);
+    open = on;
+  });
+  return out + (open ? "</mark>" : "");
 }
