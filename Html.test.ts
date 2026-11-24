@@ -453,3 +453,17 @@ test("the shell status block and background list: buttons acting on each, a comm
   expect(html).toContain(View.RUN_HINT);
   expect(html).toContain("failed (exit 2 in 1.0 s)");
 });
+
+// Ctrl+R on the web: the history's hits (Hist.ts), marked, escaped
+test("the history search's hits: matched characters marked, the selection shown, the age, all escaped", () => {
+  const now = 100 * 60e3;
+  const found = [{ text: "<b>git</b> & st", at: now - 3 * 60e3, marks: [3, 4, 5] }, { text: "old", at: null, marks: [] }];
+  const html = Html.hist_html(found, 0, now);
+  expect(html.length).toBe(2);
+  expect(html[0]).toContain(`class="pi here"`);
+  expect(html[0]).toContain("&lt;b&gt;<mark>git</mark>&lt;/b&gt; &amp; st");
+  expect(html[0]).toContain("3m");
+  expect(html[1]).not.toContain("here");
+  expect(html.join("")).not.toContain("<b>git");
+  expect(Html.hist_html([], 0, now)).toEqual([`<p class="meta pnone">No match.</p>`]);
+});

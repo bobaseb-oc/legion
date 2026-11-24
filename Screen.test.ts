@@ -173,3 +173,46 @@ test("focus in and out come as keys, never as text", () => {
     expect(keys).toEqual(["FocusIn", "FocusOut"]);
   });
 });
+
+// Ctrl+R: the history searched in the input (Hist.ts), as a shell's
+test("Ctrl+R searches the history: typing filters, Up goes older, Enter puts it in the input unsent, Esc leaves the input as it was", () => {
+  const { scr, keys } = screen();
+  const ed = scr.ed;
+  ed.hist = ["git status", "npm test", "git stash"];
+  ed.ats  = [1, 2, 3];
+  ed.at   = 3;
+  Screen.ed_type(ed, "draft");
+  expect(Screen.ed_key(ed, "Ctrl+R")).toBe(true);
+  Screen.ed_type(ed, "gst");
+  expect(ed.text).toBe("draft");
+  const drawn = Screen.screen_input(scr, 80, 10, "", false).lines.map((l) => l.map((r) => r.x).join(""));
+  expect(drawn.join("\n")).toContain("git stash");
+  expect(drawn.join("\n")).toContain("git status");
+  expect(drawn[drawn.length - 1]).toContain("gst");
+  expect(Screen.ed_key(ed, "Up")).toBe(true);
+  expect(Screen.ed_key(ed, "Enter")).toBe(true);
+  expect(ed.text).toBe("git status");
+  expect(ed.pos).toBe("git status".length);
+  expect(keys).toEqual([]);
+  Screen.ed_key(ed, "Ctrl+R");
+  Screen.ed_type(ed, "npm");
+  expect(Screen.ed_key(ed, "Esc")).toBe(true);
+  expect(ed.text).toBe("git status");
+  Screen.ed_key(ed, "Ctrl+R");
+  Screen.ed_type(ed, "zzz");
+  Screen.ed_key(ed, "Enter");
+  expect(ed.text).toBe("git status");
+});
+
+test("Ctrl+R's marked characters show in bold; what was sent here is searchable with its time", () => {
+  const { scr } = screen();
+  const ed = scr.ed;
+  Screen.ed_type(ed, "!ls -la");
+  Screen.ed_take(ed);
+  expect(ed.ats?.[0]).toBeGreaterThan(0);
+  Screen.ed_key(ed, "Ctrl+R");
+  Screen.ed_type(ed, "la");
+  const rows = Screen.screen_input(scr, 80, 10, "", false).lines;
+  const hit  = rows.find((l) => l.map((r) => r.x).join("").includes("!ls -la"))!;
+  expect(hit.filter((r) => r.s.b === true).map((r) => r.x).join("")).toBe("la");
+});
