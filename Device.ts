@@ -411,6 +411,9 @@ async function device_clean(space: string, run: Exec, cwds: string[] | null = nu
   if (trees.length === 0) {
     return [];
   }
+  // a branch deleted on origin (a merged PR's) is gone only once pruned:
+  // fetched first, hardened git (GIT_SAFE), refs only; offline: as it was
+  await run(device_git(space, "fetch", "--prune", "--quiet", "--no-recurse-submodules", "origin"));
   const base = await run(device_git(space, "rev-parse", "--abbrev-ref", "origin/HEAD"));
   const merged = base.code !== 0 ? [] : (await run(device_git(space, "branch", "--merged", base.out.trim(), "--format=%(refname:short)"))).out.split("\n").map((b) => b.trim());
   const rows: Inbox.Clean[] = [];
