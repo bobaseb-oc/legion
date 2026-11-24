@@ -607,3 +607,16 @@ test("the Tracks page keys each track's box by the track's name, the same whatev
   expect(keys(["Alpha", "Bravo"], "Bravo")).toEqual(keys(["Bravo"], "Bravo"));
   expect(keys(["Alpha", "Bravo"], "Alpha")).not.toEqual(keys(["Alpha", "Bravo"], "Bravo"));
 });
+
+// a worktree the server marked safe (Inbox.inbox_safe) gets a Remove
+// button (the Tidy act: a confirm, then the devices re-check and remove
+// it); one that isn't, none
+test("a safe worktree to clean up has a Remove button; an unsafe one has none", () => {
+  const row = (path: string, safe: boolean) => ({ repo: "r", path, branch: "b", changes: safe ? 0 : 1, merged: true, safe });
+  const s = Cockpit.inbox_sections(inbox({ clean: [row("/w/safe", true), row("/w/dirty", false)] }), [], "", NOW);
+  const html = Pages.inbox_html(s, ui()).join("");
+  const at = (p: string) => html.slice(html.indexOf(`data-row="clean:${p}"`), html.indexOf("</div>", html.indexOf(`data-row="clean:${p}"`)));
+  expect(at("/w/safe")).toContain(act({ $: "Tidy", paths: ["/w/safe"] }));
+  expect(at("/w/safe")).toContain(">Remove<");
+  expect(at("/w/dirty")).not.toContain("Tidy");
+});

@@ -20,6 +20,7 @@
 #                     gateway's key from $UNII_KEY_HELPER at each start),
 #                     `--uninstall` removes it
 #   legion log          follow the server's log (no sign-in link prints there)
+#   legion tidy --list  every linked worktree: merged or gone, changes, unpushed, size, in use, safe (read-only)
 #   legion knowledge    rebuild ~/.unii-prime/knowledge.json (OKF, graphify guides,
 #                     repo digests and cards; local/prime/knowledge.ts)
 #   legion mcp-login S  sign in to the MCP server S with OAuth (e.g. atlassian);
@@ -360,6 +361,7 @@ case "${1:-}" in
     esac ;;
   server-run) server_run ;;
   log)   exec tail -f "$LOG" ;;
+  tidy)  exec bun "$ROOT/local/tidy.ts" "${@:2}" ;;
   knowledge) bun "$ROOT/local/prime/knowledge.ts" && echo "legion: then, in the chat: /import ~/.unii-prime/knowledge.json" >&2 ;;
   mcp-login)  mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" ;;
   mcp-logout) mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" --logout ;;

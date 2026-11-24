@@ -271,7 +271,7 @@ const POSTED     = "api";
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
 // device too: its /mode, /plan, /allow, /approve, /answer are refused,
 // unless its socket is on its terminal key (K1, Chat.act's `says`)
-const SAYS       = ["mode", "plan", "consent", "approve", "answer"];
+const SAYS       = ["mode", "plan", "consent", "approve", "answer", "tidy"];
 
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
@@ -1862,6 +1862,12 @@ export namespace Chat {
         Chat.all(chat, { $: "fetch" });
         return {};
       }
+      case "tidy": {
+        return Chat.tidy(chat, msg.paths);
+      }
+      case "tidied": {
+        return Chat.tidied(chat, device, msg);
+      }
       case "consent": {
         // the user's answer (SAYS above: never a device's), through the inbox
         const n = Number(msg.n);
@@ -2447,6 +2453,43 @@ export namespace Chat {
       }
     }
     Chat.all(chat, out);
+    return {};
+  }
+
+  // RED ZONE (DRAFT awaiting the user's sign-off): the user's Remove of
+  // worktrees (SAYS: a view's say only, never a device's or an agent's
+  // key). Only paths the latest inbox shows as safe (Inbox.inbox_safe,
+  // worked out by inbox_check, never a device's own) go to the devices,
+  // which check each again before git worktree remove (Device.device_tidy)
+  export function tidy(chat: Chat, raw: unknown): Answer {
+    const paths = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === "string").slice(0, Inbox.MOST) : [];
+    if (paths.length === 0) {
+      return { error: "Remove which worktrees?" };
+    }
+    const safe = new Set((chat.inbox?.clean ?? []).filter((c) => c.safe === true).map((c) => c.path));
+    const not = paths.filter((p) => !safe.has(p));
+    if (not.length > 0) {
+      return { error: "Not safe to remove (or not in the inbox now): " + not.join(", ").slice(0, 400) };
+    }
+    if (Tools.opened(chat.tools).length === 0) {
+      return { error: "No device is up to remove them: run legion device." };
+    }
+    Chat.all(chat, { $: "tidy", paths });
+    return {};
+  }
+
+  // a device's tidy, told: what it removed and what it kept, and why
+  export function tidied(chat: Chat, device: string, msg: any): Answer {
+    if (device === "") {
+      return { error: "Only a device tells what its tidy removed." };
+    }
+    const removed: string[] = Array.isArray(msg?.removed) ? msg.removed.filter((p: unknown) => typeof p === "string").slice(0, Inbox.MOST) : [];
+    const kept: { path: string; why: string }[] = Array.isArray(msg?.kept) ? msg.kept.filter((k: any) => typeof k?.path === "string" && typeof k?.why === "string").slice(0, Inbox.MOST) : [];
+    const lines = [
+      ...(removed.length === 0 ? [] : ["Removed on " + device + ": " + removed.join(", ")]),
+      ...kept.map((k) => "Kept " + k.path + ": " + k.why),
+    ];
+    Chat.note(chat, lines.join("\n").slice(0, 4000) || "The tidy on " + device + " removed nothing.");
     return {};
   }
 

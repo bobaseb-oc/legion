@@ -588,6 +588,10 @@ function click(ev: MouseEvent): void {
   if (parsed?.$ === "Undo" && !confirm(View.undo_ask(parsed.name))) {
     return;
   }
+  // a Remove deletes worktrees: asked first
+  if (parsed?.$ === "Tidy" && !confirm(View.tidy_ask(parsed.paths))) {
+    return;
+  }
   if (parsed !== undefined) {
     act(parsed);
     // a jump (the Memory page): to the chat, where paint brings it in sight
