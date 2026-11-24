@@ -32,6 +32,12 @@ test("status_text: the gateway's budget and a busy AI service", () => {
   const s = { up: true, dir: "home", branch: null, model: "opus", working: 0, spend: { spend: null, stale: false } };
   expect(View.status_text({ ...s, budget: { spend: 686.15, max: 800 } })).toBe("home · opus · gateway $686/$800");
   expect(View.status_text({ ...s, busy: true })).toBe("home · opus · ⚠ AI service busy");
+  // the gateway's budget is the spend that counts: with it, no separate
+  // UTC-day spend (another window, maybe other keys), and its reset shown
+  const spent = { spend: 12.5, stale: false };
+  expect(View.status_text({ ...s, spend: spent, budget: { spend: 686.15, max: 800, reset: "2026-11-25T08:00:00.000Z" } })).toBe("home · opus · gateway $686/$800, resets 08:00 UTC");
+  expect(View.status_text({ ...s, spend: spent, budget: { spend: 686.15, max: 800, reset: "not a date" } })).toBe("home · opus · gateway $686/$800");
+  expect(View.status_text({ ...s, spend: spent, budget: null })).toBe("home · opus · $12.50 today");
   const v = View.view_new();
   View.view_hear(v, { $: "gateway", budget: { spend: 1, max: 2, reset: null }, busy: Date.now() - 1000 });
   expect(v.gateway?.budget?.max).toBe(2);
