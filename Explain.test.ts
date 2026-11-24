@@ -390,8 +390,9 @@ await r4;
 const calls = asks.length;
 await Chat.observe(chat, T0 + 3 * Explain.REPORT_EVERY);
 const unchanged = asks.length - calls;
+const gone = await Chat.act(chat, "d1", { $: "dismiss", name: "Cat" }, "");
 const kept = Memory.load(chat.mem.dir, () => null).explain;
-console.log(JSON.stringify({ one, brief, two, asked3, report3, asked4, unchanged, kept: { themes: kept.themes, report: kept.report?.text ?? null } }));
+console.log(JSON.stringify({ gone, one, brief, two, asked3, report3, asked4, unchanged, kept: { themes: kept.themes, report: kept.report?.text ?? null } }));
 process.exit(0);
 `;
 
@@ -409,5 +410,16 @@ test("the server: themes fixed across runs, a new agent joins one; the report as
   expect(out.report3).toBe("Nearly done.");
   expect(out.asked4).toBe(false);
   expect(out.unchanged).toBe(0);
-  expect(out.kept).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page", Cat: "Tracks page" }, report: "Nearly done." });
+  expect(out.gone).toEqual({});
+  // a dismissed agent leaves its theme; the theme stays for the others
+  expect(out.kept).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page" }, report: "Nearly done." });
+});
+
+test("a dismissed agent leaves its theme: the theme keeps its name while others are in it, and is gone with its last", () => {
+  const themes = { A: "P", B: "P", C: "Q" };
+  expect(Explain.theme_drop(themes, "A")).toEqual({ B: "P", C: "Q" });
+  expect(Explain.theme_names(Explain.theme_drop(themes, "C"), ["A", "B"])).toEqual(["P"]);
+  expect(Object.values(Explain.theme_drop(themes, "C"))).not.toContain("Q");
+  expect(Explain.theme_drop(themes, "Z")).toEqual(themes);
+  expect(themes).toEqual({ A: "P", B: "P", C: "Q" });
 });
