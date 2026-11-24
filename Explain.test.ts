@@ -343,6 +343,8 @@ test("the server: a reply that matches no track is an error on the page, and the
   const proc = Bun.spawn([process.execPath, dir + "/unmatched.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ cards: [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }], error: "The page couldn't be written: no card matched a track." });
+});
+
 // Themes: the Tracks page groups the top agents into themes, one card per
 // theme. A theme is fixed once made: an agent keeps its theme and the
 // theme its name; a new agent joins the closest theme (the observer's

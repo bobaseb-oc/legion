@@ -619,6 +619,8 @@ test("a safe worktree to clean up has a Remove button; an unsafe one has none", 
   expect(at("/w/safe")).toContain(act({ $: "Tidy", paths: ["/w/safe"] }));
   expect(at("/w/safe")).toContain(">Remove<");
   expect(at("/w/dirty")).not.toContain("Tidy");
+});
+
 // the Tracks page grouped by theme (Explain.explain_assign): one card per
 // theme with its agents' checklists and the user's pins under it, the
 // status report on top; an agent with no theme is its own
