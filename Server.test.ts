@@ -2186,8 +2186,11 @@ const chat = opened();
 const answers = [];
 for (let k = 0; k < 50; k++) {
   answers.push(await Chat.act(chat, "f" + k, { $: "event", key: "f" + k, kind: "notify", body: "x" }, "mac", false));
+  // each a minute old: a device's events are also capped at Events.RATE a
+  // minute (security review 4 N4, Events.test.ts); this is the WAITING cap
+  events(chat).forEach((e) => { e.at -= 61_000; });
 }
-const over = await Chat.act(chat, "f50", { $: "event", key: "f50", kind: "notify", body: "x" }, "mac", false);
+const over =await Chat.act(chat, "f50", { $: "event", key: "f50", kind: "notify", body: "x" }, "mac", false);
 const stored = events(chat).length;
 // the cap is counted apart for the user's origins: a view's event still goes in (AC20)
 const mine = await Chat.act(chat, "v1", { $: "event", key: "v1", kind: "notify", body: "from the view" }, "", true);
