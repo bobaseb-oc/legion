@@ -1,0 +1,33 @@
+local/models.json
+  s_49856e8ae81347::t_aa289b4e375dfd 1-12
+Models.ts
+  s_49856e8ae81347::t_fe7cd3ff78340e 1-96
+Config.ts
+  s_49856e8ae81347::t_009934f8b649b6 14,46,50,52,54,57-61,174-175,177-178,186-196
+Machine.test.ts
+  s_49856e8ae81347::t_76d3f037bfdc17 453
+Machine.ts
+  s_49856e8ae81347::t_d522e93e6a37a4 24,365,373-382,388-393
+Pick.ts
+  s_49856e8ae81347::t_7a2fb85a1d310c 14,41-42,44-45,63-68
+Price.ts
+  s_49856e8ae81347::t_c2a15868ee2370 4-5,9-10,22-26,29,33
+Tools.ts
+  s_49856e8ae81347::t_c0f749bfb41083 2159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b7b1d43a915bcc2307342f7aaf632358e2c5d2fb",
+  "prompts": {},
+  "sessions": {
+    "s_49856e8ae81347": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ef6e6d2-82fc-44b6-b338-459bb93ced91",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
