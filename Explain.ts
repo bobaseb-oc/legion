@@ -98,8 +98,9 @@ export function explain_snapshot(s: Snapshot): string {
     ...(s.goal === null ? [] : ["Goal: " + line(s.goal)]),
     ...(s.plan === null ? [] : ["Plan: " + cut(s.plan, 4 * LINE)]),
     ...list("The user lately said to Legion:", s.said),
-    ...(s.crew.length === 0 ? [] : ["Agents:", ...s.crew.flatMap(agent)]),
+    // the tracks before the agents: a long crew is cut at SNAP, never them
     ...((s.tracks ?? []).length === 0 ? [] : ["Tracks:", ...s.tracks!.map((t) => "- " + t.name + ": " + t.items + " items, " + t.pins + " pinned")]),
+    ...(s.crew.length === 0 ? [] : ["Agents:", ...s.crew.flatMap(agent)]),
     ...list("Open questions for the user:", s.questions),
     ...list("Waiting on the user (todos):", s.todos),
     ...(s.routines.length === 0 ? [] : ["Routines on: " + line(s.routines.join(", "))]),
@@ -125,24 +126,30 @@ export function explain_due(ex: Explain, hash: string, now: number): boolean {
 // the observer's cards from its JSON, one per track named: each field a
 // string, cut; a card for any other name (or a second for one) dropped,
 // an empty one for a name with none (the tracks are the crew's, never
-// the observer's). Not JSON: null
-export function explain_cards(text: string, names: string[]): Card[] | null {
+// the observer's). Else why not: not JSON, or no card for any track (the
+// page kept as it was, not made blank)
+export function explain_cards(text: string, names: string[]): Card[] | string {
   let json: any;
   try {
     json = JSON.parse(/\{[\s\S]*\}/.exec(text)?.[0] ?? "");
   } catch {
-    return null;
+    return "not JSON with cards";
   }
   if (!Array.isArray(json?.cards)) {
-    return null;
+    return "not JSON with cards";
   }
   const field = (x: unknown, most = FIELD) => typeof x === "string" ? cut(x, most) : "";
+  // a track's name matched whatever its case; the card keeps the track's own
+  const own = new Map(names.map((n) => [n.toLowerCase(), n]));
   const by = new Map<string, Card>();
   for (const c of json.cards) {
-    const track = typeof c?.track === "string" ? c.track : "";
-    if (names.includes(track) && !by.has(track)) {
+    const track = own.get(typeof c?.track === "string" ? c.track.toLowerCase() : "");
+    if (track !== undefined && !by.has(track)) {
       by.set(track, { track, title: field(c?.title, TITLE), what: field(c?.what), why: field(c?.why), status: field(c?.status), watch: field(c?.watch) });
     }
+  }
+  if (names.length > 0 && by.size === 0) {
+    return "no card matched a track";
   }
   return names.map((track) => by.get(track) ?? { track, title: "", what: "", why: "", status: "", watch: "" }).slice(0, CARDS);
 }
@@ -155,19 +162,22 @@ export function track_names(crew: Crew[]): string[] {
 // the tracks as the views show them: each top agent's (editable: a live
 // "sub" agent's, as Tools.crew tells its tier), then the pins of tracks
 // with no agent live (orphaned, read-only). queued: an edit told it idle,
-// after its last run began (its next run reads it)
-export function track_views(crew: Crew[], tracks: Record<string, Track>): TrackView[] {
+// after its last run began (its next run reads it). saved: the saved
+// checklists of top agents not taken back yet (Tools.saved_tops), shown
+// read-only on their tracks until they are
+export function track_views(crew: Crew[], tracks: Record<string, Track>, saved: Record<string, Todo[]> = {}): TrackView[] {
   const tops = crew.filter((c) => c.parent === "main");
   const view = (name: string, c: Crew | null): TrackView => {
     const t = tracks[name];
     const dropped = t?.dropped ?? [];
-    const items = (c?.todo ?? []).map((x) => dropped.includes(x.text) ? { ...x, dropped: true } : { ...x });
+    const items = (c?.todo ?? (c === null ? saved[name] : undefined) ?? []).map((x) => dropped.includes(x.text) ? { ...x, dropped: true } : { ...x });
     const queued = c !== null && t?.queued !== undefined && t.queued > c.since;
     const sub = c !== null && (c.tier === "manager" || c.tier === "worker");
     return { name, ...(c?.title === undefined ? {} : { title: c.title }), tier: c?.tier ?? "worker", editable: sub, orphaned: c === null, queued, items, pins: t?.pins ?? [] };
   };
   const live = new Set(tops.map((c) => c.name));
-  return [...tops.map((c) => view(c.name, c)), ...Object.keys(tracks).filter((n) => !live.has(n)).map((n) => view(n, null))];
+  const idle = [...new Set([...Object.keys(tracks), ...Object.keys(saved)])].filter((n) => !live.has(n));
+  return [...tops.map((c) => view(c.name, c)), ...idle.map((n) => view(n, null))];
 }
 
 // what the observer reads for a question: the cards, the snapshot, the

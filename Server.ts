@@ -149,7 +149,7 @@ type Chat = {
   rolled: boolean; // the turn's last call rolled over: the next goes on from it
   wallet: Wallet;
   tick?: ReturnType<typeof setInterval>; // the routines' (Chat.ticked)
-  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[] }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only)
+  bridging?: { timer?: ReturnType<typeof setInterval>; busy: boolean; me: string | null; threads: Gchat.Posted[]; until?: number; parts?: Gchat.Part[]; refused?: Set<string> }; // the GChat bridge's (Chat.bridge): its pass running, the signed-in user (Google.me), the item threads this process posted (memory only), no post before until (a 429's hold), items cut short (their rest to send), items Google refused (a 4xx: not tried again)
   looks?: Map<string, number>; // the looks asked of the devices, not yet answered: how many devices may still answer (Chat.look)
   harvests?: Map<string, number[]>; // the timesheet's submits sent to a device, not yet answered: their drafts (Chat.timesheet)
   dids?: Set<string>; // the Crew view's undos and handoffs sent to a device, not yet answered (Chat.crew_op)
@@ -1508,7 +1508,7 @@ export namespace Chat {
     const why = chat.mem.hold[1];
     const importing = batch && { done: batch.all - Chat.time(batch), total: batch.all, spent: batch.spent, left: batch.left / 1e6, why, msgs: batch.b - batch.a, open: batch.open };
     const billing = Chat.cloud.billing;
-    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, pace: chat.mem.pace, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools).map(({ fp, ...c }) => c), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks) };
+    return { $: "state", busy: chat.busy, wait: Chat.waits(chat), agents, crew, pick: chat.pick, ...config.OFFER, bills: billing.bills, credits: billing.credits(chat.acct.user), importing, questions: chat.mem.questions, mode: chat.mem.mode, pace: chat.mem.pace, plan: chat.mem.plan, status: chat.status ?? null, calls: Tools.consents(chat.tools).map(({ fp, ...c }) => c), trouble: chat.mem.trouble, routines: chat.mem.routines, timers: chat.mem.timers, drafts: chat.mem.drafts, assigned: chat.mem.assigned, decided: chat.mem.decided, tallies: chat.mem.tallies, pins: chat.mem.pinned, notebook: Notes.notes_list(chat.mem.dir), shells: Tools.shells(chat.tools), tracks: Explain.track_views(crew, chat.mem.tracks, Tools.saved_tops(chat.tools)) };
   }
 
   export function waits(chat: Chat): Wait {
@@ -1918,9 +1918,17 @@ export namespace Chat {
         }
         agent.hidden = true;
         Tools.ungrant(chat.tools, [agent.name]);
-        // its track goes with it: the user's pins on it pruned
-        if (agent.parent === "main" && agent.name in chat.mem.tracks) {
+        // its track goes with it: the user's pins on it pruned; its saved
+        // checklist too (view.json keeps no list of a dismissed agent)
+        const pinned = agent.parent === "main" && agent.name in chat.mem.tracks;
+        const listed = agent.name in chat.mem.checklists;
+        if (pinned) {
           delete chat.mem.tracks[agent.name];
+        }
+        if (listed) {
+          delete chat.mem.checklists[agent.name];
+        }
+        if (pinned || listed) {
           Memory.save(chat.mem);
         }
         Chat.change(chat);
@@ -2281,7 +2289,7 @@ export namespace Chat {
     if (looks.size >= LOOKS) {
       looks.delete(looks.keys().next().value!);
     }
-    looks.set(id, link === null ? Tools.opened(chat.tools).reduce((n, [, d]) => n + d.terms.size, 0) : 1);
+    looks.set(id, link === null ? Tools.opened(chat.tools).reduce((n, [, d]) => n + Tools.live(d).length, 0) : 1);
     if (link === null) {
       Chat.all(chat, { $: "look", id, what });
     } else {
@@ -2663,7 +2671,8 @@ const LIKES = 30;
     const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
     const cards = end?.ok ? Explain.explain_cards(end.text, names) : null;
     ex.writing = false;
-    Object.assign(ex, cards === null ? { error: "The page couldn't be written" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." } : { cards, hash, at: Date.now(), error: null });
+    const why = typeof cards === "string" ? ": " + cards : end?.ok === false ? ": " + end.text.slice(0, 200) : "";
+    Object.assign(ex, Array.isArray(cards) ? { cards, hash, at: Date.now(), error: null } : { error: "The page couldn't be written" + why + "." });
     Memory.save(chat.mem);
     Chat.explained(chat);
   }
@@ -2883,6 +2892,8 @@ const LIKES = 30;
   // device reads it (Google.store: one prompt a process, held in memory;
   // a refused read held, so the bridge posts but reads no reply until a
   // restart); off, null: no poll, never a read
+  // the wait between two GChat posts (Gchat.GAP); a test's records it
+  export let gchat_wait = (ms: number): Promise<void> => Bun.sleep(ms);
   export let gchat_token: (() => Promise<string>) | null = Gchat.gchat_on(config.GCHAT_SPACE, config.KEYS.gchat ?? "") ? () => Google.token(Google.store()) : null;
 
   // the chat let go with the bridge on: the space told, in a thread of its
@@ -2918,40 +2929,72 @@ const LIKES = 30;
     try {
       const mem = chat.mem;
       const items = Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, now);
-      const open = (p: Gchat.Posted) => items.some((x) => x.key === p.key);
+      const open = (p: { key: string }) => items.some((x) => x.key === p.key);
       b.threads = b.threads.filter(open);
+      // an item cut short (a later chunk failed) sends only its rest, in
+      // its thread; kept in memory only, as threads are
+      const parts = (b.parts = (b.parts ?? []).filter(open));
       // RED ZONE (R4, DRAFT awaiting the user's sign-off): an item
       // of any kind counts as posted only by this process (b.threads), so a
       // restart posts each open one again in a new thread; O4 holds within
       // a process. view.json keeps no record of what was posted
-      const plan = Outbox.plan(items.filter((x) => !b.threads.some((p) => p.key === x.key)), mem.pace, mem.digested, now);
-      const nows = plan.now.slice(0, Gchat.POSTS);
-      const digest = plan.digest.slice(0, Gchat.POSTS - nows.length);
+      // an item Google refused (a 4xx other than 429) is not tried again in this process
+      const refused = (b.refused ??= new Set());
+      const plan = Outbox.plan(items.filter((x) => !refused.has(x.key) && ![...b.threads, ...parts].some((p) => p.key === x.key)), mem.pace, mem.digested, now);
+      const nows = plan.now.slice(0, Math.max(0, Gchat.POSTS - parts.length));
+      const digest = plan.digest.slice(0, Math.max(0, Gchat.POSTS - parts.length - nows.length));
       // the digest's first item carries its header, so each keeps a thread of its own
       const head = "Legion digest: " + digest.length + (digest.length === 1 ? " item" : " items") + "\n\n";
-      let whole = digest.length === plan.digest.length;
-      for (const item of [...nows, ...digest]) {
-        const tk = "legion-" + item.key + "-" + now;
-        const sent = await Gchat.gchat_post(url, tk, (item === digest[0] ? head : "") + item.text);
-        if ("error" in sent) {
-          console.error("chat " + chat.acct.user + ": gchat: " + sent.error);
-          whole &&= !digest.includes(item);
-          continue;
-        }
-        b.threads.push({ key: item.key, tk, ...sent, ...(item.fp === undefined ? {} : { fp: item.fp }) });
+      const fresh = [...nows, ...digest].map((item): Gchat.Part => ({ key: item.key, tk: "legion-" + item.key + "-" + now, text: (item === digest[0] ? head : "") + item.text, ...(item.fp === undefined ? {} : { fp: item.fp }), done: null, next: 0 }));
+      if (now >= (b.until ?? 0)) {
+        await Chat.bridge_post(chat, url, [...parts, ...fresh], now);
       }
       // a digest cut short goes on next pass; a whole one (or none held) waits DIGEST_MS
+      const whole = digest.length === plan.digest.length && digest.every((x) => b.threads.some((p) => p.key === x.key));
       if (plan.due && whole) {
         mem.digested = now;
         Memory.save(mem);
       }
-      if (b.threads.length > 0 && Chat.gchat_token !== null) {
+      if (b.threads.length > 0 && Chat.gchat_token !== null && now >= (b.until ?? 0)) {
         await Chat.bridged(chat, url, Gchat.gchat_items({ ...mem, calls: Tools.consents(chat.tools) }, Date.now()));
       }
     } catch (err: any) {
       console.error("chat " + chat.acct.user + ": gchat: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200));
     } finally {
       b.busy = false;
+    }
+  }
+
+  // a pass's posts to GChat (Chat.bridge), GAP apart, each kept as a
+  // thread once whole. A later chunk failed: the rest kept (b.parts) for
+  // the next pass. A 4xx other than 429: not tried again in this process
+  // (b.refused). A 429 ends the pass and holds posting (b.until:
+  // Retry-After, at least HOLD)
+  export async function bridge_post(chat: Chat, url: string, sends: Gchat.Part[], now: number): Promise<void> {
+    const b = chat.bridging!;
+    for (const [i, s] of sends.entries()) {
+      if (i > 0) {
+        await Chat.gchat_wait(Gchat.GAP);
+      }
+      const sent = await Gchat.gchat_post(url, s.tk, s.text, fetch, { wait: Chat.gchat_wait, from: s.next, ...(s.done === null ? {} : { done: s.done }) });
+      b.parts = (b.parts ?? []).filter((p) => p.key !== s.key);
+      if (!("error" in sent)) {
+        b.threads.push({ key: s.key, tk: s.tk, ...sent, ...(s.fp === undefined ? {} : { fp: s.fp }) });
+        continue;
+      }
+      const no = sent.status !== null && sent.status >= 400 && sent.status < 500 && sent.status !== 429;
+      console.error("chat " + chat.acct.user + ": gchat: " + sent.error + (no ? " (" + s.key + " not posted again)" : ""));
+      if (no) {
+        (b.refused ??= new Set()).add(s.key);
+        continue;
+      }
+      if (sent.done !== null) {
+        b.parts.push({ ...s, done: sent.done, next: sent.next });
+      }
+      if (sent.status === 429) {
+        b.until = now + Math.max(sent.retry ?? 0, Gchat.HOLD);
+        return;
+      }
     }
   }
 

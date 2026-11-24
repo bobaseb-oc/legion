@@ -54,8 +54,9 @@ test("cards: the observer's JSON, one per track named, each field a string cut, 
   const empty = { title: "", what: "", why: "", status: "", watch: "" };
   expect(Explain.explain_cards("Here: " + JSON.stringify({ cards: [{ ...card, track: "A" }, { ...card, track: "A", title: "again" }, { ...card, track: "B", what: 7 }] }), ["A", "B", "C"])).toEqual([{ ...card, track: "A" }, { ...card, track: "B", what: "" }, { ...empty, track: "C" }]);
   const names = Array.from({ length: 20 }, (_, k) => "N" + k);
-  expect(Explain.explain_cards(JSON.stringify({ cards: names.map((track) => ({ ...card, track, why: "y".repeat(5000) })) }), names)!.map((c) => c.why.length)).toEqual(Array(Explain.CARDS).fill(Explain.FIELD));
-  expect(Explain.explain_cards("no idea", ["A"])).toBeNull();
+  const many = Explain.explain_cards(JSON.stringify({ cards: names.map((track) => ({ ...card, track, why: "y".repeat(5000) })) }), names);
+  expect(Array.isArray(many) ? many.map((c) => c.why.length) : many).toEqual(Array(Explain.CARDS).fill(Explain.FIELD));
+  expect(Explain.explain_cards("no idea", ["A"])).toBe("not JSON with cards");
 });
 
 test("the thread: the last QAS kept; updated N min ago, writing, never", () => {
@@ -283,4 +284,63 @@ test("AC17 (review): rewording a reminded pin clears reminded; a pending or done
     { n: 3, text: "c2", status: "done", at: T0 },
   ]);
   expect(Explain.track_stalls(after.pins, T0 + 50 * MIN)).toEqual([1]);
+});
+
+// the Tracks page left blank (2026-11-23: 8 cards, every title empty):
+// with many agents the snapshot was cut at SNAP before its Tracks: list,
+// so the observer saw no track and wrote none, and empty cards were kept
+test("the snapshot lists the tracks before the agents, so a long crew never cuts them", () => {
+  const none = { goal: null, plan: null, busy: false, said: [], crew: [], questions: [], todos: [], routines: [], prs: [] };
+  const crew = Array.from({ length: 60 }, (_, k) => ({ name: "Agent" + k, parent: "main", tier: "worker", model: "m", status: "working", since: 1, title: "t".repeat(400), todo: [], last: "l".repeat(400) }));
+  const tracks = crew.map((c) => ({ name: c.name, items: 1, pins: 0 }));
+  const text = Explain.explain_snapshot({ ...none, goal: "Ship", crew, tracks } as any);
+  expect(text.length).toBe(Explain.SNAP);
+  for (const t of tracks) {
+    expect([t.name, text.includes("- " + t.name + ": 1 items, 0 pinned")]).toEqual([t.name, true]);
+  }
+  expect(text.indexOf("Tracks:")).toBeLessThan(text.indexOf("Agents:"));
+});
+
+test("cards: a reply with tracks listed but no card for any of them is an error, not blank cards", () => {
+  const card = { title: "T", what: "w", why: "y", status: "s", watch: "n" };
+  expect(Explain.explain_cards(JSON.stringify({ cards: [] }), ["Owl"])).toBe("no card matched a track");
+  expect(Explain.explain_cards(JSON.stringify({ cards: [{ ...card, track: "Ghost" }] }), ["Owl", "Ant"])).toBe("no card matched a track");
+  expect(Explain.explain_cards(JSON.stringify({ cards: [{ ...card, track: "Owl" }] }), ["Owl", "Ant"])).toEqual([{ ...card, track: "Owl" }, { track: "Ant", title: "", what: "", why: "", status: "", watch: "" }]);
+});
+
+test("cards: a track's name matches whatever its case, the card keeping the track's own name", () => {
+  const card = { title: "T", what: "w", why: "y", status: "s", watch: "n" };
+  expect(Explain.explain_cards(JSON.stringify({ cards: [{ ...card, track: "owl" }, { ...card, track: "ANT-2" }] }), ["Owl", "Ant-2"])).toEqual([{ ...card, track: "Owl" }, { ...card, track: "Ant-2" }]);
+});
+
+// the server: a reply that matches no track says so on the page, and the
+// cards written before stay
+const UNMATCHED = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { host: null, seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => {
+  const [call, sink] = AskAI.tie(on, ask.bill, () => {}, () => {});
+  queueMicrotask(() => sink.end({ ok: true, text: JSON.stringify({ cards: [] }), left: [] }));
+  return call;
+};
+chat.tools.agents.set("Owl", { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+chat.mem.goal = "Ship";
+const before = [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }];
+chat.mem.explain.cards = before;
+await Chat.observe(chat, ${T0});
+console.log(JSON.stringify({ cards: chat.mem.explain.cards, error: chat.mem.explain.error }));
+process.exit(0);
+`;
+
+test("the server: a reply that matches no track is an error on the page, and the cards before stay", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/unmatched.ts", UNMATCHED);
+  const proc = Bun.spawn([process.execPath, dir + "/unmatched.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ cards: [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }], error: "The page couldn't be written: no card matched a track." });
 });

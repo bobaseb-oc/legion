@@ -1353,7 +1353,7 @@ function crew_bars(): void {
   }
   markup($("#crew .needs"), Html.needs_html(v));
   markup($("#crew .card"), [Html.focus_html(v), Html.lane_html(v, Date.now())].filter((h) => h !== ""));
-  markup($("#crew .tree"), [Html.agents_find_html(v), ...Html.tree_html(v, Date.now())]);
+  markup($("#crew .tree"), [...Html.agents_find_html(v), ...Html.tree_html(v, Date.now())]);
   const grid = v.page === null;
   document.body.classList.toggle("gridmode", grid);
   $("#grid").hidden = !grid;

@@ -184,6 +184,46 @@ test("the devices line names a device's home repo, and Unii's tools say they run
   Tools.close(tools);
 });
 
+// a device killed (its socket closed, no quit) keeps its link, so a
+// reconnect of the same tab finds its jobs; only a device with a live link
+// is open
+test("only a device with a live link is open; a lost link's jobs are there when its tab is back", () => {
+  const tools = Tools.serve({} as any, {} as any);
+  let up = true;
+  const sent: any[] = [];
+  const link = (live: () => boolean) => ({ send: (x: any) => sent.push(x), live, computer: false, work: "~/w" });
+  Tools.attach(tools, "t1", "mac", "u", link(() => up));
+  Tools.attach(tools, "t2", "box", "u", link(() => false));
+  Tools.attach(tools, "t3", "pc", "u", link(() => false));
+  Tools.attach(tools, "t4", "pc", "u", link(() => true));
+  const names = () => Tools.opened(tools).map(([name]) => name);
+  expect(names()).toEqual(["mac", "pc"]);
+  expect(Tools.devices(tools).text).not.toContain("- box");
+  const run = Tools.start_job(tools, "mac", { name: "shell", input: { command: "ls" }, cwd: "main" } as any, "j1");
+  expect(typeof run).not.toBe("string");
+  up = false;
+  expect(names()).toEqual(["pc"]);
+  sent.length = 0;
+  Tools.attach(tools, "t1", "mac", "u", link(() => true));
+  expect(names()).toEqual(["mac", "pc"]);
+  expect([...tools.devices.get("mac")!.jobs.keys()]).toEqual(["j1"]);
+  expect(sent).toContainEqual({ $: "job", id: "j1", job: { name: "shell", input: { command: "ls" }, cwd: "main" } });
+  Tools.close(tools);
+});
+
+// an agent's job for a device named: refused if none of its links is live,
+// the error naming the devices that are open
+test("a device named whose links are all dead is not open to an agent's job", () => {
+  const tools = Tools.serve({} as any, {} as any);
+  const link = (live: () => boolean) => ({ send: () => {}, live, computer: false, work: "~/w" });
+  Tools.attach(tools, "t1", "mac", "u", link(() => true));
+  Tools.attach(tools, "t2", "box", "u", link(() => false));
+  expect(Tools.open(tools, "box", false)).toBe("No device box is open (unii isn't running there). Open: mac. Only the user opens it, so don't retry or wait: end your turn, saying what is left.");
+  expect(typeof Tools.start_job(tools, "box", { name: "shell", input: { command: "ls" }, cwd: "main" } as any, "j1")).toBe("string");
+  expect(typeof Tools.open(tools, "mac", false)).not.toBe("string");
+  Tools.close(tools);
+});
+
 // An agent's pulse, sent to every view (Server.ts), small: its status,
 // what it does now (its stream's last line: a tool's call, its words, or
 // "thinking"), its report's last line; each line at most PULSE_LINE chars
@@ -242,14 +282,18 @@ test("label: itself or an agent under it, trimmed and capped, in the crew", asyn
 
 // todo: an agent's own checklist, the whole list set each call (as Claude
 // Code's TodoWrite), cleaned and capped, in the crew; the orchestrator has
-// none (it does no hands-on work)
-test("todo: an agent sets its own checklist, cleaned and capped, in the crew; main has no todo tool", async () => {
-  const tools = Tools.serve({} as any, { change: () => {} } as any);
+// none of its own (it does no hands-on work), only other agents' lists
+test("todo: an agent sets its own checklist, cleaned and capped, in the crew; main's todo is another agent's list only", async () => {
+  // a real chat dir: the checklist is saved in its view.json too
+  const { Memory } = await import("./Memory.ts");
+  const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/unii-todo-"), () => ({}) as any), { change: () => {} } as any);
   const sub = (name: string, parent: string, tier: string) => ({ name, parent, role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
   tools.agents.set("Wkr", sub("Wkr", "main", "worker"));
   const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
   expect(Tools.list(tools, "Wkr").map((t) => t.name)).toContain("todo");
-  expect(Tools.list(tools, "main").map((t) => t.name)).not.toContain("todo");
+  // the orchestrator's todo is another agent's list only (its agent field)
+  expect((Tools.list(tools, "main").find((t) => t.name === "todo")!.schema as any).required).toContain("agent");
+  expect((Tools.list(tools, "Wkr").find((t) => t.name === "todo")!.schema as any).properties.agent).toBeUndefined();
   const set = await todo("Wkr", { items: [{ text: " Read the\nfailing test ", status: "done" }, { text: "Fix the race", status: "doing" }, { text: "Run the suite" }, { text: "  " }] });
   expect(set).toEqual({ text: "[x] Read the failing test\n[>] Fix the race\n[ ] Run the suite", fail: false });
   expect(Tools.crew(tools).find((c) => c.name === "Wkr")!.todo).toEqual([
@@ -264,6 +308,41 @@ test("todo: an agent sets its own checklist, cleaned and capped, in the crew; ma
   // an empty list clears it
   expect((await todo("Wkr", { items: [] })).fail).toBe(false);
   expect(Tools.crew(tools).find((c) => c.name === "Wkr")!.todo).toBeUndefined();
+});
+
+// todos go stale: the orchestrator closes or removes items on any agent's
+// checklist (its list as main wants it: items it has, done or as they
+// were; the rest removed), saved and noted for the user; it adds or
+// rewrites nothing there, and no other agent touches another's list
+test("todo: main closes and removes items on an agent's checklist, saved and noted; nothing else", async () => {
+  const { Memory } = await import("./Memory.ts");
+  const notes: string[] = [];
+  const mem = Memory.load(fs.mkdtempSync(os.tmpdir() + "/unii-todo-"), () => ({}) as any);
+  const tools = Tools.serve(mem, { change: () => {}, note: (t: string) => notes.push(t) } as any);
+  const sub = (name: string) => ({ name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
+  tools.agents.set("Wkr", sub("Wkr"));
+  tools.agents.set("Oth", sub("Oth"));
+  const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
+  await todo("Wkr", { items: [{ text: "Read it", status: "doing" }, { text: "Fix it" }, { text: "Ship it" }] });
+  const list = () => Tools.crew(tools).find((c) => c.name === "Wkr")!.todo;
+  const before = JSON.stringify(list());
+  // refused, nothing changes: a new item, a rewritten status, an unknown
+  // agent, another agent's list from a non-main caller
+  expect((await todo("main", { agent: "Wkr", items: [{ text: "Read it", status: "doing" }, { text: "New step" }] })).fail).toBe(true);
+  expect((await todo("main", { agent: "Wkr", items: [{ text: "Fix it", status: "doing" }] })).fail).toBe(true);
+  expect((await todo("main", { agent: "Nobody", items: [] })).fail).toBe(true);
+  expect((await todo("Oth", { agent: "Wkr", items: [] })).fail).toBe(true);
+  expect(JSON.stringify(list())).toBe(before);
+  expect(notes).toEqual([]);
+  // main closes one and removes one
+  const out = await todo("main", { agent: "Wkr", items: [{ text: "Read it", status: "done" }, { text: "Fix it", status: "pending" }] });
+  expect(out.fail).toBe(false);
+  expect(list()).toEqual([{ text: "Read it", status: "done" }, { text: "Fix it", status: "pending" }]);
+  expect(notes.join("\n")).toContain("Wkr");
+  expect(notes.join("\n")).toContain("closed: Read it");
+  expect(notes.join("\n")).toContain("removed: Ship it");
+  // saved: a reload of the chat dir has the closed list
+  expect(Memory.load(mem.dir, () => ({}) as any).checklists["Wkr"]).toEqual([{ text: "Read it", status: "done" }, { text: "Fix it", status: "pending" }]);
 });
 
 // Claude Code workers are started by managers only: the orchestrator's

@@ -165,6 +165,10 @@ export type Question = { id: number; text: string; options?: string[]; at: numbe
 // server's own (never the agent's: Tools.todo strips them): since when
 // its status is so, whether a stall was reminded (Server.ts Chat.stalls)
 export type Todo = { text: string; status: "pending" | "doing" | "done"; since?: number; reminded?: boolean };
+// a checklist's most items, and an item's most characters (Tools.todo;
+// Memory.checklists_read checks a saved one against the same)
+export const TODOS = 20;
+export const TODO_TEXT = 120;
 // a pin of the user's on a track (Explain.ts track_add): its number
 // (never reused), text, status, when made; since and reminded as a
 // Todo's; from: the agent item it is an edited copy of
@@ -1503,7 +1507,14 @@ export function view_pill(v: View): string {
 // the mode, the orchestrator's questions open
 // budget: the gateway's for this member (Gateway.ts); busy: the AI
 // service answered busy within BUSY_FOR
-export type StatusLine = { up: boolean; dir: string; branch: string | null; model: string; working: number; spend: { spend: number | null; stale: boolean }; questions?: number; mode?: Perm; waiting?: number; budget?: { spend: number; max: number } | null; busy?: boolean };
+export type StatusLine = { up: boolean; dir: string; branch: string | null; model: string; working: number; spend: { spend: number | null; stale: boolean }; questions?: number; mode?: Perm; waiting?: number; budget?: { spend: number; max: number; reset?: string | null } | null; busy?: boolean };
+
+// when the gateway's budget resets (", resets HH:MM UTC"); none or not a
+// date: nothing
+function status_reset(reset: string | null): string {
+  const at = reset === null ? NaN : Date.parse(reset);
+  return Number.isFinite(at) ? ", resets " + new Date(at).toISOString().slice(11, 16) + " UTC" : "";
+}
 
 export function status_text(s: StatusLine): string {
   const usd = (n: number) => (n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2));
@@ -1512,8 +1523,10 @@ export function status_text(s: StatusLine): string {
     s.dir + (s.branch === null ? "" : " ⎇ " + s.branch),
     s.model,
     ...(s.working === 0 ? [] : [s.working + (s.working === 1 ? " agent" : " agents") + " at work"]),
-    ...(s.spend.spend === null ? [] : [usd(s.spend.spend) + (s.spend.stale ? "*" : "") + " today"]),
-    ...(s.budget ? ["gateway $" + Math.round(s.budget.spend) + "/$" + Math.round(s.budget.max)] : []),
+    // the gateway's budget is the spend that counts (its own window, every
+    // key of the member): with it, the cache's UTC-day spend is left out
+    ...(s.budget || s.spend.spend === null ? [] : [usd(s.spend.spend) + (s.spend.stale ? "*" : "") + " today"]),
+    ...(s.budget ? ["gateway $" + Math.round(s.budget.spend) + "/$" + Math.round(s.budget.max) + status_reset(s.budget.reset ?? null)] : []),
     ...(s.busy ? ["⚠ AI service busy"] : []),
     ...(s.mode === undefined ? [] : [s.mode + " mode"]),
     ...(!s.waiting ? [] : [s.waiting + " waiting for you"]),

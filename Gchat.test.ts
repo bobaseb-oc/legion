@@ -47,18 +47,52 @@ test("a post sets the thread key and fallback, and says a failure without the UR
   const down = (async (u: string) => { throw new Error("fetch failed: " + u); }) as any;
   const e1 = await gchat_post(URL_, "k", "hi", bad);
   const e2 = await gchat_post(URL_, "k", "hi", down);
-  expect(e1).toEqual({ error: "GChat: HTTP 400." });
-  expect(e2).toEqual({ error: "GChat: not reachable." });
+  expect(e1).toEqual({ error: "GChat: HTTP 400.", status: 400, retry: null, done: null, next: 0 });
+  expect(e2).toEqual({ error: "GChat: not reachable.", status: null, retry: null, done: null, next: 0 });
   // Google's reason said too (a bad token is clear at once), one line,
   // capped, and never the URL's key or token even if it echoes them
   const why = (msg: string) => (async () => Response.json({ error: { code: 400, message: msg } }, { status: 400 })) as any;
-  expect(await gchat_post(URL_, "k", "hi", why("Missing or malformed token in the request."))).toEqual({ error: "GChat: HTTP 400: Missing or malformed token in the request." });
+  expect(await gchat_post(URL_, "k", "hi", why("Missing or malformed token in the request."))).toMatchObject({ error: "GChat: HTTP 400: Missing or malformed token in the request.", status: 400 });
   const u = new URL(URL_);
   const echo = await gchat_post(URL_, "k", "hi", why("bad " + URL_ + "\nkey " + u.searchParams.get("key") + " " + "x".repeat(500)));
   expect("error" in echo && echo.error.length <= 240).toBe(true);
   expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("key")!);
   expect(JSON.stringify(echo)).not.toContain(u.searchParams.get("token")!);
   expect(JSON.stringify(echo)).not.toContain("\n");
+});
+
+// Google allows about one post a second a space: chunks are spaced GAP
+// apart (the wait injected: no real sleep); a 429 says how long to wait
+// (Retry-After, seconds); a post cut short by a later chunk's failure says
+// its first message and the next chunk, so the rest goes in the same thread
+test("a post spaces its chunks, says a 429's Retry-After, and goes on from the chunk that failed", async () => {
+  const text = "x".repeat(9000);
+  const n = gchat_chunks(text).length;
+  expect(n).toBe(3);
+  const waits: number[] = [];
+  const wait = async (ms: number) => { waits.push(ms); };
+  const sent: string[] = [];
+  let status = [200, 200, 200];
+  const f = (async (u: string, init: any) => {
+    sent.push(new URL(u).searchParams.get("threadKey") + " " + JSON.parse(init.body).text.slice(0, 5));
+    const s = status.shift() ?? 200;
+    return s === 200 ? Response.json({ createTime: "2026-11-23T10:00:00Z", thread: { name: SPACE + "/threads/T1" } })
+      : new Response("no", { status: s, headers: s === 429 ? { "retry-after": "30" } : {} });
+  }) as any;
+  const first = { thread: SPACE + "/threads/T1", at: Date.parse("2026-11-23T10:00:00Z") };
+  expect(await gchat_post(URL_, "k", text, f, { wait })).toEqual(first);
+  expect(waits).toEqual([1100, 1100]);
+  sent.length = 0;
+  status = [429];
+  expect(await gchat_post(URL_, "k", "hi", f, { wait })).toEqual({ error: "GChat: HTTP 429.", status: 429, retry: 30_000, done: null, next: 0 });
+  sent.length = 0;
+  status = [200, 500];
+  const cut = await gchat_post(URL_, "k", text, f, { wait });
+  expect(cut).toEqual({ error: "GChat: HTTP 500.", status: 500, retry: null, done: first, next: 1 });
+  sent.length = 0;
+  status = [];
+  expect(await gchat_post(URL_, "k", text, f, { wait, from: 1, done: first })).toEqual(first);
+  expect(sent).toEqual(["k [2/3]", "k [3/3]"]);
 });
 
 // security review L5: Google may echo the key or token percent-encoded,
@@ -245,6 +279,7 @@ const tool = (who, name, args, id) => Tools.call(chat.tools, who, name, args, go
 const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
 // a pass of the bridge's timer, on the chat kept open (no view is
 // connected here, so Chat.free would let it go)
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
 const out = { dflt: Chat.gchat_token !== null };
 if (process.env.STEP === "post" || process.env.STEP === "off") {
@@ -377,4 +412,108 @@ test("the server: off when the space or the key is unset", async () => {
     expect(out.bye).toEqual([]);
     expect(all).not.toContain("FAKETOKEN");
   }
+}, 30_000);
+
+// the bridge against Google's limits, in a process of its own (fetch
+// stubbed, the wait recorded: no real sleep, the clock given to each pass).
+// STEP 429: a 429 ends the pass and holds posting max(Retry-After, 15 s);
+// posts in a pass are spaced. part: an item cut short by a later chunk
+// sends only the rest, in the same thread. refused: a 4xx (not 429)
+// skips that item for this process, logged once
+const LIMITS = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+const SPACE = ${JSON.stringify(SPACE)};
+const posts = [];
+const script = JSON.parse(process.env.SCRIPT);
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  if (u.host === "chat.googleapis.com" && init.method === "POST") {
+    const tk = u.searchParams.get("threadKey");
+    posts.push(tk.split("-").slice(0, 2).join("-") + " " + JSON.parse(init.body).text.slice(0, 5));
+    const s = script.shift() ?? 200;
+    return s === 200 ? Response.json({ createTime: new Date().toISOString(), thread: { name: SPACE + "/threads/" + tk } })
+      : new Response("no", { status: s, headers: s === 429 && process.env.STEP !== "hold" ? { "retry-after": "30" } : {} });
+  }
+  return new Response("no", { status: 404 });
+};
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
+Chat.gchat_token = null;
+const waits = [];
+Chat.gchat_wait = async (ms) => { waits.push(ms); };
+const go = new AbortController().signal;
+const ask = (q, id) => Tools.call(chat.tools, "main", "ask", { question: q, options: ["Hold", "Push it"] }, go, id);
+const t0 = Date.now();
+const pass = async (dt) => { Chat.chats.set("u1", chat); await Chat.bridge(chat, t0 + dt); return posts.length; };
+const out = {};
+if (process.env.STEP === "429") {
+  await ask("One?", "t1"); await ask("Two?", "t2"); await ask("Three?", "t3");
+  out.passes = [await pass(0), await pass(10_000), await pass(16_000), await pass(31_000)];
+  out.waits = waits;
+} else if (process.env.STEP === "hold") {
+  await ask("One?", "t1");
+  out.passes = [await pass(0), await pass(14_000), await pass(15_000)];
+} else if (process.env.STEP === "part") {
+  // an item longer than one message (a question's own text is capped
+  // below that, so set in memory)
+  await ask("Long?", "t1");
+  chat.mem.questions.at(-1).text = "x".repeat(5000);
+  out.passes = [await pass(0), await pass(20_000), await pass(40_000)];
+  out.threads = chat.bridging.threads.length;
+} else {
+  await ask("One?", "t1"); await ask("Two?", "t2");
+  out.passes = [await pass(0), await pass(20_000), await pass(40_000)];
+  out.threads = chat.bridging.threads.length;
+}
+out.posts = posts;
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+
+async function limits(step: string, script: number[]): Promise<{ out: any; err: string }> {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-gchat-");
+  fs.writeFileSync(dir + "/limits.ts", LIMITS);
+  const env = { UNII_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", UNII_DIR: dir, STEP: step, SCRIPT: JSON.stringify(script) };
+  const proc = Bun.spawn([process.execPath, dir + "/limits.ts"], { env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+  const [o, e] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), err: e };
+}
+
+test("the bridge: a 429 ends the pass and holds posting for max(Retry-After, 15 s); posts in a pass are spaced", async () => {
+  const { out, err } = await limits("429", [200, 429]);
+  // pass 1: One posted, Two refused (429), Three not tried; held at 10 s
+  // and 16 s (Retry-After 30 s), then Two and Three
+  expect(out.passes).toEqual([2, 2, 2, 4]);
+  expect(out.posts.map((p: string) => p.split(" ")[0])).toEqual(["legion-q1", "legion-q2", "legion-q2", "legion-q3"]);
+  expect(out.waits).toEqual([1100, 1100]);
+  expect(err).toContain("HTTP 429");
+  expect(err).not.toContain("FAKETOKEN");
+}, 30_000);
+
+test("the bridge: a 429 without Retry-After holds posting for 15 s", async () => {
+  const { out } = await limits("hold", [429]);
+  expect(out.passes).toEqual([1, 1, 2]);
+  expect(out.posts.map((p: string) => p.split(" ")[0])).toEqual(["legion-q1", "legion-q1"]);
+}, 30_000);
+
+test("the bridge: an item cut short by a later chunk sends only the rest, in the same thread", async () => {
+  const { out } = await limits("part", [200, 500]);
+  expect(out.posts).toEqual(["legion-q1 [1/2]", "legion-q1 [2/2]", "legion-q1 [2/2]"]);
+  expect(out.passes).toEqual([2, 3, 3]);
+  expect(out.threads).toBe(1);
+}, 30_000);
+
+test("the bridge: a 4xx other than 429 skips that item for this process, logged once", async () => {
+  const { out, err } = await limits("refused", [400]);
+  expect(out.passes).toEqual([2, 2, 2]);
+  expect(out.posts.map((p: string) => p.split(" ")[0])).toEqual(["legion-q1", "legion-q2"]);
+  expect(out.threads).toBe(1);
+  expect(err.split("HTTP 400").length - 1).toBe(1);
+  expect(err).not.toContain("FAKETOKEN");
 }, 30_000);

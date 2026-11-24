@@ -31,24 +31,58 @@ test("the tree: a folded manager with its roll-up and a caret; rows link to thei
   expect(open[1]).not.toContain("Expand");
 });
 
+// the search's markup strings (a string before: wrapped, so the root
+// count below shows what the page drops)
+const find = (v: View.View): string[] => [Html.agents_find_html(v)].flat();
+
 // PLP-2915: the Crew's search box finds agents by name or title, archived
 // and past ones too; each hit a link to its page (Goto, read-only)
 test("the Crew's agent search: a box, then each hit a link to its page with its title, state and date", () => {
   const v = View.view_new();
-  const box = Html.agents_find_html(v);
+  const box = find(v).join("");
   expect(box).toContain('<form class="afind">');
   expect(box).toContain('data-keep="agents"');
   expect(box).not.toContain('class="ahit');
   View.view_act(v, { $: "Agents", q: "log" });
-  expect(Html.agents_find_html(v)).toContain("Looking…");
+  expect(find(v).join("")).toContain("Looking…");
   View.view_hear(v, { $: "agents_found", q: "log", hits: [{ name: "Login-Fixer", title: "Fix <the> login", state: "archived", date: "2026-11-16T10:20:00.000Z" }] });
-  const html = Html.agents_find_html(v);
+  const html = find(v).join("");
   expect(html).toContain('value="log"');
   expect(html).toContain('<a class="ahit archived" href="#crew/Login-Fixer"');
   expect(html).toContain("Fix &lt;the&gt; login");
   expect(html).toContain("2026-11-16 10:20");
   View.view_hear(v, { $: "agents_found", q: "log", hits: [] });
-  expect(Html.agents_find_html(v)).toContain("No agent's name or title has “log”.");
+  expect(find(v).join("")).toContain("No agent's name or title has “log”.");
+});
+
+// main.ts markup() makes one element of each string (html_parse keeps
+// its first element only), so each string a pane is given must have one
+// root element: a second one is dropped from the page
+const VOID = new Set(["input", "br", "img", "hr", "meta", "link", "wbr", "source"]);
+function roots(html: string): number {
+  let depth = 0;
+  let n = 0;
+  for (const [tag, close, name] of html.matchAll(/<(\/?)([a-z][a-z0-9]*)\b[^>]*>/g).map((m) => [m[0], m[1], m[2]!] as const)) {
+    if (close === "/") {
+      depth -= 1;
+      continue;
+    }
+    n += depth === 0 ? 1 : 0;
+    depth += VOID.has(name) || tag.endsWith("/>") ? 0 : 1;
+  }
+  return n;
+}
+
+test("the Crew's agent search: each string the tree is given has one root element, so Looking… and the hits are shown", () => {
+  const v = View.view_new();
+  const one = () => find(v).map(roots);
+  expect(one()).toEqual([1]);
+  View.view_act(v, { $: "Agents", q: "log" });
+  expect(one()).toEqual([1, 1]);
+  expect(find(v)[1]).toContain("Looking…");
+  View.view_hear(v, { $: "agents_found", q: "log", hits: [{ name: "Login-Fixer", title: "Fix login", state: "archived", date: "2026-11-16T10:20:00.000Z" }] });
+  expect(one()).toEqual([1, 1]);
+  expect(find(v)[1]).toContain('class="ahit archived"');
 });
 
 // each status gets its actions: at work, stop; asking, approve and deny;

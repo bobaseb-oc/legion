@@ -447,6 +447,51 @@ console.log(JSON.stringify({ none, one, first: first && first.job, empty, device
 process.exit(0);
 `;
 
+// a device killed (no quit) keeps its link, dead: the user's !command, its
+// device not named, runs on the one device whose link is live; with only a
+// dead one, no device is open
+const BANG_LIVE = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+chat.socks.add({ send: () => {}, data: { seen: new Set(), watch: new Set() } });
+AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
+const jobs = { mac: [], "mac-2": [] };
+const link = (k, live) => ({ send: (x) => { if (x.$ === "job") jobs[k].push(x); }, live, computer: false, work: "~/w" });
+Tools.attach(chat.tools, "t1", "mac", "old", link("mac", () => false));
+const alone = await Chat.act(chat, "b1", { $: "bang", command: "ls" }, "");
+Tools.attach(chat.tools, "t2", "mac", "new", link("mac-2", () => true));
+const ran = await Chat.act(chat, "b2", { $: "bang", command: "ls" }, "");
+console.log(JSON.stringify({ alone: alone.error ?? null, ran, dead: jobs.mac.length, live: jobs["mac-2"].map((x) => x.job.input.command) }));
+process.exit(0);
+`;
+
+// a look to every device waits for one answer per live link only: a
+// killed device's dead link never answers, so a refusal from the live one
+// is told at once
+const LOOK_LIVE = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const sent = [];
+chat.socks.add({ send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set() } });
+const link = (live) => ({ send: () => {}, live, computer: false, work: "~/w" });
+Tools.attach(chat.tools, "t1", "mac", "u1", link(() => false));
+Tools.attach(chat.tools, "t2", "mac", "u1", link(() => true));
+Tools.attach(chat.tools, "t3", "box", "u1", link(() => false));
+await Chat.act(chat, "l1", { $: "look", what: { kind: "file", path: "/r/a.ts" } }, "");
+await Chat.act(chat, "l2", { $: "looked", id: "l1", kind: "file", error: "not under" }, "mac");
+console.log(JSON.stringify({ told: sent.filter((m) => m.$ === "looked") }));
+process.exit(0);
+`;
+
 // B2: shell commands running like Claude Code's. A device's tails (its
 // own jobs only) give each command's last lines, in the state and in
 // "shells" messages; RED ZONE (DRAFT): sending one to the background or
@@ -1283,6 +1328,22 @@ test("!command: the user's own, from a view only, run ungated on the device name
     unknown: "No device nas is open: mac, pc.", picked: {}, there: "cd '/r/it'\\''s here' && ls", baddir: true,
     termed: {}, termjob: "echo t",
   });
+});
+
+test("!command: a killed device's dead link is not open; the command runs on the live one", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/bang-live.ts", BANG_LIVE);
+  const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ alone: "No device is open: run legion (or legion device) on one.", ran: {}, dead: 0, live: ["ls"] });
+});
+
+test("a look to every device waits only for live links: the live one's refusal is told at once", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/look-live.ts", LOOK_LIVE);
+  const proc = Bun.spawn([process.execPath, dir + "/look-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out).toEqual({ told: [{ $: "looked", id: "l1", kind: "file", error: "not under" }] });
 });
 
 test("shell commands: their last lines told the views; background and stop only the user's, a device key's refused; the user's Stop ends them all", async () => {
@@ -2242,6 +2303,7 @@ Chat.chats.set("u1", chat);
 chat.socks.add({ send: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
 AskAI.ask = (ask, on) => { const [call] = AskAI.tie(on, ask.bill, () => {}, () => {}); call.send = () => {}; return call; };
 Chat.gchat_token = async () => "tok";
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = () => (Chat.chats.set("u1", chat), Chat.bridge(chat, Date.now()));
 const msgs = () => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));
 const out = {};
@@ -2622,6 +2684,7 @@ globalThis.fetch = async (url, init = {}) => {
 Chat.gchat_token = async () => "tok";
 // a device's own socket keeps the chat this process's, and is no view
 const keep = (chat) => chat.socks.add({ send: () => {}, close: () => {}, data: { user: { id: "u1", name: "a@b.c" }, who: "device", tab: "", wire: null, host: null, computer: false, work: "", home: null, device: "d1", seen: new Set(), watch: new Set() } });
+Chat.gchat_wait = async () => {}; // posts GAP apart: no real wait here
 const pass = (chat, now) => (Chat.chats.set("u1", chat), Chat.bridge(chat, now ?? Date.now()));
 const held = (s) => posts.filter((p) => String(p.text).includes(s)).length;
 const msgs = (chat) => Array.from({ length: chat.mem.count }, (_, i) => Memory.message(chat.mem, i));

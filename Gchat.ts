@@ -54,6 +54,8 @@ export type Reply = { item: Item; name: string; text: string };
 export const EVERY  = 15_000;
 export const TEXT   = 4000;
 export const POSTS  = 10;
+export const GAP    = 1_100;  // between two posts or chunks: Google takes about one a second a space
+export const HOLD   = 15_000; // no post for at least this long after a 429
 export const ACTED  = 500;
 
 const SPACE = /^spaces\/[\w-]{1,100}$/;
@@ -119,24 +121,53 @@ export function gchat_chunks(text: string, most = TEXT): string[] {
   return chunks.length === 1 ? chunks : chunks.map((c, i) => "[" + (i + 1) + "/" + chunks.length + "]\n" + c);
 }
 
-// text posted through the webhook into the thread tk (made if new); the
-// first message's thread and time (Google's clock), or why not: its HTTP
-// status only, never the URL (a key)
-export async function gchat_post(url: string, tk: string, text: string, f: typeof fetch = fetch): Promise<{ thread: string; at: number } | { error: string }> {
+// a post's first message: its thread and time (Google's clock)
+export type Sent = { thread: string; at: number };
+// why a post failed: its HTTP status (null: not reachable), a 429's
+// Retry-After (ms), and, if a later chunk failed, the first message and
+// the chunk to go on from
+export type Failed = { error: string; status: number | null; retry: number | null; done: Sent | null; next: number };
+// a post to send, or the rest of one cut short: done its first message
+// (null: none sent yet), next the chunk to go on from
+export type Part = { key: string; tk: string; text: string; fp?: string; done: Sent | null; next: number };
+// how: the wait between chunks (GAP; a test's records it), and to go on
+// from chunk `from` of a post whose first message was `done`
+export type Pace = { wait?: (ms: number) => Promise<void>; from?: number; done?: Sent };
+
+// text posted through the webhook into the thread tk (made if new), its
+// chunks GAP apart; the first message's thread and time, or why not: its
+// HTTP status only, never the URL (a key)
+export async function gchat_post(url: string, tk: string, text: string, f: typeof fetch = fetch, o: Pace = {}): Promise<Sent | Failed> {
   const u = new URL(url);
   u.searchParams.set("threadKey", tk);
   u.searchParams.set("messageReplyOption", "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD");
-  let first: { thread: string; at: number } | null = null;
-  for (const chunk of gchat_chunks(text)) {
-    const res = await f(u.href, { method: "POST", headers: { "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ text: chunk }), redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
+  const chunks = gchat_chunks(text);
+  const from = o.from ?? 0;
+  let first: Sent | null = o.done ?? null;
+  for (let i = from; i < chunks.length; i++) {
+    if (i > from) {
+      await (o.wait ?? Bun.sleep)(GAP);
+    }
+    const res = await f(u.href, { method: "POST", headers: { "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ text: chunks[i] }), redirect: "error", signal: AbortSignal.timeout(20e3) }).catch(() => null);
     if (res === null || !res.ok) {
-      return { error: "GChat: " + (res === null ? "not reachable." : "HTTP " + res.status + (await gchat_why(res, url, u))) };
+      const error = "GChat: " + (res === null ? "not reachable." : "HTTP " + res.status + (await gchat_why(res, url, u)));
+      return { error, status: res?.status ?? null, retry: res === null ? null : gchat_retry(res), done: first, next: i };
     }
     const json: any = await res.json().catch(() => null);
     const at = Date.parse(String(json?.createTime ?? ""));
     first ??= { thread: String(json?.thread?.name ?? ""), at: Number.isFinite(at) ? at : Date.now() };
   }
   return first!;
+}
+
+// a 429's Retry-After in ms (seconds, or an HTTP date), else null
+function gchat_retry(res: Response): number | null {
+  const h = res.headers.get("retry-after");
+  if (res.status !== 429 || h === null) {
+    return null;
+  }
+  const ms = /^\d+$/.test(h.trim()) ? Number(h) * 1000 : Date.parse(h) - Date.now();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
 // Google's reason for a refused post (": <message>", else "."): one line,
