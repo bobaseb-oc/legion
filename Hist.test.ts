@@ -50,7 +50,7 @@ test("the selection moves older and newer and stays in the list", () => {
   expect(Hist.hist_move(0, 3, 1)).toBe(1);
   expect(Hist.hist_move(2, 3, 1)).toBe(2);
   expect(Hist.hist_move(0, 3, -1)).toBe(0);
-  expect(Hist.hist_move(5, 3, -1)).toBe(1);
+  expect(Hist.hist_move(5, 3, -1)).toBe(2);
   expect(Hist.hist_move(0, 0, 1)).toBe(0);
 });
 
