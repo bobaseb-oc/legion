@@ -242,7 +242,7 @@ test("label: itself or an agent under it, trimmed and capped, in the crew", asyn
 
 // todo: an agent's own checklist, the whole list set each call (as Claude
 // Code's TodoWrite), cleaned and capped, in the crew; the orchestrator has
-// none (it does no hands-on work)
+// none of its own (it does no hands-on work), only other agents' lists
 test("todo: an agent sets its own checklist, cleaned and capped, in the crew; main's todo is another agent's list only", async () => {
   // a real chat dir: the checklist is saved in its view.json too
   const { Memory } = await import("./Memory.ts");
