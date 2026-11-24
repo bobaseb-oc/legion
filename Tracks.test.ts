@@ -697,7 +697,7 @@ const saved = JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.j
 const x = await start("short lived", true);
 await todo(x, { items: [{ text: "x step", status: "pending" }] });
 const had = Object.keys(JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? {});
-const dismissed = await safe(() => Chat.act(chat, "d1", { $: "dismiss", name: x }));
+const dismissed = await safe(() => Chat.act(chat, "d1", { $: "dismiss", name: x }, ""));
 const after = Object.keys(JSON.parse(require("node:fs").readFileSync(chat.mem.dir + "/view.json", "utf8")).checklists ?? {});
 console.log(JSON.stringify({ w, v, x, set, cleared, saved, pins: pins(w), had, dismissed, after }));
 process.exit(0);
