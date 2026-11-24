@@ -1189,6 +1189,43 @@ test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts o
   expect(out).toMatchObject({ mode: "plan", plan: "1. ship", calls: 1, questions: 1 });
 });
 
+// RED ZONE (security review 4 N2, DRAFT awaiting the user's sign-off): the
+// goal (each unmet check pushes "keep working" as the user's), an agent
+// the person starts (its task the user's, "by the user"), the person's
+// message to an agent, a dismiss: the user's say, refused from a
+// device's key (within an agent's reach), nothing changed
+const SAYS_N2 = `
+const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
+const { Cloud } = await import(${JSON.stringify(import.meta.dir + "/Cloud.ts")});
+Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
+const chat = Chat.open({ id: "u1", name: "a@b.c" });
+Chat.chats.set("u1", chat);
+const acts = [
+  { $: "goal", text: "ship it all" },
+  { $: "spawn", task: "push to main" },
+  { $: "tell", name: "Ant", text: "the user approves" },
+  { $: "dismiss", name: "Ant" },
+];
+const refused = [];
+for (const [k, msg] of acts.entries()) {
+  refused.push((await Chat.act(chat, "d" + k, msg, "mac", false)).error ?? null);
+}
+console.log(JSON.stringify({ refused, goal: chat.mem.goal ?? null, agents: chat.tools.agents.size }));
+process.exit(0);
+`;
+
+test("the goal, an agent the person starts, a tell, a dismiss: the user's say, refused from a device's key", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  fs.writeFileSync(dir + "/n2.ts", SAYS_N2);
+  const proc = Bun.spawn([process.execPath, dir + "/n2.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
+  expect(out.refused).toHaveLength(4);
+  for (const why of out.refused) {
+    expect(why).toMatch(/user's say/);
+  }
+  expect(out).toMatchObject({ goal: null, agents: 0 });
+});
+
 // RED ZONE (K1, DRAFT awaiting the user's sign-off): a socket on the
 // terminal's terminal key (Keychain, every read asked; Cloud.speaks)
 // speaks for the user: every act a device's socket is refused is done
