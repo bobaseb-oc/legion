@@ -33,16 +33,20 @@ export type Clean = {
   repo: string; path: string; branch: string | null; changes: number; merged: boolean;
   gone?: boolean; unpushed?: number; stashes?: number; bytes?: number; at?: number; live?: boolean; safe?: boolean;
   squashed?: boolean; // its HEAD is exactly a merged PR's head (Device.device_squashes)
+  envs?: string[]; // the .env files in it git can't give back (untracked, ignored too)
 };
 
 // RED ZONE (DRAFT awaiting the user's sign-off): a worktree may be removed
 // only when its branch is merged or gone on origin, it has no change, no
 // commit on no remote, no stash of its branch, and no process works in it.
-// What isn't known counts against it (fail closed)
+// What isn't known counts against it (fail closed). RED ZONE (security
+// review 4 D2, DRAFT awaiting the user's sign-off): nor an untracked or
+// ignored .env file in it (git status shows no ignored file; the remove
+// deletes them with the dir)
 export function inbox_safe(c: Clean): boolean {
   // a squash merge's own commits are on no remote: only with HEAD exactly
   // the merged PR's head do they not count
-  return (c.merged || c.gone === true || c.squashed === true) && c.changes === 0 && (c.unpushed === 0 || c.squashed === true) && c.stashes === 0 && c.live === false;
+  return (c.merged || c.gone === true || c.squashed === true) && c.changes === 0 && (c.unpushed === 0 || c.squashed === true) && c.stashes === 0 && c.envs !== undefined && c.envs.length === 0 && c.live === false;
 }
 
 // a device's row checked: what it sent of the tidy's fields, then safe
@@ -58,6 +62,9 @@ function clean_row(c: any): Clean {
     if (c?.[k] !== undefined) {
       row[k] = bool(c[k]);
     }
+  }
+  if (c?.envs !== undefined) {
+    row.envs = list(c.envs, (e) => str(e, 200)).slice(0, 10);
   }
   return { ...row, safe: inbox_safe(row) };
 }
