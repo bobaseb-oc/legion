@@ -840,8 +840,31 @@ test("the tidy re-checks each worktree, removes only a safe one with git worktre
   expect(ran.some((c) => c[0] === "rm" || c.includes("rm"))).toBe(false);
 });
 
-test("the tidy also looks under ~/repos and /private/tmp/claude-501, for its list only", async () => {
-  expect(Device.TIDY_ROOTS).toEqual(["~/repos", "/private/tmp/claude-501"]);
+// RED ZONE (security review 4 D1, D3): the 5-minute scan looks under
+// ~/repos; Claude Code's sandbox temp dir (any sandboxed session may write
+// a repo there) only for legion tidy --list, named by this user's uid
+test("the sandbox temp dir is looked under for legion tidy --list only, never the scan", async () => {
+  expect(Device.TIDY_LISTED).toEqual(["/private/tmp/claude-" + process.getuid!()]);
+  const listed = tidy_repos();
+  const none = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
+  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS, listed: process.env.UNII_TIDY_LISTED };
+  process.env.UNII_SPACES = none;
+  process.env.UNII_TIDY_ROOTS = none;
+  process.env.UNII_TIDY_LISTED = listed.T;
+  try {
+    const msg = await Device.device_inbox({ work: "/w", computer: false }, tidy_exec, new Date(), nog2) as any;
+    expect(msg.inbox.clean.some((c: any) => c.path.startsWith(listed.T))).toBe(false);
+    const rows = await Device.device_tidy_scan(tidy_exec);
+    expect(rows.some((c) => c.path.startsWith(listed.T + "/r-worktrees/"))).toBe(true);
+  } finally {
+    process.env.UNII_SPACES = was.spaces;
+    process.env.UNII_TIDY_ROOTS = was.tidy;
+    process.env.UNII_TIDY_LISTED = was.listed;
+  }
+}, 30e3);
+
+test("the tidy also looks under ~/repos, for its list only", async () => {
+  expect(Device.TIDY_ROOTS).toEqual(["~/repos"]);
   const { T, R } = tidy_repos();
   const empty = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
   const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS };
@@ -866,18 +889,109 @@ test("legion tidy --list: a line per row with its checks, and safe", () => {
   expect(text.split("\n").find((l) => l.includes("/r-worktrees/a"))).toMatch(/r\s+a\s+.*merged.*3\.0 MB.*2d.*yes/);
 });
 
-// a branch deleted on GitHub (a merged PR's) is gone only once a fetch
-// prunes it: the scan fetches first, with the hardened git
-test("a scan prunes from origin first, so a branch deleted there shows gone", async () => {
+// RED ZONE (security review 4 D1): the scan never fetches (a fetch runs
+// what a repo's own config names: uploadpack, sshCommand, a credential
+// helper); a branch deleted on GitHub shows gone from the gh call the scan
+// makes anyway: a merged PR of this repo (not a fork's) by that branch
+test("a branch deleted on GitHub shows gone by its merged PR, and the scan never fetches", async () => {
   const { R, w, g } = tidy_repos();
   g(w.again, "push", "-q", "-u", "origin", "again");
   g(R, "fetch", "-q");
   g(R, "push", "-q", "origin", "--delete", "again");
   g(R, "update-ref", "refs/remotes/origin/again", g(w.again, "rev-parse", "HEAD"));
-  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
-  const row = msg.inbox.clean.find((c: any) => c.path === w.again);
-  expect(row).toMatchObject({ gone: true, unpushed: 0, changes: 0 });
+  const ran: string[][] = [];
+  const answers = (prs: unknown[]): Device.Exec => async (cmd) => {
+    ran.push(cmd);
+    if (cmd[0] === "gh" && cmd[1] === "pr") {
+      return { code: 0, out: JSON.stringify(prs) };
+    }
+    if (cmd[0] === "git" && cmd.slice(-3).join(" ") === "remote get-url origin") {
+      return { code: 0, out: "https://github.com/acme/r.git\n" };
+    }
+    return tidy_exec(cmd);
+  };
+  const row = async (prs: unknown[]) => {
+    Device.device_forget();
+    const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, answers(prs), new Date(), nog2) as any;
+    return msg.inbox.clean.find((c: any) => c.path === w.again);
+  };
+  const pr = { headRefName: "again", headRefOid: "f".repeat(40) };
+  expect(await row([{ ...pr, isCrossRepository: false }])).toMatchObject({ gone: true, unpushed: 0, changes: 0 });
+  // a fork's PR of the same branch name, or none: not gone
+  expect((await row([{ ...pr, isCrossRepository: true }]))?.gone).not.toBe(true);
+  expect((await row([pr]))?.gone).not.toBe(true);
+  expect((await row([]))?.gone).not.toBe(true);
+  const net = ran.filter((c) => c[0] === "git" && c.some((a) => ["fetch", "ls-remote", "pull", "push", "clone"].includes(a)));
+  expect(net).toEqual([]);
+}, 30e3);
+
+// RED ZONE (security review 4 D1): a repo's own config naming a command
+// git would run (a fetch's uploadpack, ssh, a proxy, a credential helper,
+// an askpass, a URL rewrite, a protocol allow, an editor, a pager, a
+// driver, an include) is not trusted: no git runs there
+test("device git: a repo's own config naming a command git would run is not trusted", async () => {
+  const top = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-cfg-"));
+  const mk = (name: string) => {
+    const r = top + "/" + name;
+    Bun.spawnSync(["git", "init", "-q", "-b", "main", r]);
+    return r;
+  };
+  expect(await Device.device_trusted(mk("plain"), Device.exec)).toBe(true);
+  const keys: [string, string][] = [
+    ["remote.origin.uploadpack", "sh -c x; git-upload-pack"],
+    ["remote.origin.receivepack", "sh -c x"],
+    ["core.sshCommand", "sh -c x"],
+    ["core.gitProxy", "sh -c x"],
+    ["core.askPass", "/bin/x"],
+    ["credential.helper", "!sh -c x"],
+    ["url.ext::sh -c x.insteadOf", "https://github.com/"],
+    ["protocol.ext.allow", "always"],
+    ["core.editor", "sh -c x"],
+    ["core.pager", "sh -c x"],
+    ["gpg.program", "sh -c x"],
+    ["merge.evil.driver", "sh -c x"],
+    ["diff.evil.command", "sh -c x"],
+    ["include.path", top + "/none.cfg"],
+  ];
+  for (const [i, [k, v]] of keys.entries()) {
+    const r = mk("k" + i);
+    Bun.spawnSync(["git", "-C", r, "config", k, v]);
+    expect([k, await Device.device_trusted(r, Device.exec)]).toEqual([k, false]);
+  }
 });
+
+// RED ZONE (security review 4 D2): a worktree holding an untracked or
+// ignored .env file (git cannot give it back) is not safe: named in its
+// row and in legion tidy --list, and the remove keeps it
+test("a worktree with an ignored .env file is not safe: named in the row and the list, and kept", async () => {
+  const { R, w } = tidy_repos();
+  fs.appendFileSync(R + "/.git/info/exclude", ".env*\n");
+  fs.writeFileSync(w.merged + "/.env", "SECRET=1\n");
+  fs.mkdirSync(w.gone + "/api");
+  fs.writeFileSync(w.gone + "/api/.env.local", "SECRET=1\n");
+  const msg = await Device.device_inbox({ work: "/w", computer: false, spaces: [R] }, tidy_exec, new Date(), nog2) as any;
+  const kept = Inbox.inbox_check(msg.inbox) as Inbox.Inbox;
+  const rows = new Map(kept.clean.map((c) => [c.path, c]));
+  expect(rows.get(w.merged)).toMatchObject({ changes: 0, envs: [".env"], safe: false });
+  expect(rows.get(w.gone)).toMatchObject({ envs: ["api/.env.local"], safe: false });
+  expect(rows.get(w.again)).toMatchObject({ envs: [], safe: true });
+  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS, listed: process.env.UNII_TIDY_LISTED };
+  process.env.UNII_SPACES = R;
+  process.env.UNII_TIDY_ROOTS = R;
+  process.env.UNII_TIDY_LISTED = R;
+  try {
+    const list = Device.device_tidy_list((await Device.device_tidy_scan(tidy_exec)).filter((r) => r.path === w.merged));
+    expect(list).toContain(".env");
+  } finally {
+    process.env.UNII_SPACES = was.spaces;
+    process.env.UNII_TIDY_ROOTS = was.tidy;
+    process.env.UNII_TIDY_LISTED = was.listed;
+  }
+  const out = await Device.device_tidy([w.merged], tidy_exec);
+  expect(out.removed).toEqual([]);
+  expect(out.kept[0]?.why).toContain(".env");
+  expect(fs.existsSync(w.merged + "/.env")).toBe(true);
+}, 30e3);
 
 // a squash-merged PR's branch: its commits are on no remote once the
 // branch is deleted, so it counts as merged only when a merged PR's head
@@ -937,4 +1051,38 @@ test("squash merge: the remove checks the head again, so a commit after the scan
   const out = await Device.device_tidy([p], run);
   expect(out.removed).toEqual([]);
   expect(fs.existsSync(p)).toBe(true);
+}, 30e3);
+
+// security review 4 D4: a scan asks GitHub about a repo's merged PRs once
+// a while (a failed answer isn't kept), and checks at most SCANNING repos
+// at a time
+test("a scan keeps a repo's merged PRs for a while and checks a few repos at a time", async () => {
+  const { R, p, head } = squashed();
+  Device.device_forget();
+  const calls: string[][] = [];
+  const run = gh_answers([{ headRefName: "sq", headRefOid: head }], calls);
+  await sq_row(run, R, p);
+  await sq_row(run, R, p);
+  expect(calls.length).toBe(1);
+  Device.device_forget();
+  const failed: string[][] = [];
+  await sq_row(gh_answers(null, failed), R, p);
+  await sq_row(gh_answers(null, failed), R, p);
+  expect(failed.length).toBe(2);
+  const many = Array.from({ length: 12 }, () => fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-many-")));
+  let now = 0;
+  let most = 0;
+  const slow: Device.Exec = async (cmd) => {
+    if (cmd.includes("--get-regexp")) {
+      now++;
+      most = Math.max(most, now);
+      await Bun.sleep(20);
+      now--;
+      return { code: 1, out: "" };
+    }
+    return cmd[0] === "git" ? { code: 1, out: "" } : tidy_exec(cmd);
+  };
+  await Device.device_inbox({ work: "/w", computer: false, spaces: many }, slow, new Date(), nog2);
+  expect(most).toBeGreaterThan(0);
+  expect(most).toBeLessThanOrEqual(Device.SCANNING);
 }, 30e3);
