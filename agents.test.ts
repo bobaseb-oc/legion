@@ -411,7 +411,7 @@ test("a Claude Code worker asks first; approved it runs on its device and report
   expect(Tools.approve(tools, name, true)).toContain("Approved");
   await until(() => sent.some((m) => m.$ === "job"));
   const job = sent.find((m) => m.$ === "job");
-  expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x" } });
+  expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x", model: "claude-sonnet-5-5" } });
   expect(job.job.input.task).toContain("fix the bug");
   expect(Tools.crew(tools)[1].status).toBe("working");
   Tools.done(tools, "mac", job.id, { text: "unii: on it\n\nResult ($0.0100): fixed it", fail: false });
