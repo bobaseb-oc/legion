@@ -151,6 +151,24 @@ test("a child runs on its tier's model or one below it, never above nor another 
   Tools.close(tools);
 });
 
+// RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): a
+// spawn above its tier's model is put to the user saying so first, how
+// many, on what, instead of what: never cut off behind a long task (the
+// GChat post shows the same text: Gchat.gchat_items)
+test("G2: a spawn above its tier's model is shown model first: how many start on what, instead of what; then the tasks", () => {
+  const long = "do the hard part ".repeat(200);
+  const manager = (Tools.child("manager", null) as any).model;
+  const worker = (Tools.child("worker", null) as any).model;
+  const two = Tools.shown("spawn", { tasks: [long, "and this"], model: "opus-5.5" });
+  expect(two.startsWith("Start 2 managers on opus-5.5 instead of " + manager)).toBe(true);
+  expect(two).toContain("do the hard part");
+  const one = Tools.shown("spawn", { tasks: ["x"], model: "opus-5.5", as: "worker" });
+  expect(one.startsWith("Start 1 worker on opus-5.5 instead of " + worker)).toBe(true);
+  // a spawn on its tier's model is shown as any call
+  expect(Tools.shown("spawn", { tasks: ["x"], model: manager })).toStartWith("spawn {");
+  expect(Tools.shown("spawn", { tasks: ["x"] })).toStartWith("spawn {");
+});
+
 test("an agent's note says its tier, starter, model and effort, and reads back as them", () => {
   const role = { $: "sub" as const, tier: "worker" as const, effort: "high", model: "haiku-5.5" };
   const note = Tools.note(role, "FireAnt");
