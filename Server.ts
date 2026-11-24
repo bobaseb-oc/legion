@@ -1937,6 +1937,11 @@ export namespace Chat {
         if (pinned || listed) {
           Memory.save(chat.mem);
         }
+        // and its theme (Explain.theme_drop): the theme stays for the others
+        if (chat.mem.explain.themes?.[agent.name] !== undefined) {
+          chat.mem.explain.themes = Explain.theme_drop(chat.mem.explain.themes, agent.name);
+          Memory.save(chat.mem);
+        }
         Chat.change(chat);
         return {};
       }
@@ -2711,11 +2716,17 @@ const LIKES = 30;
     }
     ex.writing = true;
     Chat.explained(chat);
-    const end = await observer(chat, Explain.OBSERVE, "<snapshot>\n" + text + "\n</snapshot>");
-    const cards = end?.ok ? Explain.explain_cards(end.text, names) : null;
+    // one card per theme (fixed once made, Explain.explain_assign); the
+    // status report asked too REPORT_EVERY apart, only while agents work
+    const themes = ex.themes ?? {};
+    const report = Explain.report_due(ex, now) && (chat.busy || Tools.crew(chat.tools).some((c) => c.status === "working"));
+    const end = await observer(chat, Explain.OBSERVE, "<themes>\n" + Explain.theme_brief(themes, names) + "\n</themes>\n<snapshot>\n" + text + "\n</snapshot>" + (report ? "\n" + Explain.REPORT_ASK : ""));
+    const assigned = end?.ok ? Explain.explain_assign(end.text, themes, names) : themes;
+    const cards = end?.ok ? Explain.explain_cards(end.text, Explain.theme_names(assigned, names)) : null;
+    const said = report && end?.ok ? Explain.explain_report(end.text) : null;
     ex.writing = false;
     const why = typeof cards === "string" ? ": " + cards : end?.ok === false ? ": " + end.text.slice(0, 200) : "";
-    Object.assign(ex, Array.isArray(cards) ? { cards, hash, at: Date.now(), error: null } : { error: "The page couldn't be written" + why + "." });
+    Object.assign(ex, Array.isArray(cards) ? { cards, hash, at: Date.now(), error: null, themes: assigned, ...(said === null ? {} : { report: { text: said, at: now } }) } : { error: "The page couldn't be written" + why + "." });
     Memory.save(chat.mem);
     Chat.explained(chat);
   }

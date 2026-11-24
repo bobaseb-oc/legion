@@ -551,10 +551,15 @@ export function tracks_html(v: View.View, now: number): string[] {
   const add = (t: TrackView) => !t.editable ? "" : `<form class="tadd" data-track="${esc(t.name)}"><input name="ref" data-keep="tref:${esc(t.name)}" size="4" maxlength="4" placeholder="#n / i" aria-label="the item to edit (none: a new one)" autocomplete="off"><input name="text" data-keep="ttext:${esc(t.name)}" maxlength="${Explain.PIN_TEXT}" placeholder="Pin an item for ${esc(t.name)}, or edit one" aria-label="the item's text" autocomplete="off"></form>`;
   const track = (t: TrackView) => {
     const marks = [t.orphaned ? "agent gone: read-only" : t.editable ? "" : "read-only", t.queued ? "queued, agent idle" : ""].filter((x) => x !== "").map((x) => `<span class="meta">${esc(x)}</span>`).join(" ");
-    return `<section class="xcard track"><h3>${esc(t.name)}${t.title === undefined ? "" : " · " + esc(t.title)} ${marks}</h3>${summary(ex?.cards.find((c) => c.track === t.name))}<ul class="tlist">${t.items.map(item(t)).join("")}${t.pins.map(pin(t)).join("")}</ul>${add(t)}</section>`;
+    return `<div class="track"><h4>${esc(t.name)}${t.title === undefined ? "" : " · " + esc(t.title)} ${marks}</h4><ul class="tlist">${t.items.map(item(t)).join("")}${t.pins.map(pin(t)).join("")}</ul>${add(t)}</div>`;
   };
+  // the tracks by theme (Explain.explain_assign; none: the track's own
+  // name), one card each, its tracks under it; the status report on top
   const tracks = v.tracks ?? [];
-  const cards = tracks.length === 0 ? `<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>` : `<div class="xcards">${tracks.map(track).join("")}</div>`;
+  const theme_of = (t: TrackView) => ex?.themes?.[t.name] ?? t.name;
+  const theme = (name: string) => `<section class="xcard theme"><h3>${esc(name)}</h3>${summary(ex?.cards.find((c) => c.track === name))}${tracks.filter((t) => theme_of(t) === name).map(track).join("")}</section>`;
+  const report = ex?.report ? `<section class="xreport"><h3>Status report</h3><p>${esc(ex.report.text)}</p><p class="meta">${esc(minute(new Date(ex.report.at).toISOString()))} UTC</p></section>` : "";
+  const cards = tracks.length === 0 ? `<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>` : report + `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`;
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc(x.q)}</div><div class="xa">${esc(x.a)}</div>`).join("");
   const asking = ex?.asking ? `<div class="xq">${esc(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
   const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Explain.Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
