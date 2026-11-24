@@ -1542,6 +1542,20 @@ var homedir = function() {
   return "/";
 };
 
+// local/models.json
+var models_default = {
+  "claude-api": [
+    { tier: "opus", label: "opus-5.5", id: "claude-opus-5-5", speeds: ["slow", "fast"], rate: { input: 4, write: 5, read: 0.2, output: 20 } },
+    { tier: "sonnet", label: "sonnet-5.5", id: "claude-sonnet-5-5", speeds: ["slow"], rate: { input: 2, write: 2.5, read: 0.1, output: 10 } },
+    { tier: "haiku", label: "haiku-5.5", id: "claude-haiku-5-5", speeds: ["slow"], rate: { input: 0.1, write: 0.125, read: 0.01, output: 0.5 }, long: { input: 0.5, write: 0.625, read: 0.05, output: 2.5 } }
+  ],
+  "openai-api": [
+    { label: "gpt-6-luna", id: "gpt-6-luna", speeds: ["slow", "fast"], rate: { input: 0.1, write: 0.1, read: 0.01, output: 0.5 } },
+    { label: "gpt-6.1-sol", id: "gpt-6.1-sol", speeds: ["slow", "fast"], rate: { input: 2, write: 2, read: 0.1, output: 10 } },
+    { label: "gpt-6-astra", id: "gpt-6-astra", speeds: ["slow", "fast", "ultrafast"], rate: { input: 10, write: 12.5, read: 1, output: 50 } }
+  ]
+};
+
 // Models.ts
 var VENDORS = ["claude-api", "openai-api"];
 var PARTS2 = ["input", "write", "read", "output"];
@@ -1589,6 +1603,9 @@ function catalog_entry(vendor, raw) {
   return { ...raw.tier === undefined ? {} : { tier: raw.tier }, label: raw.label, id: raw.id, speeds: [...raw.speeds], rate: { ...raw.rate }, ...raw.long === undefined ? {} : { long: { ...raw.long } } };
 }
 function catalog_over() {
+  if (typeof window !== "undefined") {
+    return;
+  }
   if (process.env.UNII_CATALOG !== undefined) {
     return JSON.parse(process.env.UNII_CATALOG);
   }
@@ -1596,7 +1613,7 @@ function catalog_over() {
   const file = dir + "/config.json";
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).catalog : undefined;
 }
-var CATALOG = catalog_read(JSON.parse(fs.readFileSync(import.meta.dir + "/local/models.json", "utf8")), catalog_over());
+var CATALOG = catalog_read(models_default, catalog_over());
 
 // Pick.ts
 var MODELS = {

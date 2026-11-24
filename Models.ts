@@ -8,11 +8,14 @@
 // retirement is a data change, not a code change; config.json's `catalog`
 // key (or UNII_CATALOG, JSON) changes an entry by vendor and label, or
 // adds one. Read once, at import: a catalog that isn't one stops the
-// process, never a model guessed.
+// process, never a model guessed. The web app is built from this module
+// too (View.ts through Pick.ts): models.json is imported, so the bundle
+// carries it, and a browser, with no files, takes no config.json catalog
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Vendor } from "./AskAI.ts";
+import MODELS from "./local/models.json" with { type: "json" };
 
 // Types
 // =====
@@ -83,8 +86,12 @@ function catalog_entry(vendor: string, raw: any): Entry {
   return { ...(raw.tier === undefined ? {} : { tier: raw.tier }), label: raw.label, id: raw.id, speeds: [...raw.speeds], rate: { ...raw.rate }, ...(raw.long === undefined ? {} : { long: { ...raw.long } }) };
 }
 
-// config.json's catalog (Config.ts reads the same file): UNII_CATALOG first
+// config.json's catalog (Config.ts reads the same file): UNII_CATALOG first;
+// in a browser none
 function catalog_over(): unknown {
+  if (typeof window !== "undefined") {
+    return undefined;
+  }
   if (process.env.UNII_CATALOG !== undefined) {
     return JSON.parse(process.env.UNII_CATALOG);
   }
@@ -93,4 +100,4 @@ function catalog_over(): unknown {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).catalog : undefined;
 }
 
-export const CATALOG: Catalog = catalog_read(JSON.parse(fs.readFileSync(import.meta.dir + "/local/models.json", "utf8")), catalog_over());
+export const CATALOG: Catalog = catalog_read(MODELS, catalog_over());
