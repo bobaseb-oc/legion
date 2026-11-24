@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import type { Vendor } from "./AskAI.ts";
 import { Auth } from "./Auth.ts";
+import { CATALOG } from "./Models.ts";
 import { LABELS, VENDORS, Pick, type Offer } from "./Pick.ts";
 
 // Constants
@@ -42,19 +43,22 @@ export const OFFER: Offer = {
 export const WORK       = config_path(config_get("work", DIR + "/work"));
 export const RULES      = config_path(config_get("rules", ""));
 export const AFTER      = config_get("after", "");
-export const PICK       = config_run("pick", config_get("pick", "claude-api:sonnet-5.5:medium:slow"));
+export const PICK       = config_run("pick", config_get("pick", "claude-api:opus:medium:slow"));
 
 // what every compaction runs on, a chat's and an import's alike, whatever
 // the chat's pick
-export const COMPACTOR  = config_run("compactor", config_get("compactor", "claude-api:haiku-5.5:high:slow"));
+export const COMPACTOR  = config_run("compactor", config_get("compactor", "claude-api:haiku:high:slow"));
 // what writes the Tracks page's cards and answers questions about them (Explain.ts)
-export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku-5.5:high:slow"));
+export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku:high:slow"));
 // what checks each reply against Unii's standing directives (Directives.ts)
-export const CHECKER    = config_run("checker", config_get("checker", "claude-api:haiku-5.5:high:slow"));
+export const CHECKER    = config_run("checker", config_get("checker", "claude-api:haiku:high:slow"));
 // what agents run on by tier, below the chat's pick (Tools.ts): a
 // manager splits its task among workers; `agents` sets both (older)
-export const MANAGER    = config_run("manager", config_get("manager", config_get("agents", "claude-api:sonnet-5.5:medium:slow")));
-export const WORKER     = config_run("worker", config_get("worker", config_get("agents", "claude-api:sonnet-5.5:medium:slow")));
+export const MANAGER    = config_run("manager", config_get("manager", config_get("agents", "claude-api:sonnet:medium:slow")));
+export const WORKER     = config_run("worker", config_get("worker", config_get("agents", "claude-api:sonnet:medium:slow")))
+// what a Claude Code worker runs (Machine.claude): a full model id, sonnet
+// or haiku, never opus; never an alias, which gateway discovery re-resolves
+export const CLAUDE_WORKER = config_claude("claude_worker", config_get("claude_worker", "sonnet"));;
 export const WORKERS    = Number(config_get("workers", "0"));
 
 // a call's input past which it rolls over (Agent.ts): its request's
@@ -167,13 +171,27 @@ function config_origin(key: string, text: string): string {
   return text;
 }
 
+// a role's pick; its model a tier ("sonnet") or a label ("sonnet-5.5")
+// of the catalog (Models.ts)
 function config_run(key: string, text: string): Pick {
-  const [vendor, model, effort, speed] = text.split(":");
+  const [vendor, name, effort, speed] = text.split(":");
+  const model = VENDORS.includes(vendor as Vendor) ? Pick.tier(vendor as Vendor, String(name)) ?? name : name;
   const pick = Pick.read({ vendor, model, effort, speed }, OFFER);
   if (pick === null) {
     throw new Error("config: " + key + " is no vendor:model:effort:speed offered here: " + text);
   }
   return pick;
+}
+
+// a Claude Code worker's model id: a sonnet or haiku tier or label of
+// the catalog's Claude models; opus, or none of them, refuses to start
+function config_claude(key: string, text: string): string {
+  const label = Pick.tier("claude-api", text);
+  const model = CATALOG["claude-api"].find((m) => m.label === label);
+  if (model === undefined || !["sonnet", "haiku"].includes(model.tier ?? "")) {
+    throw new Error("config: " + key + " is no sonnet or haiku model of the catalog (local/models.json): " + text);
+  }
+  return model.id;
 }
 
 function config_vendors(text: string): Vendor[] {

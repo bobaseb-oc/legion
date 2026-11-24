@@ -450,7 +450,7 @@ test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, ser
 // the catalog below opus; any other (none, opus, not an id) runs sonnet's
 test("a Claude Code worker's flags: --model the id sent, else the catalog's sonnet", () => {
   const model = (sent: unknown) => {
-    const args = Machine.claude_args("the task", sent);
+    const args = Machine.claude_args("the task", sent) ?? [];
     expect(args.slice(0, 3)).toEqual(["claude", "-p", "the task"]);
     expect(args.filter((a) => a === "--model").length).toBe(1);
     return args[args.indexOf("--model") + 1];
