@@ -154,3 +154,43 @@ test("gateway key: read from fd 3 when told (the launcher's), never from or into
   const off = piped(null, { ANTHROPIC_API_KEY: "sk-env-key" });
   expect({ ...off.out, open: undefined }).toEqual({ len: "sk-env-key".length, env: false, told: false, worker: true, worker_told: false, open: undefined });
 }, 30_000);
+
+// the roles' models: a tier (claude-api:sonnet:…) or a versioned label,
+// from the catalog (Models.ts); only the orchestrator defaults to opus; a
+// Claude Code worker runs a full id, sonnet or haiku, never opus; a role
+// naming no model of the catalog refuses to start
+function roles(env: Record<string, string>, dir = DIR): { code: number; text: string } {
+  const code = 'import * as c from "./Config.ts"; console.log(JSON.stringify({ pick: c.PICK.model, manager: c.MANAGER.model, worker: c.WORKER.model, observer: c.OBSERVER.model, claude: c.CLAUDE_WORKER }))';
+  const out = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...process.env, UNII_DIR: dir, ...env } });
+  return { code: out.exitCode, text: (out.stdout.toString() + out.stderr.toString()).trim() };
+}
+
+test("roles: only the orchestrator defaults to opus; a Claude Code worker to sonnet's full id", () => {
+  const out = roles({});
+  expect(out.code).toBe(0);
+  expect(JSON.parse(out.text)).toEqual({ pick: "opus-5.5", manager: "sonnet-5.5", worker: "sonnet-5.5", observer: "haiku-5.5", claude: "claude-sonnet-5-5" });
+});
+
+test("roles: a tier and a versioned label name the same pick; claude_worker may be haiku", () => {
+  const tier = roles({ UNII_MANAGER: "claude-api:haiku:high:slow", UNII_CLAUDE_WORKER: "haiku" });
+  const label = roles({ UNII_MANAGER: "claude-api:haiku-5.5:high:slow", UNII_CLAUDE_WORKER: "haiku-5.5" });
+  expect(tier.code).toBe(0);
+  expect(JSON.parse(tier.text)).toEqual(JSON.parse(label.text));
+  expect(JSON.parse(tier.text).claude).toBe("claude-haiku-5-5");
+});
+
+test("roles: claude_worker opus, or a role naming no model of the catalog, refuses to start", () => {
+  for (const [key, value] of [["UNII_CLAUDE_WORKER", "opus"], ["UNII_CLAUDE_WORKER", "opus-5.5"], ["UNII_CLAUDE_WORKER", "gpt-9"], ["UNII_WORKER", "claude-api:gpt-9:medium:slow"]] as const) {
+    const out = roles({ [key]: value });
+    expect(out.code).not.toBe(0);
+    expect(out.text).toContain("config: " + key.slice(5).toLowerCase());
+  }
+});
+
+test("roles: config.json's catalog overrides an entry's id", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-catalog-");
+  fs.writeFileSync(dir + "/config.json", JSON.stringify({ catalog: { "claude-api": [{ label: "sonnet-5.5", id: "claude-sonnet-9-9" }] } }));
+  const out = roles({}, dir);
+  expect(out.code).toBe(0);
+  expect(JSON.parse(out.text).claude).toBe("claude-sonnet-9-9");
+});

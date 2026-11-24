@@ -2248,7 +2248,7 @@ export namespace Tools {
     const abort = (agent.abort = new AbortController());
     Object.assign(agent, { runs: true, since: Date.now() });
     tools.hooks.change();
-    const job = { name: "claude", input: { task: agent.task ?? "", dir: role.dir ?? undefined }, cwd: agent.name };
+    const job = { name: "claude", input: { task: agent.task ?? "", dir: role.dir ?? undefined, model: config.CLAUDE_WORKER }, cwd: agent.name };
     await Tools.claude_end(tools, agent, Tools.job(tools, role.device, job, abort.signal, crypto.randomUUID()));
   }
 
