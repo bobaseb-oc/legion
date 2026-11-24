@@ -4187,11 +4187,11 @@ function tracks_html(v, now) {
   const theme_of = (t) => ex?.themes?.[t.name] ?? t.name;
   const theme = (name) => `<section class="xcard theme"><h3>${esc2(name)}</h3>${summary(ex?.cards.find((c) => c.track === name))}${tracks.filter((t) => theme_of(t) === name).map(track).join("")}</section>`;
   const report = ex?.report ? `<section class="xreport"><h3>Status report</h3><p>${esc2(ex.report.text)}</p><p class="meta">${esc2(minute(new Date(ex.report.at).toISOString()))} UTC</p></section>` : "";
-  const cards = tracks.length === 0 ? `<p class="meta">${esc2(TRACKS_NONE)}</p>` : report + `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`;
+  const cards = tracks.length === 0 ? [`<p class="meta">${esc2(TRACKS_NONE)}</p>`] : [...report === "" ? [] : [report], `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`];
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc2(x.q)}</div><div class="xa">${esc2(x.a)}</div>`).join("");
   const asking = ex?.asking ? `<div class="xq">${esc2(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
   const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
-  return [head, cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
+  return [head, ...cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
 }
 function tracks_line(v) {
   const n = (v.tracks ?? []).length;

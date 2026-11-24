@@ -559,11 +559,12 @@ export function tracks_html(v: View.View, now: number): string[] {
   const theme_of = (t: TrackView) => ex?.themes?.[t.name] ?? t.name;
   const theme = (name: string) => `<section class="xcard theme"><h3>${esc(name)}</h3>${summary(ex?.cards.find((c) => c.track === name))}${tracks.filter((t) => theme_of(t) === name).map(track).join("")}</section>`;
   const report = ex?.report ? `<section class="xreport"><h3>Status report</h3><p>${esc(ex.report.text)}</p><p class="meta">${esc(minute(new Date(ex.report.at).toISOString()))} UTC</p></section>` : "";
-  const cards = tracks.length === 0 ? `<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>` : report + `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`;
+  // one element per entry (main.ts markup keeps an entry's first element)
+  const cards = tracks.length === 0 ? [`<p class="meta">${esc(Cockpit.TRACKS_NONE)}</p>`] : [...(report === "" ? [] : [report]), `<div class="xcards">${[...new Set(tracks.map(theme_of))].map(theme).join("")}</div>`];
   const qa = (ex?.qa ?? []).map((x) => `<div class="xq">${esc(x.q)}</div><div class="xa">${esc(x.a)}</div>`).join("");
   const asking = ex?.asking ? `<div class="xq">${esc(ex.asking)}</div><p class="meta xa">answering…</p>` : "";
   const form = `<form class="xask"><input name="q" data-keep="explain" maxlength="${Explain.Q}" placeholder="Ask about what the crew is building (answered here, not in the chat)" aria-label="ask about it" autocomplete="off"></form>`;
-  return [head, cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
+  return [head, ...cards, `<section class="xqa"><h3>Ask about it</h3>${qa}${asking}${form}</section>`];
 }
 
 // Home's Tracks app: its tracks, or what it is for
