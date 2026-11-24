@@ -889,6 +889,10 @@ var MEDIUM = [
   /\bgh\s+(pr|issue|release|repo)\s+(create|comment|edit|close|reopen|review|ready|delete)\b/,
   /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/
 ];
+var INTERPRETERS = /^((ba|z|da|k|fi)?sh|python[\d.]*|node|bun|deno|perl|ruby|php|osascript)$/;
+var INTERPRETED = /\|\s*(sudo\s+)?(env\s+)?(\S*\/)?((ba|z|da|k|fi)?sh|python[\d.]*|node|bun|deno|perl|ruby|php|osascript)\b/;
+var GIT_RUNS = /\b(core\.(sshcommand|gitproxy|fsmonitor|hookspath|pager|editor|askpass)|[\w.:-]*\.(uploadpack|receivepack|textconv)|credential\.(\S*\.)?helper|filter\.[\w.-]+|diff\.external|protocol\.[\w.-]+|url\.\S+\.insteadof|alias\.[\w-]+|sequence\.editor)\b/i;
+var STEERS = /(^|\/)(claude|agents)(\.local)?\.md$|(^|\/)\.claude\/(rules|hooks)(\/|$)/i;
 var DOTS = String.raw`\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.claude\.json`;
 var DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(gh|gcloud)|Library\/Keychains`;
 var SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
@@ -1031,20 +1035,37 @@ var Modes;
     return typeof lexed === "string" || lexed.flat().some((w) => SECRETS.test(w) || HOME_WIDE.test(w));
   }
   Modes2.reviews = reviews;
-  function floor(tool, input) {
+  function floor(tool, input, at = []) {
     if (tool === "write" || tool === "edit") {
-      return SECRETS.test(String(input?.path ?? input?.file_path ?? "")) ? "high" : "low";
+      const p = String(input?.path ?? input?.file_path ?? "");
+      if ([p, ...at].some((q) => SECRETS.test(q) || STEERS.test(q))) {
+        return "high";
+      }
+      return /(^|\/)\.\.(\/|$)/.test(p) ? "medium" : "low";
     }
     if (tool !== "shell") {
       return "medium";
     }
-    const c = typeof input?.command === "string" ? input.command : "";
-    if (/[^\x00-\x7f]/.test(c) || SECRETS.test(c) || HIGH.some((r) => r.test(c))) {
-      return "high";
-    }
-    return MEDIUM.some((r) => r.test(c)) ? "medium" : "low";
+    return floor_shell(typeof input?.command === "string" ? input.command : "");
   }
   Modes2.floor = floor;
+  function floor_shell(c) {
+    const bare = c.replace(/["'\\]/g, "");
+    const texts = [c, bare];
+    if (/[^\x00-\x7f]/.test(c) || texts.some((t) => SECRETS.test(t) || HIGH.some((r) => r.test(t)) || git_runs(t))) {
+      return "high";
+    }
+    const lexed = lex(c);
+    const built = typeof lexed === "string" || lexed.some(runs_code) || /[$`]/.test(c) || /(^|[;&|(]\s*)(builtin\s+)?eval\b/.test(bare) || INTERPRETED.test(bare);
+    return built || texts.some((t) => MEDIUM.some((r) => r.test(t))) ? "medium" : "low";
+  }
+  function runs_code(words) {
+    const name = (words[0] ?? "").split("/").at(-1) ?? "";
+    return INTERPRETERS.test(name) && words.slice(1).some((w) => /^-[a-zA-Z]*[ce]$|^--eval$/.test(w));
+  }
+  function git_runs(t) {
+    return t.split(/[;&|\n]/).some((seg) => /\bgit\b/.test(seg) && (/\bconfig\b/.test(seg) && !/\s--(get|list)\b|\s-l\b/.test(seg) || /\s-c\s/.test(seg)) && GIT_RUNS.test(seg));
+  }
   function risk(floor, label) {
     const at = RISKS.indexOf(label);
     return at < 0 ? "high" : RISKS[Math.max(at, RISKS.indexOf(floor))];
