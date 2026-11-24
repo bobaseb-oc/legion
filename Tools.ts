@@ -473,6 +473,11 @@ const ASK = spec("ask", "File a question for the user in their backlog of questi
   question: STR, options: { type: "array", items: STR }, close: INT,
   kind: { type: "string", enum: ASK_KINDS }, pick: INT, prod: { type: "boolean" },
 }, []);
+// what waits on the user (PLP-2938): the orchestrator's read of its open
+// questions, the user's todos, the calls held for a yes and the plan filed
+// (Tools.waiting), each text capped at WAIT_TEXT; read-only
+const WAIT_TEXT = 500;
+const WAITING = spec("waiting", "List what waits on the user now: your open questions (by number), their todos, the calls held for their yes (by number, whose, which tool) and the plan filed for approval. Read it before saying what needs their ok, rather than recalling it. It changes nothing.", {}, []);
 // the orchestrator's notes for the user, beside its questions (notify;
 // user's ask 2026-11-13): no answer awaited, the oldest dropped past NOTES
 // the timesheet's drafts (K5, RED ZONE): filed by any agent, sent to
@@ -650,7 +655,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, NOTIFY, NOTEBOOK, TODO_OF, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, WAITING, NOTIFY, NOTEBOOK, TODO_OF, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -1042,6 +1047,9 @@ export namespace Tools {
       }
       case "ask": {
         return Tools.question(tools, who, args);
+      }
+      case "waiting": {
+        return Tools.waiting(tools, who);
       }
       case "notify": {
         return Tools.notify(tools, who, args);
@@ -1800,6 +1808,25 @@ export namespace Tools {
     Memory.save(mem);
     tools.hooks.change();
     return { text: "Filed your plan for the user's approval; their answer reaches you as a message. Until then, only reading.", fail: false };
+  }
+
+  // what waits on the user, for the orchestrator alone: its open
+  // questions (not notes), the user's todos, the calls held for their yes
+  // and the plan filed; each text capped, nothing changed
+  export function waiting(tools: Tools, who: string): Out {
+    if (who !== "main") {
+      return { text: "Only Unii reads what waits on the user: ask Unii, in your report or a reply.", fail: true };
+    }
+    const mem = tools.mem;
+    const cap = (x: string) => x.length > WAIT_TEXT ? x.slice(0, WAIT_TEXT) + "…" : x;
+    const part = (head: string, lines: string[]) => lines.length === 0 ? [] : [head, ...lines.map((x) => "- " + x)];
+    const out = [
+      ...part("Open questions:", mem.questions.filter((q) => !q.fyi).map((q) => cap(q.id + ". " + q.text + (q.options === undefined ? "" : " (" + q.options.join(" / ") + ")")))),
+      ...part("The user's todos:", mem.assigned.map((a) => cap("#" + a.n + " " + a.text + " (from " + a.by + ")"))),
+      ...part("Calls held for the user's yes:", Tools.consents(tools).map((c) => cap(c.id + ". " + c.who + ": " + c.tool + " " + c.what))),
+      ...part("Plan filed for approval:", mem.plan === null || mem.plan === undefined ? [] : [cap(mem.plan.text)]),
+    ];
+    return { text: out.length === 0 ? "Nothing waits on the user." : out.join("\n"), fail: false };
   }
 
   // the orchestrator's question filed for the user (or one withdrawn:
