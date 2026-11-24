@@ -440,3 +440,15 @@ test("AC26: g x, the palette's Tracks (found by tracks or explain) open #tracks;
   expect(Cockpit.tracks_cmd(v, "  is it done? ")).toEqual({ $: "Explain", q: "is it done?" });
   expect(Cockpit.tracks_cmd(v, "add Alpha Write the migration")).toEqual({ $: "Track", name: "Alpha", op: "add", text: "Write the migration" });
 });
+
+// security review 4, E2: /tracks (the terminal's Tracks page too: Deck)
+// says the cards are the observer's, written from agent text
+test("SR4 E2: /tracks labels the cards as the observer's", async () => {
+  const Explain = await import("./Explain.ts");
+  const v = View.view_new();
+  v.tracks = [{ name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] }];
+  v.explain = { cards: [{ track: "Owl", title: "Explain tab", what: "w", why: "y", status: "s", watch: "n" }], at: NOW, hash: "h", tried: null, qa: [], writing: false, asking: null };
+  expect(Cockpit.tracks_text(v, NOW)).toContain(Explain.OBSERVED);
+  v.explain = { ...v.explain, cards: [] };
+  expect(Cockpit.tracks_text(v, NOW)).not.toContain(Explain.OBSERVED);
+});

@@ -16,6 +16,7 @@
 import * as Demo from "../../Demo.ts";
 import * as Hist from "../../Hist.ts";
 import * as Import from "../../Import.ts";
+import * as Md from "../../Md.ts";
 import { theme_css } from "../../Theme.ts";
 import * as View from "../../View.ts";
 import * as Drag from "./Drag.ts";
@@ -615,7 +616,10 @@ function click(ev: MouseEvent): void {
     warned(el, () => topup(Number(usd)));
   }
   if (text !== undefined) {
-    navigator.clipboard.writeText(text).then(() => copied(el), () => toast("Could not copy."));
+    // security review 4 (E4, G6): copied cleaned (Md.copy_clean), its
+    // first line named, so what runs is what was shown
+    const clean = Md.copy_clean(text);
+    navigator.clipboard.writeText(clean).then(() => (copied(el), toast("Copied «" + Md.copy_first(clean) + "»")), () => toast("Could not copy."));
   }
 }
 

@@ -679,3 +679,22 @@ test("the Tracks page: every entry is one element, so the browser drops no theme
     expect(entries.join("")).toContain('class="xcard theme"');
   }
 });
+
+// security review 4, E2: the report and the cards are the observer's
+// (model text from agents' words): said so on the report and the cards,
+// not shown as Legion's or the user's; no label when nothing is written
+test("SR4 E2: the Tracks page labels the report and the cards as the observer's, written from agent text", async () => {
+  const View = await import("./View.ts");
+  const Explain = await import("./Explain.ts");
+  const v = View.view_new();
+  v.tracks = [{ name: "Owl", tier: "worker", editable: true, orphaned: false, queued: false, items: [], pins: [] }];
+  const card = { track: "Owl", title: "One page", what: "w", why: "y", status: "s", watch: "nothing" };
+  v.explain = { cards: [card], at: NOW, hash: "h", tried: null, qa: [], writing: false, asking: null, themes: {}, report: { text: "All on track.", at: NOW - 60_000 } };
+  const html = Pages.tracks_html(v, NOW).join("");
+  const label = html.indexOf(Explain.OBSERVED);
+  expect(label).toBeGreaterThan(-1);
+  expect(html.match(new RegExp(Explain.OBSERVED.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))!.length).toBeGreaterThanOrEqual(2);
+  expect(label).toBeLessThan(html.indexOf("All on track."));
+  v.explain = { ...v.explain, cards: [{ ...card, title: "" }], report: null };
+  expect(Pages.tracks_html(v, NOW).join("")).not.toContain(Explain.OBSERVED);
+});
