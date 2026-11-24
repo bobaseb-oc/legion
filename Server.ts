@@ -270,8 +270,12 @@ const POSTED     = "api";
 // a device's socket is within an agent's reach, so an agent must not
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
 // device too: its /mode, /plan, /allow, /approve, /answer are refused,
-// unless its socket is on its terminal key (K1, Chat.act's `says`)
-const SAYS       = ["mode", "plan", "consent", "approve", "answer", "tidy"];
+// unless its socket is on its terminal key (K1, Chat.act's `says`).
+// RED ZONE (security review 4 N2, DRAFT awaiting the user's sign-off):
+// and the goal (its unmet checks push "keep working" as the user's), an
+// agent the person starts (its task "by the user"), the person's message
+// to an agent, a dismiss: all speak for the user
+const SAYS       = ["mode", "plan", "consent", "approve", "answer", "tidy", "goal", "spawn", "tell", "dismiss"];
 
 // a read of a body: a buffer, no limit
 const READ       = 2 ** 20;
