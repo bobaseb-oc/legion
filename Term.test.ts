@@ -364,6 +364,42 @@ test("/logout signs out both keys' sessions and deletes the terminal key's Keych
   }
 });
 
+// RED ZONE (security review 4 F3, DRAFT awaiting the user's sign-off):
+// `legion web`'s one-use link signs a browser in as the user, so it is in
+// no process's arguments (any process of the user's reads those: ps): it
+// is printed to the terminal only, never handed to `open` (a fake one on
+// PATH logs any call)
+test("legion web prints its one-use link and puts it in no command's arguments", async () => {
+  const port = 39517;
+  const { dir, home } = dirs(port, true);
+  fs.writeFileSync(home + "/keychain.json", JSON.stringify({ ["legion-terminal-127.0.0.1:" + port]: "termkey" }));
+  const link = "http://127.0.0.1:" + port + "/auth?t=ONEUSELINK";
+  const bin = home + "/fakebin";
+  fs.mkdirSync(bin);
+  fs.writeFileSync(bin + "/open", "#!/bin/sh\necho \"$@\" >> " + JSON.stringify(home + "/open.log") + "\n", { mode: 0o755 });
+  fs.writeFileSync(bin + "/xdg-open", "#!/bin/sh\necho \"$@\" >> " + JSON.stringify(home + "/open.log") + "\n", { mode: 0o755 });
+  const seen: Seen = [];
+  const srv = Bun.serve({
+    unix: dir + "/server.sock",
+    fetch(req) {
+      const p = new URL(req.url).pathname;
+      seen.push(req.method + " " + p + " " + String(req.headers.get("authorization")));
+      if (p === "/api/hello") {
+        return Response.json({ bills: false, github: false });
+      }
+      return p === "/api/web-link" ? Response.json({ url: link }) : Response.json({ ok: true });
+    },
+  });
+  try {
+    const { out } = await stubbed(["web"], port, dir, home, 5000, "", { PATH: bin + ":" + process.env.PATH });
+    expect(seen.some((s) => s === "POST /api/web-link Bearer termkey")).toBe(true);
+    expect(out).toContain(link);
+    expect(fs.existsSync(home + "/open.log") ? fs.readFileSync(home + "/open.log", "utf8") : "").not.toContain("ONEUSELINK");
+  } finally {
+    srv.stop(true);
+  }
+});
+
 test("legion device never reads the Keychain: it runs on the device key", async () => {
   const port = 39514;
   const { dir, home } = dirs(port, true);

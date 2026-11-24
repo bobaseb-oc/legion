@@ -19,8 +19,9 @@ let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
 let printed = "";
 let cookie = "";
 
-// the sign-in secret this server's first sign-in registers (S1b), as
-// `legion login` reads it from the Keychain
+// the sign-in secret, as `legion login` reads it from the Keychain; its
+// hash written to the server's dir as `legion login` writes it (S1b,
+// security review 4 F1: no request registers one)
 const SECRET = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 
 // a terminal's sign-in on this local server: /api/login (its ticket and
@@ -51,11 +52,16 @@ beforeAll(async () => {
   for (let k = 0; k < 100 && (await fetch(SITE + "/api/hello").catch(() => null)) === null; k++) {
     await Bun.sleep(50);
   }
-  // the first sign-in registers the secret; `legion web`'s link, a browser
-  // (minted with the terminal's own key: the device key can't)
+  // no request registers a secret (F1): register=1 is refused and writes
+  // no hash; `legion login` writes it, then the secret signs in; `legion
+  // web`'s link, a browser (minted with the terminal's own key: the
+  // device key can't)
   const key = crypto.randomUUID();
   const termkey = crypto.randomUUID();
-  expect((await signin("me@x.com", key, { secret: SECRET, register: "1" }, termkey)).status).toBe(200);
+  expect((await signin("me@x.com", key, { secret: SECRET, register: "1" }, termkey)).status).toBe(403);
+  expect(fs.existsSync(DIR + "/signin-hash")).toBe(false);
+  fs.writeFileSync(DIR + "/signin-hash", new Bun.CryptoHasher("sha256").update(SECRET).digest("hex") + "\n", { flag: "wx", mode: 0o600 });
+  expect((await signin("me@x.com", key, { secret: SECRET }, termkey)).status).toBe(200);
   expect((await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } })).status).toBe(403);
   const web = await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + termkey } });
   const res = await fetch((await web.json()).url, { redirect: "manual" });
