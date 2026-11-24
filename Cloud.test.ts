@@ -361,13 +361,15 @@ test("phone features are off by default", async () => {
   expect(stored().n).toBe(1);
 });
 
-// RED ZONE (S1a, S1b, DRAFT awaiting the user's sign-off): a local Legion
-// (no mail key) prints no link: the terminal that asked gets its ticket
-// and confirms with code and the sign-in secret. The first registers it
-// (its hash only, 0600), once; then only that secret signs in; a missing
-// or wrong one is refused and uses the link up. A browser's sign-in there
-// is refused (legion web), and nothing is printed
-test("a local Legion's sign-in needs the sign-in secret: registered once, then required; no link printed", async () => {
+// RED ZONE (S1a, S1b, security review 4 F1, DRAFT awaiting the user's
+// sign-off): a local Legion (no mail key) prints no link: the terminal
+// that asked gets its ticket and confirms with code and the sign-in
+// secret. No request registers one (register=1 is refused, none made):
+// the user's own `legion login` writes its hash to signin-hash itself;
+// then only that secret signs in; a missing or wrong one is refused and
+// uses the link up. A browser's sign-in there is refused (legion web),
+// and nothing is printed
+test("a local Legion's sign-in needs the sign-in secret: never registered over HTTP, then required; no link printed", async () => {
   const cloud = cloud_new(true);
   const said: string[] = [];
   const log = console.log;
@@ -405,21 +407,33 @@ test("a local Legion's sign-in needs the sign-in secret: registered once, then r
       expect(live(n.key)).toBe(false);
     }
     expect(fs.existsSync(config.DIR + "/signin-hash")).toBe(false);
-    // the first registers it: signed in, only its hash kept, 0600
+    // F1: a well-formed secret with register=1 (what an agent on the
+    // socket would send first): refused, nothing registered, its keys
+    // signed in nowhere, the link used up
     const secret = Cloud.random();
     const b = await begin();
-    expect((await confirm(b.t, b.code, { secret, register: "1" })).status).toBe(200);
-    expect(live(b.key)).toBe(true);
-    expect(live(b.term)).toBe(true);
+    expect((await confirm(b.t, b.code, { secret, register: "1" })).status).toBe(403);
+    expect(live(b.key)).toBe(false);
+    expect(live(b.term)).toBe(false);
+    expect(fs.existsSync(config.DIR + "/signin-hash")).toBe(false);
+    expect((await confirm(b.t, b.code, { secret })).headers.get("location")).toContain("expired=1");
+    // the user's `legion login` writes the hash itself (Term.ts
+    // login_local): then that secret signs in, both keys
     const file = config.DIR + "/signin-hash";
-    expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    // once one is: another registration is refused, and so are no secret,
-    // a wrong one, and a right one after the link was used up
-    const c = await begin();
-    expect(c.secret).toBe(true);
-    expect((await confirm(c.t, c.code, { secret: Cloud.random(), register: "1" })).status).toBe(403);
-    expect(live(c.key)).toBe(false);
+    fs.writeFileSync(file, Cloud.hash(secret) + "\n", { flag: "wx", mode: 0o600 });
+    const r = await begin();
+    expect(r.secret).toBe(true);
+    expect((await confirm(r.t, r.code, { secret })).status).toBe(200);
+    expect(live(r.key)).toBe(true);
+    expect(live(r.term)).toBe(true);
+    // once one is: register=1 is refused, even with the right secret, and
+    // so are no secret, a wrong one, and a right one after the link was
+    // used up; the hash stays as it was
+    for (const more of [{ secret: Cloud.random(), register: "1" }, { secret, register: "1" }]) {
+      const c = await begin();
+      expect((await confirm(c.t, c.code, more)).status).toBe(403);
+      expect(live(c.key)).toBe(false);
+    }
     expect(fs.readFileSync(file, "utf8").trim()).toBe(Cloud.hash(secret));
     for (const more of [{}, { secret: Cloud.random() }, { secret: "short" }] as Record<string, string>[]) {
       const d = await begin();

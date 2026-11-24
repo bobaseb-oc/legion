@@ -97,15 +97,19 @@ export type Term = typeof BROWSER | typeof DEVICE | typeof TERMINAL;
 // `legion login` with the confirm over the server's socket (never in an
 // argument, the environment, a log or a URL). The server keeps only its
 // sha256, in SIGNIN (0600, in config.DIR): the first `legion login`
-// registers it (trust on first use, once: none can be registered while
-// one is, and none can sign in without one); to reset, the user deletes
-// that file. A wrong or missing one uses the link up (each try costs a
-// link: link_ask's limits). A browser there signs in by `legion web`.
+// writes it there itself (trust on first use, once, exclusive create:
+// none can be made while one is, and none can sign in without one); no
+// request to the server registers one (security review 4 F1: one did,
+// first come, so an agent's curl to server.sock could, before the user's
+// first login); to reset, the user deletes that file. A wrong or missing
+// one uses the link up (each try costs a link: link_ask's limits). A
+// browser there signs in by `legion web`.
 // Residual: an agent shell in full mode runs as the user and may forge
 // what is on disk with disguised commands (Machine.trust, the reviewer
 // and hooks are the gates; the Keychain prompt is the user's proof)
 const SIGNIN = "signin-hash";
 const SECRET = /^[\w-]{43,400}$/;
+const REGISTER_NOT_HERE = "the server registers no sign-in secret: legion login writes it (run legion login again; to start over, the user deletes " + SIGNIN + " in Legion's dir: README).";
 
 // how long an act's answer with words is kept (ms)
 const ACTS = 7 * 864e5;
@@ -668,8 +672,12 @@ export namespace Cloud {
     }
     // RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local
     // Legion's sign-in (not GitHub's) also needs the sign-in secret; a
-    // wrong or missing one uses the link up
-    const why = cloud.local && !link.who.startsWith("@") ? Cloud.signin_check(form.get("secret") ?? "", form.get("register") === "1") : null;
+    // wrong or missing one uses the link up. RED ZONE (security review 4
+    // F1, DRAFT awaiting the user's sign-off; risk: high, a registration
+    // here gave whoever asked first a session that speaks for the user):
+    // no request registers one (register=1 refused); only the user's own
+    // `legion login` writes signin-hash (Term.ts login_local)
+    const why = !cloud.local || link.who.startsWith("@") ? null : form.has("register") ? REGISTER_NOT_HERE : Cloud.signin_check(form.get("secret") ?? "");
     if (why !== null) {
       Cloud.ticket_read(cloud, t, true);
       return new Response("Refused: " + why, { status: 403 });
@@ -700,21 +708,16 @@ export namespace Cloud {
   }
 
   // why a local sign-in's secret is refused (null: it isn't): not a
-  // token; register: one is already registered (made once, exclusively:
-  // two at a time can't both); else: none registered, or not its hash
-  // (compared in constant time)
-  export function signin_check(secret: string, register: boolean): string | null {
+  // token, none registered, or not its hash (compared in constant time).
+  // RED ZONE (security review 4 F1, DRAFT awaiting the user's sign-off):
+  // the server only compares; it never writes SIGNIN. Invariant: what
+  // reaches the server over HTTP (an agent's curl to server.sock, say)
+  // can't make the secret that later speaks for the user; only `legion
+  // login`, as the user, writes the hash (agents are refused SIGNIN in
+  // every mode: Machine.trust, TRUST_SHELL)
+  export function signin_check(secret: string): string | null {
     if (!SECRET.test(secret)) {
       return "no sign-in secret: sign in with legion login.";
-    }
-    const file = path.join(config.DIR, SIGNIN);
-    if (register) {
-      try {
-        fs.writeFileSync(file, Cloud.hash(secret) + "\n", { flag: "wx", mode: 0o600 });
-        return null;
-      } catch {
-        return "a sign-in secret is already registered (to start over, the user deletes " + SIGNIN + " in Legion's dir: README).";
-      }
     }
     const kept = Cloud.signin_hash();
     if (kept === null || kept === "") {
