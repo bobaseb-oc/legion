@@ -262,8 +262,8 @@ export namespace Modes {
   // overrule; medium, hard to undo here or a write off the computer
   // RED ZONE (security review 4 G1, G4, N1, Q2, DRAFT awaiting the user's
   // sign-off): at: the path as it resolves (the caller's: absolute and
-  // real), floored as it is written too; a shell command's words with
-  // their quotes off and each -c payload, floored as well
+  // real), floored as it is written too; a shell command with its quotes
+  // off as well
   export function floor(tool: string, input?: any, at: readonly string[] = []): Risk {
     if (tool === "write" || tool === "edit") {
       const p = String(input?.path ?? input?.file_path ?? "");
@@ -275,33 +275,28 @@ export namespace Modes {
     if (tool !== "shell") {
       return "medium";
     }
-    return floor_shell(typeof input?.command === "string" ? input.command : "", 0);
+    return floor_shell(typeof input?.command === "string" ? input.command : "");
   }
 
-  function floor_shell(c: string, depth: number): Risk {
+  function floor_shell(c: string): Risk {
     // the line with every quote and backslash taken off: a word quoted in
-    // parts reads whole ("r"m, pu""sh); only ever raises what matches
+    // parts reads whole ("r"m, pu""sh), a -c payload's words too; only
+    // ever raises what matches
     const bare = c.replace(/["'\\]/g, "");
     const texts = [c, bare];
-    const lexed = lex(c);
-    const payloads = typeof lexed === "string" ? [] : lexed.flatMap(payload);
-    const inner = depth < 3 ? payloads.map((p) => floor_shell(p, depth + 1)) : [];
-    if (/[^\x00-\x7f]/.test(c) || texts.some((t) => SECRETS.test(t) || HIGH.some((r) => r.test(t)) || git_runs(t)) || inner.includes("high")) {
+    if (/[^\x00-\x7f]/.test(c) || texts.some((t) => SECRETS.test(t) || HIGH.some((r) => r.test(t)) || git_runs(t))) {
       return "high";
     }
-    const built = typeof lexed === "string" || /[$`]/.test(c) || /(^|[;&|(]\s*)(builtin\s+)?eval\b/.test(bare) || payloads.length > 0 || INTERPRETED.test(bare) || depth >= 3;
-    return built || inner.includes("medium") || texts.some((t) => MEDIUM.some((r) => r.test(t))) ? "medium" : "low";
+    const lexed = lex(c);
+    const built = typeof lexed === "string" || lexed.some(runs_code) || /[$`]/.test(c) || /(^|[;&|(]\s*)(builtin\s+)?eval\b/.test(bare) || INTERPRETED.test(bare);
+    return built || texts.some((t) => MEDIUM.some((r) => r.test(t))) ? "medium" : "low";
   }
 
-  // a command's -c (or -e) payload, when it runs code: a shell's or an
-  // interpreter's (python -c, node -e, perl -e...)
-  function payload(words: string[]): string[] {
+  // whether a command runs the code it is given: a shell's or an
+  // interpreter's -c or -e (python -c, node -e, perl -e...)
+  function runs_code(words: string[]): boolean {
     const name = (words[0] ?? "").split("/").at(-1) ?? "";
-    if (!INTERPRETERS.test(name)) {
-      return [];
-    }
-    const k = words.findIndex((w, i) => i > 0 && /^-[a-zA-Z]*[ce]$|^--eval$/.test(w));
-    return k < 0 ? [] : [words[k + 1] ?? ""];
+    return INTERPRETERS.test(name) && words.slice(1).some((w) => /^-[a-zA-Z]*[ce]$|^--eval$/.test(w));
   }
 
   // whether a line's git config (or git -c) sets a key git runs a command
