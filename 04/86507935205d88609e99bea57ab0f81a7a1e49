@@ -1,0 +1,49 @@
+Device.ts
+  s_49856e8ae81347::t_9ffa0c5f764b11 453-454
+  s_49856e8ae81347::t_cff7b23fc58fac 335-337,349,401-405,416-452,455-601,1251-1257
+local/rules.md
+  s_49856e8ae81347::t_88a55e0d25e04e 12-20
+  s_49856e8ae81347::t_bc33c7158f3ad7 25
+local/unii-local.sh
+  s_49856e8ae81347::t_b15f79ed7ee7c3 364
+  s_49856e8ae81347::t_0ff3736f4c3377 23
+test/run.sh
+  s_49856e8ae81347::t_b91fb23cd4c74b 18
+  s_49856e8ae81347::t_45d4ab03d36dbf 8-11
+local/heavy.sh
+  s_49856e8ae81347::t_7dc497e0a27a0b 1-10
+local/tidy.ts
+  s_49856e8ae81347::t_d11d6679e48b29 1-16
+Device.test.ts
+  s_49856e8ae81347::t_627cc3da046574 287-288,290-291
+Inbox.ts
+  s_49856e8ae81347::t_2ca7da3730dcfc 28-60,335
+Server.test.ts
+  s_49856e8ae81347::t_3e23f9c0ef8fed 3379,3402-3403
+Server.ts
+  s_49856e8ae81347::t_2810dcc8fa810c 274,1865-1870,2451-2487
+View.ts
+  s_49856e8ae81347::t_92b2d0ff20d7f8 277,345-346,419,744,966-968,1737-1741
+web/app.js
+  s_49856e8ae81347::t_b25d4e8b3f2f92 1826,2036-2038,2454-2461,3648-3650,4550-4552
+web/src/Pages.ts
+  s_49856e8ae81347::t_038941723e071f 40-44
+web/src/main.ts
+  s_49856e8ae81347::t_1270fc160dd34f 591-594
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0486507935205d88609e99bea57ab0f81a7a1e49",
+  "prompts": {},
+  "sessions": {
+    "s_49856e8ae81347": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ef6e6d2-82fc-44b6-b338-459bb93ced91",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
