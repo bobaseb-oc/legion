@@ -3544,7 +3544,10 @@ const LIKES = 30;
   // the only one open; in a folder if given (the Files page's box: cd
   // there first). Told to the views as it starts; stopped after bang_ms;
   // its command and output (CAP, head and tail) a note the AI reads,
-  // starting no turn. Answered at once; the note comes when it ends
+  // starting no turn; RED ZONE (PLP-2946, DRAFT awaiting the user's
+  // sign-off): if Unii's turn runs, sent into that call too, as a note
+  // (as an agent's, Tools.ts), so it needn't wait for the next turn.
+  // Answered at once; the note comes when it ends
   export function bang(chat: Chat, id: string, command: string, from: string, says: boolean, named?: unknown, dir?: unknown): Answer {
     if (!says) {
       return { error: "Only you run a !command: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you." };
@@ -3571,7 +3574,11 @@ const LIKES = 30;
     Tools.job(chat.tools, device, job, late, "bang-" + id).then((out) => {
       const said = clip();
       said.add(late.aborted ? "timed out after " + Chat.bang_ms / 1000 + " s: stopped." : out.text);
-      Chat.note(chat, "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail || late.aborted ? "error: " : "") + said.text());
+      const text = "The user ran on " + device + (dir === undefined ? "" : " in " + dir) + ":\n$ " + command + "\n" + (out.fail || late.aborted ? "error: " : "") + said.text();
+      Chat.hold(chat, () => {
+        Chat.push(chat, null, "note", text);
+        chat.call?.send({ text: "note: " + text, imgs: [] });
+      });
     });
     return {};
   }

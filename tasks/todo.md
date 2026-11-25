@@ -1302,6 +1302,23 @@ Intent: a /goal ends on evidence or a cap, not on Unii's word or never; briefs a
 - Decided (overrulable): GOAL_TRIES = 5 unmet checks in a row; the count persists in view.json (goaled) so a restart or a move does not reset it; the brief comes from Unii (it has the context), not from the server; the checker's why is capped at 300 chars and tagged "not the user's message", as the directives nudge is.
 - Not verified: the checker's judgement on the real gateway (Haiku must now name an echo: line); whether a long goal that keeps making progress hits the cap too soon.
 
+## Legion sources OnCorps skills and the pre-ship gate from its own oncorps-shared-skills checkout (0.x)
+
+Intent: Legion indexes OnCorps plugins, and runs the oc-coding-assistant gate, from its own checkout of OnCorps/oncorps-shared-skills at the 0.x tip, not from Claude Code's install (pinned at d468cc7, behind 0.x a4e4e74).
+Decided by the user (2026-11-24): OnCorps only (atlassian, databricks, ~/.claude/skills still via Claude Code); follow the 0.x tip at each start; plugins by allowlist; the gate moves too (RED ZONE).
+Edit scope: local/shared.json (new), local/skills.ts(+test), Hooks.ts(+test), Machine.ts(+test), local/unii-local.sh, local/rules.md wording only.
+
+- [x] Ticket under PLP-2898: PLP-2945
+- [x] Red: skills.test.ts — allowlisted plugins come from the checkout's marketplace.json; Claude Code's oncorps-shared-skills plugins and ~/.claude/skills links into a shared-skills clone are not listed twice; a missing checkout lists none of them
+- [x] Red: Hooks.test.ts (RED ZONE) — HOOKED hooks.json read from the checkout; a root outside the checkout fails closed; a missing checkout fails closed
+- [x] Red: Machine.test.ts (RED ZONE) — Write/Edit under the checkout refused (gating)
+- [x] Green; negative checks (remove each promise, its test fails)
+- [x] unii-local.sh shared_sync before skills_make: clone --filter=blob:none -b 0.x if absent; else fetch origin 0.x, checkout --detach FETCH_HEAD, reset --hard, clean -fd; log old→new SHA; fetch failure keeps the last copy and warns
+- [ ] Full `bun run test`, tsc compare, pre-ship polish, PR via gh stack (RED ZONE DRAFT)
+- Review: touched files 67 pass/1 skip; full suite 1056 pass, 1 skip, 0 fail; tsc 84 = 84. Mutants 10/11 killed; the survivor showed `reset --hard` redundant after `checkout --force`, so it was removed. Real 0.x (a4e4e74) synced into a temp UNII_DIR: index lists oc-coding-assistant:codebase-design, xlsx, pageindex from the checkout; its gate refuses an unpolished `gh pr create` and allows it after mark-polished.
+- Decided (overrulable): no checkout → Claude Code's OnCorps plugins and gate, as today (a fresh device or a failed first clone is never weaker than now); with a checkout, an unlisted or escaping gated plugin, or an unreadable hooks.json, refuses the call. Repo by HTTPS (gh credential helper), not SSH (no agent under launchd). Sync lives in Shared.ts (testable), called from skills_make.
+- Not verified: a remote device (another computer) syncs only if its launcher runs skills_make; otherwise it falls back to Claude Code's install.
+
 ## Security review 4 (c54cdda..f382f3c, PRs #35, #37–#68) (fix/security-review-4, one PR, RED ZONE)
 Review 2026-11-24: five read-only auditor slices (A auth/keys, B agent gating, C server acts, D device/bridge, E UI). "Checked" = re-checked in code by the orchestrator; others are the auditor's, to confirm with a red test first.
 Intent: close every finding below the user approves. Constraints: red test first per item, mutation check, RED ZONE items land as DRAFT for sign-off, `bun run test` only.

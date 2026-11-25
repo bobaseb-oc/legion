@@ -293,9 +293,14 @@ mcp_make() {
 
 # the skills index the rules import (local/skills.ts): what Claude Code
 # has installed and enabled now, so a plugin installed there shows here
-# at the next start
+# at the next start. First, Legion's own oncorps-shared-skills checkout
+# ($DIR/shared-skills, Shared.ts) goes to the tip of local/shared.json's
+# ref: its OnCorps plugins and the gate's hooks replace Claude Code's
+# (RED ZONE, PLP-2945, DRAFT awaiting the user's sign-off). A failed sync
+# keeps the last copy; with none, Claude Code's OnCorps plugins are used
 skills_make() {
-  bun "$ROOT/local/skills.ts" "$DIR/skills.md" >&2 || echo "legion: no skills index" >&2
+  UNII_DIR="$DIR" bun "$ROOT/Shared.ts" >&2 || echo "legion: shared-skills not synced" >&2
+  UNII_DIR="$DIR" bun "$ROOT/local/skills.ts" "$DIR/skills.md" >&2 || echo "legion: no skills index" >&2
 }
 
 # RED ZONE (security review U1, DRAFT awaiting the user's sign-off): up

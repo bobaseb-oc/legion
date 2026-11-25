@@ -23,6 +23,7 @@ import { Harvest } from "./Harvest.ts";
 import { Hooks, type Call, type Source } from "./Hooks.ts";
 import { CATALOG } from "./Models.ts";
 import { SECRET, SECRET_AT, TRUST } from "./Modes.ts";
+import { CONF } from "./Shared.ts";
 
 // Types
 // =====
@@ -87,6 +88,11 @@ const LEGION_CONFIG = ["config.json", "mcp.json", "mcp.local.json"];
 // and this checkout's local/mcp.extra.json, as mcp.json is rebuilt from it
 // at each start (local/mcp.ts)
 const LEGION_EXTRA = import.meta.dir + "/local/mcp.extra.json";
+// RED ZONE (PLP-2945, DRAFT awaiting the user's sign-off): and Legion's
+// oncorps-shared-skills checkout (shared-skills in that dir: the gate's
+// hooks.json, the skills the agents follow) and the config naming its
+// repo, ref and allowlist, this checkout's local/shared.json (Shared.ts)
+const LEGION_SHARED = "/shared-skills";
 // RED ZONE (R7, signed off by the user 2026-11-19): and each chat's
 // view.json, users/<id>/view.json in that dir: its mode, routines (on or
 // off), tallies (what super auto decides for the user) and timers
@@ -322,11 +328,13 @@ export namespace Machine {
     const fold = (q: string) => q.normalize("NFKC").toLowerCase(); // the disk folds case and lookalikes
     const homes = [os.homedir() + "/.claude", Hooks.home()].flatMap((h) => [h, Machine.real(h)]).map(fold);
     const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
-    const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA].flatMap((f) => [f, Machine.real(f)]).map(fold);
+    const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA, CONF].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
+    const shared = chats.map((d) => d + LEGION_SHARED);
+    const under = (q: string, d: string) => q === d || q.startsWith(d + "/");
     const live = [LIVE, Machine.real(LIVE)].map(fold);
-    const lives = (q: string) => live.some((d) => (q === d || q.startsWith(d + "/")) && !q.startsWith(d + "/.claude/worktrees/"));
-    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => q === h || q.startsWith(h + "/")) || legion.includes(q) || lives(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
+    const lives = (q: string) => live.some((d) => under(q, d) && !q.startsWith(d + "/.claude/worktrees/"));
+    return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => under(q, h)) || shared.some((d) => under(q, d)) || legion.includes(q) || lives(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
   }
 
   // this unii's environment for a job (ENV; also: a worker's more), marked
