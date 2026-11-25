@@ -151,7 +151,7 @@ test("a child runs on its tier's model or one below it, never above nor another 
   Tools.close(tools);
 });
 
-// RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 G2, signed off by the user 2026-11-25): a
 // spawn above its tier's model is put to the user saying so first, how
 // many, on what, instead of what: never cut off behind a long task (the
 // GChat post shows the same text: Gchat.gchat_items)
@@ -550,7 +550,7 @@ test("auto mode's reviewer sees the user's last 8 messages, puts them above the 
   }
 });
 
-// RED ZONE (security review 4 G3, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 G3, signed off by the user 2026-11-25): a
 // checker's nudge (the directives check's, the goal check's) is kept as a
 // user-kind message for the turn, but it is no user's message: the
 // reviewer never counts it among the user's latest
@@ -1358,7 +1358,7 @@ test("briefs say what is ruled out; reports cap, mark evidence and say what's le
   expect(system("Wkr")).not.toContain("CONFIRMED, WRONG or UNVERIFIABLE");
 });
 
-// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 N1, signed off by the user 2026-11-25): a
 // write's path counts as the device resolves it (the agent's job dir), so
 // ../../users/<id>/notes from an agent's work dir is Legion's dir, high;
 // and the notes and directives blocks say where they come from
@@ -1381,7 +1381,7 @@ test("at_paths: a write's path as the device resolves it, for the floor; note bl
   expect(text).not.toContain("Legion wrote for itself");
 });
 
-// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 N1, signed off by the user 2026-11-25):
 // the review floors a write at the path it really reaches: a link in the
 // agent's work dir to Legion's dir makes it high, so a low refusal stands
 test("risk: a write through a link into Legion's dir is floored where it lands", async () => {

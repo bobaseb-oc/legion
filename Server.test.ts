@@ -1227,7 +1227,7 @@ test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts o
   expect(out).toMatchObject({ mode: "plan", plan: "1. ship", calls: 1, questions: 1 });
 });
 
-// RED ZONE (security review 4 N2, DRAFT awaiting the user's sign-off): the
+// RED ZONE (security review 4 N2, signed off by the user 2026-11-25): the
 // goal (each unmet check pushes "keep working" as the user's), an agent
 // the person starts (its task the user's, "by the user"), the person's
 // message to an agent, a dismiss: the user's say, refused from a
@@ -3515,7 +3515,7 @@ test("PLP-2924 AC5: one process, two bridge passes with the same open question: 
   expect(a.ac5).toBe(1);
 }, 60_000);
 
-// RED ZONE (security review 4 N3, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 N3, signed off by the user 2026-11-25): a
 // device's tidy report reaches the chat (Unii reads it) fenced as the
 // device's data, each path and why cut: never as Legion's own words
 const TIDIED_N3 = `

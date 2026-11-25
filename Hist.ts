@@ -82,7 +82,7 @@ export function hist_ago(at: number | null, now: number): string {
 
 // a view's history: the user's messages it holds, by id, with their
 // dates; then what was typed in this view (its !commands too). RED ZONE
-// (security review 4 E1, DRAFT awaiting the user's sign-off): a held one
+// (security review 4 E1, signed off by the user 2026-11-25): a held one
 // starting with "!" is left out: the user's !commands are logged as notes
 // (Chat.bang), so it came by a say, maybe a device key's (an agent's), and
 // a "!" line runs as the user, ungated

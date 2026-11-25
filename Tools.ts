@@ -768,7 +768,7 @@ export namespace Tools {
     return device === undefined ? "the server" : String(device);
   }
 
-  // RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 N1, signed off by the user 2026-11-25):
   // a write's or edit's path as the device resolves it (its job dir,
   // Machine.dir), absolute and real, for Modes.floor; [] for other calls
   export function at_paths(tools: Tools, who: string, name: string, args: any): string[] {
@@ -782,7 +782,7 @@ export namespace Tools {
     return [at, Machine.real(at)];
   }
 
-  // RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): a
+  // RED ZONE (security review 4 G2, signed off by the user 2026-11-25): a
   // spawn above its tier's model (only Unii's is put to the user: the
   // spawn tool) said first, before tasks that may be cut: how many start,
   // on what, instead of what; null for any other call

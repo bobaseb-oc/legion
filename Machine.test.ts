@@ -397,7 +397,7 @@ test("write and edit refuse a chat's view.json under Legion's dir", () => {
   expect(Machine.gating(os.tmpdir() + "/repo/view.json")).toBe(false);
 });
 
-// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 N1, signed off by the user 2026-11-25): a
 // chat's notes (~/.unii/users/<id>/notes/: its standing directives and
 // index, read into every turn): no agent's write or edit, in any case
 test("write and edit refuse a chat's notes under Legion's dir", () => {
@@ -408,7 +408,7 @@ test("write and edit refuse a chat's notes under Legion's dir", () => {
   expect(Machine.gating(os.tmpdir() + "/repo/users/10/notes/x.md")).toBe(false);
 });
 
-// RED ZONE (security review 4 F2, G5, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 F2, G5, signed off by the user 2026-11-25):
 // the code the user runs: this live checkout (its sources, local/legion,
 // local/models.json, the key helper's source) and Legion's bin dir (the
 // built key helper and its hash): no agent's write or edit, in any case;

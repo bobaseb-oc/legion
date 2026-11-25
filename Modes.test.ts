@@ -603,7 +603,7 @@ test("floor: the least risk a call carries, from its words alone", () => {
   expect(Modes.floor("fetch", { url: "https://example.com" })).toBe("medium");
 });
 
-// RED ZONE (security review 4 G1, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 G1, signed off by the user 2026-11-25):
 // quotes, a variable or a shell's -c don't lower the floor: the words are
 // read with their quotes off, a -c payload is floored too, and a command
 // built at run time ($, backticks, eval, -c, a pipe into an interpreter)
@@ -625,7 +625,7 @@ test("floor: quoting, a variable or -c don't lower it", () => {
   }
 });
 
-// RED ZONE (security review 4 Q2, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 Q2, signed off by the user 2026-11-25): a
 // git config that sets a key git runs a command from (or a git -c one) is
 // high: the device's git, or a later git, would run it as the user
 test("floor: git config of a key that runs a command is high; other git config isn't", () => {
@@ -643,7 +643,7 @@ test("floor: git config of a key that runs a command is high; other git config i
   }
 });
 
-// RED ZONE (security review 4 G4, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 G4, signed off by the user 2026-11-25):
 // what steers or gates every later agent in a repo (its CLAUDE.md,
 // AGENTS.md, .claude/rules, .claude/hooks) is high to write or edit
 test("floor: writing a repo's agent rules or hooks is high", () => {
@@ -656,7 +656,7 @@ test("floor: writing a repo's agent rules or hooks is high", () => {
   }
 });
 
-// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 N1, signed off by the user 2026-11-25): a
 // path is floored as written and as it resolves (the caller's, Tools.review:
 // its absolute and real paths); a .. in it is at least medium
 test("floor: a write's path counts as it resolves; a .. is at least medium", () => {

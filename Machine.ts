@@ -96,11 +96,11 @@ const LEGION_SHARED = "/shared-skills";
 // RED ZONE (R7, signed off by the user 2026-11-19): and each chat's
 // view.json, users/<id>/view.json in that dir: its mode, routines (on or
 // off), tallies (what super auto decides for the user) and timers
-// RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 N1, signed off by the user 2026-11-25):
 // and its notes (users/<id>/notes/: the standing directives and index read
 // into every turn, the checker holds Unii to)
 const LEGION_CHAT = /^\/users\/[^/]+\/(view\.json|notes(\/.*)?)$/;
-// RED ZONE (security review 4 F2, G5, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 F2, G5, signed off by the user 2026-11-25):
 // the live checkout the server and launcher run (this file's dir): its
 // sources, local/legion, local/models.json, the key helper's source; a
 // worktree in it (.claude/worktrees) is an agent's to write. A change to

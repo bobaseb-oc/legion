@@ -1756,7 +1756,7 @@ async function login_ask(url: string, key: string, term: string, github: boolean
 // after Touch ID, one here); none registered yet (registered false),
 // made here, kept there first, then registered (trust on first use,
 // once). Refused, or no legion-key: why, and the sign-in ends.
-// RED ZONE (security review 4 F1, DRAFT awaiting the user's sign-off;
+// RED ZONE (security review 4 F1, signed off by the user 2026-11-25;
 // risk: high, the hash decides who may sign in as the user): registered
 // here, by this process (the user's), not by the server: its sha256
 // written to signin-hash in the server's dir (SOCKDIR: a local Legion's
@@ -1885,7 +1885,7 @@ async function device_run(url: string): Promise<void> {
 
 // `legion web`: a one-use link (a minute) that signs a browser in as this
 // terminal, printed to this terminal only. RED ZONE (security review 4
-// F3, DRAFT awaiting the user's sign-off; risk: medium, the link is a
+// F3, signed off by the user 2026-11-25; risk: medium, the link is a
 // browser session that speaks for the user): never handed to `open`,
 // whose arguments any process of the user's reads (ps -ww), so an
 // agent's poll could use the link before the browser; the user clicks or

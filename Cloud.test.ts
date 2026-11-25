@@ -361,8 +361,7 @@ test("phone features are off by default", async () => {
   expect(stored().n).toBe(1);
 });
 
-// RED ZONE (S1a, S1b, security review 4 F1, DRAFT awaiting the user's
-// sign-off): a local Legion (no mail key) prints no link: the terminal
+// RED ZONE (S1a, S1b, security review 4 F1, signed off by the user 2026-11-25): a local Legion (no mail key) prints no link: the terminal
 // that asked gets its ticket and confirms with code and the sign-in
 // secret. No request registers one (register=1 is refused, none made):
 // the user's own `legion login` writes its hash to signin-hash itself;

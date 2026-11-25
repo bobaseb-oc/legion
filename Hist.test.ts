@@ -72,7 +72,7 @@ test("the view's history: the user's messages by id, with their dates, then what
   expect(Hist.hist_said(v, typed)).toEqual([{ text: "first", at: null }, { text: "third", at: Date.parse("2026-11-24T10:00:00.000Z") }, { text: "!ls", at: 5 }]);
 });
 
-// RED ZONE (security review 4 E1, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 E1, signed off by the user 2026-11-25): a
 // "!" line runs as the user, ungated (Chat.bang). The user's own !commands
 // are never logged as user messages (their runs are notes), so a user
 // message the server holds starting with "!" came by a say, maybe a

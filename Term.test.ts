@@ -364,7 +364,7 @@ test("/logout signs out both keys' sessions and deletes the terminal key's Keych
   }
 });
 
-// RED ZONE (security review 4 F3, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 F3, signed off by the user 2026-11-25):
 // `legion web`'s one-use link signs a browser in as the user, so it is in
 // no process's arguments (any process of the user's reads those: ps): it
 // is printed to the terminal only, never handed to `open` (a fake one on

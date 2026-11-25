@@ -202,7 +202,7 @@ export function device_git(dir: string, ...args: string[]): string[] {
   return ["git", "-C", dir, ...GIT_SAFE, ...args];
 }
 
-// RED ZONE (security review 4 D1, DRAFT awaiting the user's sign-off): the
+// RED ZONE (security review 4 D1, signed off by the user 2026-11-25): the
 // config keys that name a command git may run: a filter, textconv, diff or
 // merge driver, an editor, gpg, and what a remote call runs (uploadpack,
 // receivepack, ssh, a proxy, a credential helper, an askpass, a URL
@@ -421,7 +421,7 @@ async function device_clean(space: string, run: Exec, cwds: string[] | null = nu
   if (trees.length === 0) {
     return [];
   }
-  // RED ZONE (security review 4 D1, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 D1, signed off by the user 2026-11-25):
   // no fetch (a fetch runs what the repo's config names: uploadpack, ssh,
   // a credential helper); a branch deleted on GitHub shows gone by its
   // merged PR (device_squashes), else as the user's own last fetch left it
@@ -517,7 +517,7 @@ async function scanned<T, R>(items: T[], f: (x: T) => Promise<R>): Promise<R[]> 
   return out;
 }
 
-// RED ZONE (security review 4 D2, DRAFT awaiting the user's sign-off): the
+// RED ZONE (security review 4 D2, signed off by the user 2026-11-25): the
 // .env files in a worktree git cannot give back (untracked, ignored ones
 // too; a tracked one is in git), paths within it, at most ENVS; a failed
 // git: not known (undefined), which counts against removing it
@@ -595,7 +595,7 @@ async function device_bytes(p: string, run: Exec): Promise<number | undefined> {
 // The worktrees to clean up are also looked for under TIDY_ROOTS
 // (UNII_TIDY_ROOTS: others, comma-separated), for that list only: not
 // spaces of the digest or the sidebar. RED ZONE (security review 4 D1, D3,
-// DRAFT awaiting the user's sign-off): Claude Code's sandbox temp dir
+// signed off by the user 2026-11-25): Claude Code's sandbox temp dir
 // (any sandboxed session may write a repo there), this user's by uid, is
 // in TIDY_LISTED (UNII_TIDY_LISTED): legion tidy --list only, never the
 // unattended scan

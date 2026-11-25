@@ -128,7 +128,7 @@ test("the items posted are scrubbed of secret-shaped strings", () => {
   expect(items[0]!.options).toEqual(["yes " + ant, "no"]);
 });
 
-// RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): an
+// RED ZONE (security review 4 G2, signed off by the user 2026-11-25): an
 // approval of a spawn above its tier's model says so first in the post too
 test("G2: a spawn's approval above its tier's model is posted model first, before a long task", async () => {
   const { Tools } = await import("./Tools.ts");
