@@ -673,7 +673,7 @@ export namespace Cloud {
     // RED ZONE (S1b, DRAFT awaiting the user's sign-off): a local
     // Legion's sign-in (not GitHub's) also needs the sign-in secret; a
     // wrong or missing one uses the link up. RED ZONE (security review 4
-    // F1, DRAFT awaiting the user's sign-off; risk: high, a registration
+    // F1, signed off by the user 2026-11-25; risk: high, a registration
     // here gave whoever asked first a session that speaks for the user):
     // no request registers one (register=1 refused); only the user's own
     // `legion login` writes signin-hash (Term.ts login_local)
@@ -709,7 +709,7 @@ export namespace Cloud {
 
   // why a local sign-in's secret is refused (null: it isn't): not a
   // token, none registered, or not its hash (compared in constant time).
-  // RED ZONE (security review 4 F1, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 F1, signed off by the user 2026-11-25):
   // the server only compares; it never writes SIGNIN. Invariant: what
   // reaches the server over HTTP (an agent's curl to server.sock, say)
   // can't make the secret that later speaks for the user; only `legion

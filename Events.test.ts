@@ -215,7 +215,7 @@ test("E2: events_read drops an approval not from the user's origins; keeps a vie
   expect(Events.events_read([good, forged])).toEqual([good]);
 });
 
-// RED ZONE (security review 4 N4, DRAFT awaiting the user's sign-off): a
+// RED ZONE (security review 4 N4, signed off by the user 2026-11-25): a
 // device's events (its key is within an agent's reach), each one a billed
 // turn once a view is open, at most RATE a minute, done or not; the
 // user's own never capped, and a minute later there is room again

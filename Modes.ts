@@ -101,8 +101,7 @@ const MEDIUM = [
   /\bgh\s+api\b[^;&|\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--method\s+(POST|PUT|PATCH|DELETE)|\s-[fF]\s|--(raw-)?field\b|\bgraphql\b)/,
 ];
 
-// RED ZONE (security review 4 G1, Q2, G4, DRAFT awaiting the user's
-// sign-off): what runs the code it is given (a shell, an interpreter),
+// RED ZONE (security review 4 G1, Q2, G4, signed off by the user 2026-11-25): what runs the code it is given (a shell, an interpreter),
 // as a command's name (its -c payload) or piped into (medium at least);
 // git config keys git runs a command from (high); a repo's files that
 // steer or gate every later agent there (high to write or edit)
@@ -128,7 +127,7 @@ export const SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/co
 // sign-in secret's hash (Cloud.ts SIGNIN), the server's log, a terminal's
 // device key (<host>/token). Machine.trust refuses them to agents' tools.
 // TRUST_WORDS: the same, or the dir, named in a shell command (SECRETS)
-// RED ZONE (security review 4 F2, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 F2, signed off by the user 2026-11-25):
 // and its bin dir (the built key helper, legion-key, and its .sha256)
 export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token|bin\/.+)$/i;
 const TRUST_WORDS = String.raw`\.unii\b|\bUNII_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
@@ -260,8 +259,7 @@ export namespace Modes {
 
   // the least risk a reviewed call carries: high, the floor no boss may
   // overrule; medium, hard to undo here or a write off the computer
-  // RED ZONE (security review 4 G1, G4, N1, Q2, DRAFT awaiting the user's
-  // sign-off): at: the path as it resolves (the caller's: absolute and
+  // RED ZONE (security review 4 G1, G4, N1, Q2, signed off by the user 2026-11-25): at: the path as it resolves (the caller's: absolute and
   // real), floored as it is written too; a shell command with its quotes
   // off as well
   export function floor(tool: string, input?: any, at: readonly string[] = []): Risk {

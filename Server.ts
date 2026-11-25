@@ -271,7 +271,7 @@ const POSTED     = "api";
 // approve itself (as Chat.routine, Chat.pin refuse it). The terminal is a
 // device too: its /mode, /plan, /allow, /approve, /answer are refused,
 // unless its socket is on its terminal key (K1, Chat.act's `says`).
-// RED ZONE (security review 4 N2, DRAFT awaiting the user's sign-off):
+// RED ZONE (security review 4 N2, signed off by the user 2026-11-25):
 // and the goal (its unmet checks push "keep working" as the user's), an
 // agent the person starts (its task "by the user"), the person's message
 // to an agent, a dismiss: all speak for the user
@@ -2492,7 +2492,7 @@ export namespace Chat {
   }
 
   // a device's tidy, told: what it removed and what it kept, and why.
-  // RED ZONE (security review 4 N3, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 N3, signed off by the user 2026-11-25):
   // the device's words (a device key is within an agent's reach) reach the
   // chat fenced as its data, each path and why cut (TIDIED_CUT)
   export function tidied(chat: Chat, device: string, msg: any): Answer {

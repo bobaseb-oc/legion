@@ -40,7 +40,7 @@ export type Clean = {
 // only when its branch is merged or gone on origin, it has no change, no
 // commit on no remote, no stash of its branch, and no process works in it.
 // What isn't known counts against it (fail closed). RED ZONE (security
-// review 4 D2, DRAFT awaiting the user's sign-off): nor an untracked or
+// review 4 D2, signed off by the user 2026-11-25): nor an untracked or
 // ignored .env file in it (git status shows no ignored file; the remove
 // deletes them with the dir)
 export function inbox_safe(c: Clean): boolean {

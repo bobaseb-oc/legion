@@ -34,7 +34,7 @@ export namespace Directives {
   // the goal check's nudge's label (Server.ts Chat.goal)
   export const GOAL_TAG = "[goal check]";
 
-  // RED ZONE (security review 4 G3, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 G3, signed off by the user 2026-11-25):
   // whether a user-kind message is a check's nudge (this one's or the goal
   // check's), never the user's own: the reviewer skips it (Tools.reviewed)
   export function checked(text: string): boolean {

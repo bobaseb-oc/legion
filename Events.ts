@@ -103,7 +103,7 @@ export function add(list: Event[], e: Ask, id: number, now: number): { list: Eve
   if (list.filter((x) => waits(x) && trusted(x) === trusted(e)).length >= WAITING) {
     return { error: "Legion's inbox is full: wait a moment." };
   }
-  // RED ZONE (security review 4 N4, DRAFT awaiting the user's sign-off):
+  // RED ZONE (security review 4 N4, signed off by the user 2026-11-25):
   // not the user's (a device key is within an agent's reach; each event a
   // billed turn once a view is open): at most RATE a minute, done or not
   if (!trusted(e) && list.filter((x) => !trusted(x) && x.at > now - MINUTE).length >= RATE) {
