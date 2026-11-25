@@ -1,0 +1,59 @@
+Cloud.test.ts
+  s_e3a50519c7042a::t_ab2f9b62454123 364
+Cloud.ts
+  s_e3a50519c7042a::t_a8f4e4beceda6e 676,712
+Device.ts
+  s_e3a50519c7042a::t_b7a33ee3c82c72 205,424,520,598
+Directives.ts
+  s_e3a50519c7042a::t_862b72fecbb573 37
+Events.test.ts
+  s_e3a50519c7042a::t_0de3b880e10d62 218
+Events.ts
+  s_e3a50519c7042a::t_f7d1b036b5dfae 106
+Gchat.test.ts
+  s_e3a50519c7042a::t_c60def581111f2 131
+Hist.test.ts
+  s_e3a50519c7042a::t_b826f43d8ca58b 75
+Hist.ts
+  s_e3a50519c7042a::t_dc53afb1269930 85
+Inbox.ts
+  s_e3a50519c7042a::t_1e9ffdcb1b9c33 43
+Machine.test.ts
+  s_e3a50519c7042a::t_0221a1ca4bbc9a 400,411
+Machine.ts
+  s_e3a50519c7042a::t_e3197556a304e2 99,103
+Modes.test.ts
+  s_e3a50519c7042a::t_be4608e8d6835d 606,628,646,659
+Modes.ts
+  s_e3a50519c7042a::t_01da0774419f7e 104,130,262
+Server.test.ts
+  s_e3a50519c7042a::t_e7d0e93614fbde 1230,3518
+Server.ts
+  s_e3a50519c7042a::t_1455e7c0f84e33 274,2495
+Term.test.ts
+  s_e3a50519c7042a::t_24625485ff3fa1 367
+Term.ts
+  s_e3a50519c7042a::t_6f28522168ed71 1759,1888
+Tools.test.ts
+  s_e3a50519c7042a::t_9a6a42ebe0a056 154,553,1361,1384
+Tools.ts
+  s_e3a50519c7042a::t_b2168ad83cde70 771,785
+tasks/todo.md
+  s_e3a50519c7042a::t_df32564c9ba431 1352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "08b4b23529b7d15d91a28743d58be573f9c894cd",
+  "prompts": {},
+  "sessions": {
+    "s_e3a50519c7042a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "159d1ca3-6127-4426-8ddf-69d68ce4a06c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
