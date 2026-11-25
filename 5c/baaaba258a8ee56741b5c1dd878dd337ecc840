@@ -1,0 +1,43 @@
+local/skills.ts
+  s_e3a50519c7042a::t_dfec4d92f3bde9 14-17,21,23,44,82-92,115-119,123-132
+local/unii-local.sh
+  s_e3a50519c7042a::t_dfec4d92f3bde9 296-300,302-303
+tasks/todo.md
+  s_e3a50519c7042a::t_7ae12c5c143dc0 1305-1321
+local/skills.test.ts
+  s_e3a50519c7042a::t_dfec4d92f3bde9 73-124
+local/shared.json
+  s_e3a50519c7042a::t_dfec4d92f3bde9 1-5
+Hooks.test.ts
+  s_e3a50519c7042a::t_4f52a01125f3d4 389-439
+Hooks.ts
+  s_e3a50519c7042a::t_353a60c2952bf7 24,33-34,96-98,102-113,267-270,272,321-323,325
+Machine.test.ts
+  s_e3a50519c7042a::t_186ee54b426136 502-516
+Machine.ts
+  s_e3a50519c7042a::t_a5e17ce6f9946d 26,91-95,331,333-334,336-337
+Server.test.ts
+  s_e3a50519c7042a::t_c145fed86d7a47 450-487,1416-1424
+Server.ts
+  s_e3a50519c7042a::t_82e08c6b382460 3547-3550,3577-3581
+Shared.test.ts
+  s_e3a50519c7042a::t_5d52d2ca97186f 1-129
+Shared.ts
+  s_e3a50519c7042a::t_3b7b9f83da8a0f 1-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5cbaaaba258a8ee56741b5c1dd878dd337ecc840",
+  "prompts": {},
+  "sessions": {
+    "s_e3a50519c7042a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "159d1ca3-6127-4426-8ddf-69d68ce4a06c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
