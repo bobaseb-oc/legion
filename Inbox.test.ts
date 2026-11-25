@@ -168,7 +168,7 @@ test("Google's part of the report checked: Meet and Docs links only, Drive ids o
 // and no process in it; the server works safe out itself (a device's own
 // is ignored), and a field a device didn't send counts against it
 test("a worktree row is safe only when merged or gone, clean, pushed, unstashed and not in use", () => {
-  const row = (over: Record<string, any> = {}) => ({ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 4096, at: 1, live: false, ...over });
+  const row = (over: Record<string, any> = {}) => ({ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 4096, at: 1, live: false, envs: [], ...over });
   const safe = (over: Record<string, any> = {}) => ((Inbox.inbox_check(report({ clean: [row(over)] })) as Inbox.Inbox).clean[0] as any).safe;
   expect(safe()).toBe(true);
   expect(safe({ merged: false, gone: true })).toBe(true);
@@ -178,9 +178,14 @@ test("a worktree row is safe only when merged or gone, clean, pushed, unstashed 
   expect(safe({ stashes: 1 })).toBe(false);
   expect(safe({ live: true })).toBe(false);
   // not sent (an older device, or a check that failed): never safe
-  for (const k of ["unpushed", "stashes", "live"]) {
+  for (const k of ["unpushed", "stashes", "live", "envs"]) {
     expect(safe({ [k]: undefined })).toBe(false);
   }
+  // RED ZONE (security review 4 D2): an untracked or ignored .env file git
+  // cannot give back: never safe, and named in the row
+  expect(safe({ envs: [".env"] })).toBe(false);
+  expect((Inbox.inbox_check(report({ clean: [row({ envs: [".env", "api/.env.local"] })] })) as Inbox.Inbox).clean[0]).toMatchObject({ envs: [".env", "api/.env.local"] });
+  expect(Inbox.inbox_check(report({ clean: [row({ envs: [1] })] }))).toBeString();
   // a device's own safe is not trusted
   expect(safe({ changes: 1, safe: true })).toBe(false);
   // an older device's row (no new fields) is still kept, not safe

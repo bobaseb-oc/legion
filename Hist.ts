@@ -81,10 +81,14 @@ export function hist_ago(at: number | null, now: number): string {
 }
 
 // a view's history: the user's messages it holds, by id, with their
-// dates; then what was typed in this view (its !commands too)
+// dates; then what was typed in this view (its !commands too). RED ZONE
+// (security review 4 E1, DRAFT awaiting the user's sign-off): a held one
+// starting with "!" is left out: the user's !commands are logged as notes
+// (Chat.bang), so it came by a say, maybe a device key's (an agent's), and
+// a "!" line runs as the user, ungated
 export function hist_said(v: View.View, typed: Said[]): Said[] {
   const mine = [...v.whole].sort((a, b) => a[0] - b[0]).flatMap(([, e]) => {
-    if (e.kind !== "user") {
+    if (e.kind !== "user" || e.text.trimStart().startsWith("!")) {
       return [];
     }
     const at = e.date === undefined ? NaN : Date.parse(e.date);

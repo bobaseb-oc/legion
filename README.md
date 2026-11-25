@@ -280,11 +280,12 @@ itself, with the code and the sign-in secret: a token kept only in the
 Keychain (service `legion-signin-<host>`, read by legion-key after Touch
 ID), sent over the server's socket. The server keeps only
 its sha256, in ~/.unii/signin-hash ($UNII_DIR, 0600). The first
-`legion login` makes and registers it (trust on first use, once: run it
-yourself right away); after that a sign-in without it is refused, and so
-is registering another. To start over (a new Mac, a lost Keychain item),
+`legion login` makes it and writes the hash itself (the server never
+registers one: no request can); after that a sign-in without it is
+refused. To start over (a new Mac, a lost Keychain item),
 delete ~/.unii/signin-hash yourself, then run `legion login`. A browser
-signs in there by `legion web`; a server with a mail key mails links as
+signs in there by `legion web`, which prints a one-use link to click (it
+opens nothing: the link is in no command's arguments); a server with a mail key mails links as
 before. Agents' tools refuse Legion's trust state (cloud.db and its
 -wal/-shm, signin-hash, server.log, the token files): no read, grep or
 write, and a shell command naming one by its path is refused in every

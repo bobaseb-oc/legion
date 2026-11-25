@@ -11,7 +11,7 @@
 #   legion serve        run the server in the foreground
 #   legion start|stop   start (background) or stop the server and SearXNG
 #   legion login        sign in (the terminal's own key, read by legion-key)
-#   legion web          open the site in your browser, signed in as your terminal
+#   legion web          a one-use link (printed) that signs your browser in as your terminal
 #   legion device       this computer runs the agents' jobs with no terminal open
 #                     (foreground; `legion device --install` keeps one running
 #                     at login with launchd, `--uninstall` removes it)

@@ -1318,3 +1318,35 @@ Edit scope: local/shared.json (new), local/skills.ts(+test), Hooks.ts(+test), Ma
 - Review: touched files 67 pass/1 skip; full suite 1056 pass, 1 skip, 0 fail; tsc 84 = 84. Mutants 10/11 killed; the survivor showed `reset --hard` redundant after `checkout --force`, so it was removed. Real 0.x (a4e4e74) synced into a temp UNII_DIR: index lists oc-coding-assistant:codebase-design, xlsx, pageindex from the checkout; its gate refuses an unpolished `gh pr create` and allows it after mark-polished.
 - Decided (overrulable): no checkout → Claude Code's OnCorps plugins and gate, as today (a fresh device or a failed first clone is never weaker than now); with a checkout, an unlisted or escaping gated plugin, or an unreadable hooks.json, refuses the call. Repo by HTTPS (gh credential helper), not SSH (no agent under launchd). Sync lives in Shared.ts (testable), called from skills_make.
 - Not verified: a remote device (another computer) syncs only if its launcher runs skills_make; otherwise it falls back to Claude Code's install.
+
+## Security review 4 (c54cdda..f382f3c, PRs #35, #37–#68) (fix/security-review-4, one PR, RED ZONE)
+Review 2026-11-24: five read-only auditor slices (A auth/keys, B agent gating, C server acts, D device/bridge, E UI). "Checked" = re-checked in code by the orchestrator; others are the auditor's, to confirm with a red test first.
+Intent: close every finding below the user approves. Constraints: red test first per item, mutation check, RED ZONE items land as DRAFT for sign-off, `bun run test` only.
+User's call 2026-11-24: one PR, all findings. Q1: live checkout (import.meta.dir) and ~/.unii/bin gated for agents (covers F2, G5); Q2: device never trusts repo config; floor high for git config of command-running keys.
+Workers (worktrees, merged into fix/security-review-4): W1 device (D1–D4), W2 gates (G1, G4, N1, F2/G5 checkout gate, git-config floor), W3 sign-in (F1, F3), W4 server/tools (N2, N3, N4, G2, G3, E1), W5 UI (E2, E3/N5, E4, G6).
+
+- [x] D1 (High, RED, checked) tidy scan's `git fetch` (Device.ts:416, every 5 min, launchd, unsandboxed) runs repo-config commands (uploadpack, sshCommand, gitProxy, credential.helper); GIT_SAFE/device_trusted miss them; TIDY_ROOTS scans /private/tmp/claude-501 (sandbox-writable) → drop the fetch (gone via gh) or harden it like Sweep.ts git; widen device_trusted; take the temp root out of the auto scan
+- [x] G1 (Med, RED, checked by probe) Modes.floor reads raw text: quoting/variables lower high→medium/low (`"--force"`, `"main"`, `npm "publish"`, `$g`, `"r"m`) → floor over lexed words; unparseable or `$`/backtick/eval/-c/`| sh` ≥ medium
+- [x] N1 (Med, RED, checked) users/<id>/notes (directives.md, index) not gated; relative path dodges SECRETS → gate like LEGION_CHAT; floor on resolved real path; label the block by origin
+- [x] F1 (Med here / High fresh install, RED, checked) sign-in secret registers over HTTP, first come (Cloud.ts:500, :706) → `legion login` writes signin-hash itself, server only compares (this machine: hash exists since 2026-11-20)
+- [x] F2 (Med, RED, checked) ~/.unii/bin/legion-key + .sha256 not in TRUST/gating; swap skips the rebuild prompt → add <DIR>/bin/ to TRUST and TRUST_SHELL; consider a pinned code-signature check
+- [x] G2 (Med, RED, checked) Opus consent shows `spawn {json}` cut at 2000 chars; model often hidden → own consent text, model first (web + GChat)
+- [x] N2 (Med, pre-existing, RED, checked) goal/spawn/tell/dismiss accept a device key (not in SAYS, Server.ts:274) → add to SAYS
+- [x] D2 (Med, RED) tidy removal deletes gitignored files (.env, DBs) silently → count/list ignored files, refuse or ask
+- [x] F3 (Med, pre-existing) `legion web` link in `open` argv (Term.ts:~1886) → no secret in argv
+- [x] G3 (Low) checker nudges stored as kind "user" reach the reviewer as user messages → own kind
+- [x] G4 (Low) repo CLAUDE.md/AGENTS.md/.claude/rules/hooks have write floor low → floor high
+- [x] G5 (Low) local/models.json agent-writable, trusted for tier/ids/rates → gate like LEGION_CONFIG
+- [x] E1 (Low, partial) web Ctrl+R history includes device-key "say" text; a "!" hit runs ungated → history drops stored "!" messages (the user's own ! commands are notes, so none lost)
+- [x] N3 (Low) `tidied` puts device text in the chat unfenced → fence + cap
+- [x] N4 (Low) device `work` events uncapped; each starts a billed turn → rate cap
+- [x] N5/E3 (Low) explain_load: out-of-range report.at, unchecked cards/qa crash Tracks → validate on load
+- [x] E2 (Low) observer theme names/report are unlabelled model text, fixed once made → labelled as observer text; names capped (40 chars, 5 words), approval/imperative names get no theme (no reset act yet)
+- [x] E4 (Low) copied code blocks keep C0/C1/bidi characters → strip on copy, show first line
+- [x] D3 (Low) TIDY_ROOTS hard-codes uid 501 → process.getuid()
+- [x] D4 (Low) per-scan fetch + gh pr list in every repo (~1200 calls/h) → cache, limit parallel
+- Unconfirmed: G6 bidi/zero-width in `!` commands (fold into E4); Screen.ts:164 non-TTY path writes runs uncleaned (pre-existing).
+- Review 2026-11-24: five workers (worktrees, red test first, mutation check), merged into fix/security-review-4 with one conflict (Tools.ts: at_paths and above_shown, both kept). Mutants: W1 11/12 (the survivor hard-codes 501, this user's uid), W2 21/21, W3 5/5, W4 17/17, W5 13/13. Merged tree: N2 broke a Tracks test that dismissed with no asker (fixed: dismiss as a view); D2's .env files shown in the web inbox details (red first). Full `bun run test` on the merged tree: see the PR.
+- User-visible: `legion web` prints its link instead of opening it; `legion login` writes signin-hash itself; tidy keeps worktrees with .env files; agents can't write the live checkout, ~/.unii/bin, repo CLAUDE.md/AGENTS.md/.claude/rules|hooks (floor high), or users/<id>/notes.
+- Residuals: plain device-key text still in Ctrl+R history (sending it only chats); hook scripts named in settings and shell writes to rule files not floored; device git inherits launchd's GIT_* env; disguised commands in full mode (as before); no theme reset act.
+- [ ] User: sign off the RED ZONE drafts (D1, D2, G1, G4, N1, F1, F2/G5, F3, G2, N2, N4, G3, Q2 floor); restart the server and the device job to load them

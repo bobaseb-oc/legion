@@ -30,6 +30,7 @@ import * as Device from "./Device.ts";
 import * as Hist from "./Hist.ts";
 import * as Import from "./Import.ts";
 import { Machine } from "./Machine.ts";
+import * as Md from "./Md.ts";
 import * as Notify from "./Notify.ts";
 import * as Paint from "./Paint.ts";
 import { type Move, Pick } from "./Pick.ts";
@@ -158,7 +159,7 @@ function term_keys(prefix: string): Store {
 
 const USAGE = `Usage: legion [url]         the chat (url: $UNII_URL, else http://127.0.0.1:8788)
        legion login [url]   sign in
-       legion web [url]     open the site in your browser, signed in as this terminal
+       legion web [url]     a one-use link (printed) that signs your browser in as this terminal
        legion device [url]  this computer runs the agents' jobs, with no screen
                             (as a terminal does; the newest one open runs them)
        legion update [url]  disabled in this build (it ran curl | sh)
@@ -774,9 +775,11 @@ function term_copy(t: Term): void {
   if (code === null) {
     return term_toast(t, "No code block from Legion to copy yet.");
   }
+  // security review 4 (E4): the toast names its first line (cleaned:
+  // Md.copy_first), so the user sees what they will paste
   const n = code.split("\n").length;
   process.stdout.write(Paint.copy_osc(code));
-  term_toast(t, "Copied the last code block (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
+  term_toast(t, "Copied «" + Md.copy_first(code) + "» (" + n + (n === 1 ? " line" : " lines") + "; needs your terminal's OSC 52).");
 }
 
 // a page's command: the deck at it on a terminal, else its text printed
@@ -1752,7 +1755,14 @@ async function login_ask(url: string, key: string, term: string, github: boolean
 // "legion-signin-<host>" (term_keys, RED ZONE T1: legion-key's, read
 // after Touch ID, one here); none registered yet (registered false),
 // made here, kept there first, then registered (trust on first use,
-// once). Refused, or no legion-key: why, and the sign-in ends
+// once). Refused, or no legion-key: why, and the sign-in ends.
+// RED ZONE (security review 4 F1, DRAFT awaiting the user's sign-off;
+// risk: high, the hash decides who may sign in as the user): registered
+// here, by this process (the user's), not by the server: its sha256
+// written to signin-hash in the server's dir (SOCKDIR: a local Legion's
+// login goes over its socket there, U1), 0600, exclusive create, so one
+// already there is never replaced. Invariant: no request to the server
+// makes the hash (Cloud.confirm refuses register=1)
 async function login_local(url: string, t: string, code: string, registered: boolean): Promise<void> {
   const store = term_keys(SIGNIN);
   const host = new URL(url).host;
@@ -1761,13 +1771,18 @@ async function login_local(url: string, t: string, code: string, registered: boo
     console.log("Confirming with this Legion's sign-in secret: legion-key asks for Touch ID (or your password).");
   } else {
     await store.set(host, made).catch((err: Error) => login_fail("the Keychain didn't keep a sign-in secret (" + err.message + "), so none is registered."));
+    try {
+      fs.writeFileSync(SOCKDIR + "/signin-hash", new Bun.CryptoHasher("sha256").update(made).digest("hex") + "\n", { flag: "wx", mode: 0o600 });
+    } catch (err) {
+      login_fail("this Legion's sign-in secret wasn't registered (" + String((err as Error).message ?? err) + "). If one already is, its own secret signs in; to start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
+    }
     console.log("This Legion's sign-in secret is made and kept in the Keychain; each sign-in reads it by legion-key, after Touch ID (or your password).");
   }
   const secret = registered ? await store.get(host).catch((err: Error) => login_fail("this Legion's sign-in secret wasn't read: " + err.message)) : made;
   if (secret === null) {
     login_fail("this Legion's sign-in secret isn't in the Keychain. To start over, delete signin-hash in the server's dir (" + SOCKDIR + "), then legion login.");
   }
-  const body = new URLSearchParams({ t, code, secret, ...(registered ? {} : { register: "1" }) }).toString();
+  const body = new URLSearchParams({ t, code, secret }).toString();
   const init = { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body };
   // signed in: JSON; refused: why (403); the link gone: a redirect, which
   // device_fetch follows nowhere (null)
@@ -1869,7 +1884,13 @@ async function device_run(url: string): Promise<void> {
 }
 
 // `legion web`: a one-use link (a minute) that signs a browser in as this
-// terminal, printed and opened (`open` may be refused, e.g. in a sandbox)
+// terminal, printed to this terminal only. RED ZONE (security review 4
+// F3, DRAFT awaiting the user's sign-off; risk: medium, the link is a
+// browser session that speaks for the user): never handed to `open`,
+// whose arguments any process of the user's reads (ps -ww), so an
+// agent's poll could use the link before the browser; the user clicks or
+// copies it (the terminal opens it, in no command line). Invariant: the
+// link is in no argument, environment, file or log
 async function web_run(url: string): Promise<void> {
   if (!await term_signed(url)) {
     await login_run(url);
@@ -1885,10 +1906,7 @@ async function web_run(url: string): Promise<void> {
   if (res === null || !res.ok || body.url === undefined) {
     login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with unii" : "the server refused (" + res.status + ")"));
   }
-  console.log("Open this within a minute (it works once):\n  " + body.url);
-  if (process.platform === "darwin") {
-    child.spawnSync("open", [body.url as string], { stdio: "ignore" });
-  }
+  console.log("Open this within a minute (it works once; click it, or copy it into your browser):\n  " + body.url);
 }
 
 fs.mkdirSync(TOKEN.slice(0, -"/token".length), { recursive: true, mode: 0o700 });

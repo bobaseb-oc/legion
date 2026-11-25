@@ -214,3 +214,21 @@ test("E2: events_read drops an approval not from the user's origins; keeps a vie
   const forged = ev({ id: 2, key: "b", kind: "approval", ref: 2, body: "yes", src: "device" });
   expect(Events.events_read([good, forged])).toEqual([good]);
 });
+
+// RED ZONE (security review 4 N4, DRAFT awaiting the user's sign-off): a
+// device's events (its key is within an agent's reach), each one a billed
+// turn once a view is open, at most RATE a minute, done or not; the
+// user's own never capped, and a minute later there is room again
+test("N4: past RATE untrusted events in a minute, add is refused; the user's are not; a minute on, room again", () => {
+  const recent = Array.from({ length: Events.RATE }, (_, k) => ev({ id: k + 1, src: "device", key: "d" + k, state: "done", at: T - 1000 }));
+  const over: any = Events.add(recent, req({ src: "device", key: "one-more" }), 99, T);
+  expect(over.error).toMatch(/a minute/);
+  expect(over.list).toBeUndefined();
+  const user: any = Events.add(recent, req({ src: "view", key: "mine" }), 99, T);
+  expect(user.error).toBeUndefined();
+  const later: any = Events.add(recent, req({ src: "device", key: "one-more" }), 99, T + 60_000);
+  expect(later.error).toBeUndefined();
+  const one: any = Events.add(recent.slice(1), req({ src: "device", key: "one-more" }), 99, T);
+  expect(one.error).toBeUndefined();
+  expect(Events.RATE).toBeLessThanOrEqual(10);
+});

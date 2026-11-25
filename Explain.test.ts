@@ -360,7 +360,7 @@ test("themes: fixed once made; a new agent joins an existing theme (any case), e
   expect(Explain.explain_assign("{}", {}, ["D"])).toEqual({ D: "D" });
   expect(Explain.explain_assign("not json", { A: "P" }, ["A", "D"])).toEqual({ A: "P", D: "D" });
   expect(Explain.explain_assign(themed([{ theme: "", tracks: ["E"] }, { theme: 7, tracks: ["F"] }]), {}, ["E", "F"])).toEqual({ E: "E", F: "F" });
-  expect(Explain.explain_assign(themed([{ theme: "x".repeat(500), tracks: ["G"] }]), {}, ["G"]).G).toHaveLength(Explain.TITLE);
+  expect(Explain.explain_assign(themed([{ theme: "x".repeat(500), tracks: ["G"] }]), {}, ["G"]).G).toHaveLength(Explain.THEME_NAME);
   const full: Record<string, string> = {};
   for (let k = 1; k <= Explain.THEMES; k++) full["a" + k] = "T" + k;
   const capped = Explain.explain_assign(themed([{ theme: "New", tracks: ["N"] }]), full, [...Object.keys(full), "N", "M"]);
@@ -482,4 +482,55 @@ test("a dismissed agent leaves its theme: the theme keeps its name while others 
   expect(Object.values(Explain.theme_drop(themes, "C"))).not.toContain("Q");
   expect(Explain.theme_drop(themes, "Z")).toEqual(themes);
   expect(themes).toEqual({ A: "P", B: "P", C: "Q" });
+});
+
+// security review 4, E3/N5: view.json is checked on load: a report's at
+// within Date's range (else toISOString throws on the Tracks page), cards
+// and qa arrays of their shape, capped; nothing else of the file spread
+test("SR4 E3: explain_load: report.at in Date's range, cards and qa checked and capped, no other key kept", () => {
+  for (const at of [1e20, -1, 8.64e15 + 1, NaN, Infinity]) {
+    expect([at, Explain.explain_load({ report: { text: "r", at } }).report]).toEqual([at, null]);
+  }
+  expect(Explain.explain_load({ report: { text: "r", at: 8.64e15 } }).report).toEqual({ text: "r", at: 8.64e15 });
+  expect(Explain.explain_load({ report: { text: "r", at: 0 } }).report).toEqual({ text: "r", at: 0 });
+  for (const bad of ["x", 7, { find: 1 }, null]) {
+    const ex = Explain.explain_load({ cards: bad, qa: bad });
+    expect([bad, ex.cards, ex.qa]).toEqual([bad, [], []]);
+  }
+  const card = { track: "T", title: "t", what: "w", why: "y", status: "s", watch: "n" };
+  const many = Array.from({ length: Explain.CARDS + 5 }, (_, i) => ({ ...card, track: "T" + i }));
+  expect(Explain.explain_load({ cards: many }).cards).toHaveLength(Explain.CARDS);
+  const odd = Explain.explain_load({ cards: [card, 7, { track: 1 }, { ...card, what: "w".repeat(5000), extra: "x" }] }).cards;
+  expect(odd).toHaveLength(2);
+  expect(odd[1]!.what).toHaveLength(Explain.FIELD);
+  expect(Object.keys(odd[1]!).sort()).toEqual(["status", "title", "track", "watch", "what", "why"]);
+  const qas = Array.from({ length: Explain.QAS + 5 }, (_, i) => ({ q: "q" + i, a: "a", at: i }));
+  const qa = Explain.explain_load({ qa: [{ q: 7 }, { q: "x".repeat(9000), a: "a".repeat(9000), at: 1 }, ...qas] }).qa;
+  expect(qa).toHaveLength(Explain.QAS);
+  expect(qa.at(-1)!.q).toBe("q" + (Explain.QAS + 4));
+  const long = Explain.explain_load({ qa: [{ q: "x".repeat(9000), a: "a".repeat(9000), at: 1 }] }).qa[0]!;
+  expect([long.q.length, long.a.length]).toEqual([Explain.Q, Explain.A]);
+  const loaded: any = Explain.explain_load(JSON.parse('{"__proto__": {"polluted": 1}, "evil": "x", "at": "soon", "hash": 7, "tried": "y", "error": 3}'));
+  expect(loaded.evil).toBeUndefined();
+  expect(({} as any).polluted).toBeUndefined();
+  expect(loaded.polluted).toBeUndefined();
+  expect([loaded.at, loaded.hash, loaded.tried, loaded.error]).toEqual([null, "", null, null]);
+  expect(Explain.explain_load({ at: 5, hash: "h", tried: 6, error: "e" })).toMatchObject({ at: 5, hash: "h", tried: 6, error: "e" });
+});
+
+// security review 4, E2: a theme name is the observer's (model text from
+// agents' words): short (THEME_NAME characters, THEME_WORDS words), and
+// one that reads as a call to act or an approval is not made: the track
+// keeps its own name; on load too, so a planted name doesn't persist
+test("SR4 E2: theme names capped, and approval or imperative wording never becomes a theme", () => {
+  const ans = (theme: string) => JSON.stringify({ themes: [{ theme, tracks: ["Owl"] }], cards: [] });
+  for (const bad of ["Action needed: approve PR #12", "Urgent security fix", "Merge this now", "Click here", "Run the deploy", "Approval pending"]) {
+    expect([bad, Explain.explain_assign(ans(bad), {}, ["Owl"])]).toEqual([bad, { Owl: "Owl" }]);
+  }
+  expect(Explain.explain_assign(ans("Billing page"), {}, ["Owl"])).toEqual({ Owl: "Billing page" });
+  expect(Explain.explain_assign(ans("Running costs"), {}, ["Owl"])).toEqual({ Owl: "Running costs" });
+  expect(Explain.explain_assign(ans("one two three four five six seven"), {}, ["Owl"]).Owl).toBe("one two three four five");
+  expect(Explain.explain_assign(ans("x".repeat(200)), {}, ["Owl"]).Owl!.length).toBeLessThanOrEqual(Explain.THEME_NAME);
+  expect(Explain.explain_load({ themes: { Owl: "Approve PR #12 now", Ant: "Billing page" } }).themes).toEqual({ Ant: "Billing page" });
+  expect(Explain.OBSERVED).toMatch(/observer/i);
 });

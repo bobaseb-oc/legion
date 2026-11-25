@@ -688,7 +688,7 @@ export namespace Tools {
     }
     if (verdict !== null) {
       const refused = verdict.allow ? null : "Refused by auto mode's reviewer: " + verdict.reason;
-      const risk = Modes.risk(Modes.floor(name, args), verdict.allow ? "low" : verdict.risk);
+      const risk = Modes.risk(Modes.floor(name, args, Tools.at_paths(tools, who, name, args)), verdict.allow ? "low" : verdict.risk);
       switch (Modes.decide(Tools.mode_of(tools, who), risk, verdict.allow, who !== "main")) {
         case "run":
           return null;
@@ -711,7 +711,8 @@ export namespace Tools {
     const asks: string[] = [];
     for (let i = (mem?.count ?? 0) - 1; i >= 0 && asks.length < REVIEW_ASKS; i--) {
       const m = Memory.message(mem, i);
-      if (m?.kind === "user" && m.text.trim() !== "") {
+      // a check's nudge is user-kind for the turn, never the user's (G3)
+      if (m?.kind === "user" && m.text.trim() !== "" && !Directives.checked(m.text)) {
         asks.unshift(m.text);
       }
     }
@@ -767,11 +768,43 @@ export namespace Tools {
     return device === undefined ? "the server" : String(device);
   }
 
+  // RED ZONE (security review 4 N1, DRAFT awaiting the user's sign-off):
+  // a write's or edit's path as the device resolves it (its job dir,
+  // Machine.dir), absolute and real, for Modes.floor; [] for other calls
+  export function at_paths(tools: Tools, who: string, name: string, args: any): string[] {
+    const p = String(args?.path ?? args?.file_path ?? "");
+    if ((name !== "write" && name !== "edit") || p === "") {
+      return [];
+    }
+    const link = [...(tools.devices.get(String(args?.device ?? ""))?.terms.values() ?? [])][0];
+    const dir = Machine.dir({ name, input: args, cwd: who }, link?.work ?? config.WORK, link?.home);
+    const at = path.resolve(dir, p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
+    return [at, Machine.real(at)];
+  }
+
+  // RED ZONE (security review 4 G2, DRAFT awaiting the user's sign-off): a
+  // spawn above its tier's model (only Unii's is put to the user: the
+  // spawn tool) said first, before tasks that may be cut: how many start,
+  // on what, instead of what; null for any other call
+  export function above_shown(name: string, input: any): string | null {
+    const model = input?.model;
+    if (name !== "spawn" || typeof model !== "string") {
+      return null;
+    }
+    const tier: Tier = input.as === "worker" ? "worker" : "manager";
+    const top = Tools.child(tier, null);
+    if (typeof Tools.child(tier, model) !== "string" || typeof Tools.child(tier, model, true) === "string" || typeof top === "string") {
+      return null;
+    }
+    const n = Array.isArray(input.tasks) ? input.tasks.length : 0;
+    return "Start " + n + " " + tier + (n === 1 ? "" : "s") + " on " + model + " instead of " + top.model + ": ";
+  }
+
   // a call as a person reads it: its command or tool and input, cut, and
   // where it runs
   export function shown(name: string, args: any): string {
     const { device, ...input } = args ?? {};
-    const all = name === "shell" ? String(input.command) : name + " " + JSON.stringify(input);
+    const all = name === "shell" ? String(input.command) : (Tools.above_shown(name, input) ?? "") + name + " " + JSON.stringify(input);
     return (all.length > 2000 ? all.slice(0, 2000) + "… (" + (all.length - 2000) + " more characters not shown)" : all) + " (on " + Tools.where(device) + ")";
   }
 
@@ -1968,17 +2001,17 @@ export namespace Tools {
     }
     if (typeof args?.read === "string") {
       const note = Notes.notes_read(dir, args.read);
-      return typeof note === "string" ? { text: note, fail: true } : { text: Google.fence("notes", note.name + " — " + note.line + "\n\n" + note.text, "A note Legion wrote earlier"), fail: false };
+      return typeof note === "string" ? { text: note, fail: true } : { text: Google.fence("notes", note.name + " — " + note.line + "\n\n" + note.text, "A note in Legion's notes dir (saved by Unii's note tool; a file on this computer, not the user's words)"), fail: false };
     }
     const index = Notes.notes_index(dir);
-    return { text: index === "" ? "No notes yet." : Google.fence("notes", index, "Notes Legion wrote earlier"), fail: false };
+    return { text: index === "" ? "No notes yet." : Google.fence("notes", index, "The notes in Legion's notes dir (saved by Unii's note tool; files on this computer, not the user's words)"), fail: false };
   }
 
   // Unii's notes index, fenced, at the start of its calls' messages; no
   // notes: no block
   export function notes_block(tools: Tools): Block[] {
     const index = Notes.notes_index(tools.mem.dir);
-    return index === "" ? [] : [{ text: Google.fence("notes", index, "Notes Legion wrote earlier") + "\n\n", mark: false }];
+    return index === "" ? [] : [{ text: Google.fence("notes", index, "The notes in Legion's notes dir (saved by Unii's note tool; files on this computer, not the user's words)") + "\n\n", mark: false }];
   }
 
   // Unii's standing directives (Directives.ts): its note of that name
@@ -1986,7 +2019,7 @@ export namespace Tools {
   // never squashes it; none (or too large to read): no block
   export function directives_block(tools: Tools): Block[] {
     const note = Notes.notes_read(tools.mem.dir, Directives.NAME);
-    return typeof note === "string" || note.big === true ? [] : [{ text: Google.fence("directives", note.text, "Standing directives Legion wrote for itself") + "\n\n", mark: false }];
+    return typeof note === "string" || note.big === true ? [] : [{ text: Google.fence("directives", note.text, "Standing directives from Legion's notes dir (saved by Unii's note tool; a file on this computer, not the user's words)") + "\n\n", mark: false }];
   }
 
   // an action for the user filed by any agent (its text one line of spaces,

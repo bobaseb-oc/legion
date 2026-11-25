@@ -202,9 +202,19 @@ export function device_git(dir: string, ...args: string[]): string[] {
   return ["git", "-C", dir, ...GIT_SAFE, ...args];
 }
 
+// RED ZONE (security review 4 D1, DRAFT awaiting the user's sign-off): the
+// config keys that name a command git may run: a filter, textconv, diff or
+// merge driver, an editor, gpg, and what a remote call runs (uploadpack,
+// receivepack, ssh, a proxy, a credential helper, an askpass, a URL
+// rewrite to ext::, a protocol allow), and an include (it may name any of
+// them); keys as git prints them (lowercase). Not those GIT_SAFE sets on
+// every call (fsmonitor, hooksPath, diff.external, pager: husky's
+// hooksPath is common, and harmless here)
+const RUNS_KEYS = "^(filter|gpg|include|includeif|credential|protocol)\\.|\\.(textconv|uploadpack|receivepack|insteadof|pushinsteadof)$|^diff\\..*\\.command$|^merge\\..*\\.driver$|^core\\.(editor|sshcommand|gitproxy|askpass)$|^sequence\\.editor$|^ssh\\.variant$|^log\\.showsignature$";
+
 // whether git may run in dir: it is this user's, and the repo's own config
-// (not the user's global or the system's) names no filter or textconv
-// driver, which a status or a diff would run
+// (not the user's global or the system's) names no command git may run
+// (RUNS_KEYS)
 export async function device_trusted(dir: string, run: Exec): Promise<boolean> {
   try {
     if (fs.statSync(dir).uid !== process.getuid?.()) {
@@ -213,7 +223,7 @@ export async function device_trusted(dir: string, run: Exec): Promise<boolean> {
   } catch {
     return false;
   }
-  const r = await run(device_git(dir, "config", "--show-scope", "--includes", "--get-regexp", "^filter\\.|\\.textconv$"));
+  const r = await run(device_git(dir, "config", "--show-scope", "--includes", "--get-regexp", RUNS_KEYS));
   return r.code === 1 || (r.code === 0 && r.out.split("\n").every((l) => l.trim() === "" || /^(global|system)\s/.test(l)));
 }
 
@@ -346,7 +356,7 @@ export async function device_inbox(rules: Rules, run: Exec, now: Date, g: Reads 
     run(["gh", "api", "graphql", "-f", "query=" + Inbox.QUERY, ...vars]),
     run(["gh", "api", "notifications?participating=true&per_page=30"]),
     run(["acli", "jira", "workitem", "search", "--jql", jql, "--json", "--limit", "50"]),
-    Promise.all([...worktreed, ...tidied].map((s) => device_clean(s.path, run, cwds))).then((x) => x.flat()),
+    scanned([...worktreed, ...tidied], (s) => device_clean(s.path, run, cwds)).then((x) => x.flat()),
     device_digest(active.slice(0, DIGESTED).map((s) => s.path), run, now, said),
   ]);
   const gh = Inbox.inbox_github(json(gql, "gh") ?? {});
@@ -411,9 +421,10 @@ async function device_clean(space: string, run: Exec, cwds: string[] | null = nu
   if (trees.length === 0) {
     return [];
   }
-  // a branch deleted on origin (a merged PR's) is gone only once pruned:
-  // fetched first, hardened git (GIT_SAFE), refs only; offline: as it was
-  await run(device_git(space, "fetch", "--prune", "--quiet", "--no-recurse-submodules", "origin"));
+  // RED ZONE (security review 4 D1, DRAFT awaiting the user's sign-off):
+  // no fetch (a fetch runs what the repo's config names: uploadpack, ssh,
+  // a credential helper); a branch deleted on GitHub shows gone by its
+  // merged PR (device_squashes), else as the user's own last fetch left it
   const base = await run(device_git(space, "rev-parse", "--abbrev-ref", "origin/HEAD"));
   const merged = base.code !== 0 ? [] : (await run(device_git(space, "branch", "--merged", base.out.trim(), "--format=%(refname:short)"))).out.split("\n").map((b) => b.trim());
   const squashes = await device_squashes(space, run);
@@ -445,14 +456,34 @@ function lines(text: string): string[] {
 // run's), as "<branch> <head commit>". gh missing, failing or not JSON:
 // none (fail closed). A worktree counts as squash-merged only when its
 // HEAD is exactly a merged PR's head, so a commit after the merge breaks it
+// The same answer also says which branches are gone (security review 4
+// D1, no fetch): a merged PR of this repo's own, not a fork's (a fork's
+// branch of the same name is another branch), by its head branch.
+// security review 4 D4: an answer is kept SQUASH_KEEP per repo (merged PRs
+// stay merged, so a kept one is only late), a failed one never
 const SQUASHES = 100;
-async function device_squashes(space: string, run: Exec): Promise<Set<string>> {
+const SQUASH_KEEP = 30 * 60e3;
+type Squashes = { heads: Set<string>; gone: Set<string> };
+const squash_kept = new Map<string, { at: number; s: Squashes }>();
+
+// forgets what the scan keeps (a test's)
+export function device_forget(): void {
+  squash_kept.clear();
+}
+
+async function device_squashes(space: string, run: Exec): Promise<Squashes> {
+  const none: Squashes = { heads: new Set(), gone: new Set() };
   const url = await run(device_git(space, "remote", "get-url", "origin"));
   const m = url.code === 0 ? /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url.out.trim()) : null;
   if (m === null) {
-    return new Set();
+    return none;
   }
-  const r = await run(["gh", "pr", "list", "--repo", m[1]!, "--state", "merged", "--limit", String(SQUASHES), "--json", "headRefName,headRefOid"]);
+  const key = space + " " + m[1]!;
+  const kept = squash_kept.get(key);
+  if (kept !== undefined && Date.now() - kept.at < SQUASH_KEEP) {
+    return kept.s;
+  }
+  const r = await run(["gh", "pr", "list", "--repo", m[1]!, "--state", "merged", "--limit", String(SQUASHES), "--json", "headRefName,headRefOid,isCrossRepository"]);
   let prs: unknown = null;
   try {
     prs = r.code === 0 ? JSON.parse(r.out) : null;
@@ -460,12 +491,44 @@ async function device_squashes(space: string, run: Exec): Promise<Set<string>> {
     prs = null;
   }
   if (!Array.isArray(prs)) {
-    return new Set();
+    return none;
   }
-  return new Set(prs.filter((x: any) => typeof x?.headRefName === "string" && /^[0-9a-f]{40}$/.test(String(x?.headRefOid))).map((x: any) => x.headRefName + " " + x.headRefOid));
+  const ok = prs.filter((x: any) => typeof x?.headRefName === "string" && /^[0-9a-f]{40}$/.test(String(x?.headRefOid)));
+  const s: Squashes = {
+    heads : new Set(ok.map((x: any) => x.headRefName + " " + x.headRefOid)),
+    gone  : new Set(ok.filter((x: any) => x.isCrossRepository === false).map((x: any) => x.headRefName as string)),
+  };
+  squash_kept.set(key, { at: Date.now(), s });
+  return s;
 }
 
-async function device_row(repo: string, t: { path: string; branch: string | null }, merged: string[], cwds: string[] | null, run: Exec, squashes: Set<string> = new Set()): Promise<Inbox.Clean> {
+// the most repos a scan checks at a time (security review 4 D4)
+export const SCANNING = 4;
+async function scanned<T, R>(items: T[], f: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await f(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCANNING, items.length) }, lane));
+  return out;
+}
+
+// RED ZONE (security review 4 D2, DRAFT awaiting the user's sign-off): the
+// .env files in a worktree git cannot give back (untracked, ignored ones
+// too; a tracked one is in git), paths within it, at most ENVS; a failed
+// git: not known (undefined), which counts against removing it
+const ENVS = 10;
+async function device_envs(p: string, run: Exec): Promise<string[] | undefined> {
+  // --others with no exclude: every untracked file, ignored or not
+  const r = await run(device_git(p, "ls-files", "--others", "-z", "--", ":(glob)**/.env*"));
+  return r.code !== 0 ? undefined : r.out.split("\0").filter((x) => x !== "").sort().slice(0, ENVS);
+}
+
+async function device_row(repo: string, t: { path: string; branch: string | null }, merged: string[], cwds: string[] | null, run: Exec, squashes: Squashes = { heads: new Set(), gone: new Set() }): Promise<Inbox.Clean> {
   const row: Inbox.Clean = { repo, path: t.path, branch: t.branch, changes: 0, merged: t.branch !== null && merged.includes(t.branch) };
   const st = await device_trusted(t.path, run) ? await run(device_git(t.path, "status", "--porcelain")) : { code: 1, out: "" };
   if (st.code !== 0) {
@@ -474,18 +537,20 @@ async function device_row(repo: string, t: { path: string; branch: string | null
   row.changes = lines(st.out).length;
   const b = t.branch;
   const track = b === null ? null : await run(device_git(t.path, "for-each-ref", "--format=%(upstream:track)", "refs/heads/" + b));
-  row.gone = track !== null && track.code === 0 && track.out.includes("[gone]");
-  const head = b === null || squashes.size === 0 ? null : await run(device_git(t.path, "rev-parse", "HEAD"));
+  row.gone = (track !== null && track.code === 0 && track.out.includes("[gone]")) || (b !== null && squashes.gone.has(b));
+  const head = b === null || squashes.heads.size === 0 ? null : await run(device_git(t.path, "rev-parse", "HEAD"));
   if (head !== null) {
-    row.squashed = head.code === 0 && squashes.has(b + " " + head.out.trim());
+    row.squashed = head.code === 0 && squashes.heads.has(b + " " + head.out.trim());
   }
   row.unpushed = count(await run(device_git(t.path, "rev-list", "--count", "HEAD", "--not", "--remotes")));
   const stash = await run(device_git(t.path, "stash", "list", "--format=%gs"));
   row.stashes = stash.code !== 0 ? undefined : lines(stash.out).filter((l) => b === null || l.startsWith("WIP on " + b + ":") || l.startsWith("On " + b + ":")).length;
   const at = count(await run(device_git(t.path, "log", "-1", "--format=%ct")));
   row.at = at === undefined ? undefined : at * 1000;
-  // du is slow on big trees: sized only a row that may be safe
-  row.bytes = (row.merged || row.gone || row.squashed) && row.changes === 0 && (row.unpushed === 0 || row.squashed) ? await device_bytes(t.path, run) : undefined;
+  // du and the .env walk are slow on big trees: only a row that may be safe
+  const may = (row.merged || row.gone || row.squashed) && row.changes === 0 && (row.unpushed === 0 || row.squashed);
+  row.bytes = may ? await device_bytes(t.path, run) : undefined;
+  row.envs = may ? await device_envs(t.path, run) : undefined;
   row.live = device_live(t.path, cwds);
   return row;
 }
@@ -529,13 +594,19 @@ async function device_bytes(p: string, run: Exec): Promise<number | undefined> {
 // ----
 // The worktrees to clean up are also looked for under TIDY_ROOTS
 // (UNII_TIDY_ROOTS: others, comma-separated), for that list only: not
-// spaces of the digest or the sidebar
-export const TIDY_ROOTS = ["~/repos", "/private/tmp/claude-501"];
+// spaces of the digest or the sidebar. RED ZONE (security review 4 D1, D3,
+// DRAFT awaiting the user's sign-off): Claude Code's sandbox temp dir
+// (any sandboxed session may write a repo there), this user's by uid, is
+// in TIDY_LISTED (UNII_TIDY_LISTED): legion tidy --list only, never the
+// unattended scan
+export const TIDY_ROOTS = ["~/repos"];
+export const TIDY_LISTED = ["/private/tmp/claude-" + (process.getuid?.() ?? "none")];
 
-function tidy_spaces(now: number, have: Space[]): Space[] {
+function tidy_spaces(now: number, have: Space[], listing = false): Space[] {
   const seen = new Set(have.map((s) => s.path));
   const roots = device_roots(process.env.UNII_TIDY_ROOTS ?? TIDY_ROOTS.join(","));
-  return device_discover(roots, now).filter((s) => !seen.has(s.path) && fs.existsSync(s.path + "/.git/worktrees"));
+  const listed = listing ? device_roots(process.env.UNII_TIDY_LISTED ?? TIDY_LISTED.join(",")) : [];
+  return device_discover([...roots, ...listed], now).filter((s) => !seen.has(s.path) && fs.existsSync(s.path + "/.git/worktrees"));
 }
 
 // why a worktree is kept, not removed
@@ -548,6 +619,7 @@ function tidy_why(c: Inbox.Clean | undefined): string {
     c.changes === 0 ? "" : "it has changes",
     c.unpushed === 0 || c.squashed === true ? "" : "it has commits on no remote (and its HEAD is no merged PR's head)",
     c.stashes === 0 ? "" : "its branch has stashes",
+    c.envs === undefined ? "its .env files are not known" : c.envs.length === 0 ? "" : "it holds .env files git can't give back (" + c.envs.join(", ") + ")",
     c.live === false ? "" : "a process works in it",
   ].filter((w) => w !== "");
   return why.join(", ") || "not safe";
@@ -600,7 +672,7 @@ export async function device_tidy(paths: string[], run: Exec = exec): Promise<{ 
 // and safe (legion tidy --list; read-only)
 export async function device_tidy_scan(run: Exec = exec, now = Date.now()): Promise<Inbox.Clean[]> {
   const spaces = device_discover(device_roots(process.env.UNII_SPACES), now);
-  const all = [...spaces, ...tidy_spaces(now, spaces)].filter((s) => fs.existsSync(s.path + "/.git/worktrees"));
+  const all = [...spaces, ...tidy_spaces(now, spaces, true)].filter((s) => fs.existsSync(s.path + "/.git/worktrees"));
   const cwds = await device_cwds(run);
   const rows: Inbox.Clean[] = [];
   for (const s of all) {
@@ -629,8 +701,9 @@ function age(at: number | undefined, now: number): string {
 export function device_tidy_list(rows: Inbox.Clean[], now = Date.now()): string {
   const yn = (b: boolean | undefined) => (b === undefined ? "?" : b ? "yes" : "no");
   const n = (x: number | undefined) => (x === undefined ? "?" : String(x));
-  const head = ["repo", "branch", "merged", "gone", "changes", "unpushed", "stashes", "live", "size", "age", "safe", "path"];
-  const body = rows.map((r) => [r.repo, r.branch ?? "(detached)", r.merged ? "merged" : "-", r.gone === true ? "gone" : "-", n(r.changes), n(r.unpushed), n(r.stashes), yn(r.live), size(r.bytes), age(r.at, now), yn(r.safe), r.path]);
+  const envs = (e: string[] | undefined) => (e === undefined ? "?" : e.length === 0 ? "-" : e.join(","));
+  const head = ["repo", "branch", "merged", "gone", "changes", "unpushed", "stashes", "envs", "live", "size", "age", "safe", "path"];
+  const body = rows.map((r) => [r.repo, r.branch ?? "(detached)", r.merged ? "merged" : "-", r.gone === true ? "gone" : "-", n(r.changes), n(r.unpushed), n(r.stashes), envs(r.envs), yn(r.live), size(r.bytes), age(r.at, now), yn(r.safe), r.path]);
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => b[i]!.length)));
   return [head, ...body].map((cols) => cols.map((c, i) => (i === cols.length - 1 ? c : c.padEnd(widths[i]!))).join("  ")).join("\n");
 }

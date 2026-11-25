@@ -42,3 +42,17 @@ test("md_list_text: a line per item, each link its full URL", () => {
   expect(Md.md_list_links(nudges)).toBe(true);
   expect(Md.md_list_links(list("- a\n- **b**"))).toBe(false);
 });
+
+// security review 4, E4/G6: what goes to a clipboard (the web's Copy, the
+// terminal's /copy) loses control characters but \n and \t, and the bidi
+// and zero-width ones, so what runs is what was shown; the toast's line
+test("SR4 E4: copy_clean drops C0/C1 (not \\n, \\t), bidi and zero-width controls; copy_first is the first line", () => {
+  expect(Md.copy_clean("git status\n\tls")).toBe("git status\n\tls");
+  expect(Md.copy_clean("a\x1b[201~b\x07c\x00d\x7fe\x9bf\r")).toBe("a[201~bcdef");
+  const marks = ["\u200b", "\u200c", "\u200d", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069", "\ufeff"];
+  expect(Md.copy_clean("ls " + marks.join("x") + " ok")).toBe("ls " + "x".repeat(marks.length - 1) + " ok");
+  expect(Md.copy_clean("olá 😀 — ok")).toBe("olá 😀 — ok");
+  expect(Md.copy_first("\n  npm test\nrm x")).toBe("npm test");
+  expect(Md.copy_first("x".repeat(200)).length).toBeLessThanOrEqual(61);
+  expect(Md.copy_first("a\u202eb")).toBe("ab");
+});
