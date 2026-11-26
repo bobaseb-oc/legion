@@ -6,19 +6,19 @@ import { Directives } from "./Directives.ts";
 
 const ASKED = "ask " + JSON.stringify({ text: "Merge PR 5?", kind: "merge", pick: 0 });
 
-test("turn: scans back to the latest user message; the reply is the last unii message", () => {
+test("turn: scans back to the latest user message; the reply is the last legion message", () => {
   const t = Directives.turn([
     { kind: "user", text: "old" },
-    { kind: "unii", text: "old reply?" },
+    { kind: "legion", text: "old reply?" },
     { kind: "user", text: "merge it" },
     { kind: "tool", text: "shell {}" },
-    { kind: "unii", text: "first" },
-    { kind: "unii", text: "Shall I merge?" },
+    { kind: "legion", text: "first" },
+    { kind: "legion", text: "Shall I merge?" },
   ]);
   expect(t).toEqual({ user: "merge it", reply: "Shall I merge?", asked: false, nudged: false });
-  expect(Directives.turn([{ kind: "user", text: "x" }, { kind: "tool", text: ASKED }, { kind: "unii", text: "Filed." }]).asked).toBe(true);
+  expect(Directives.turn([{ kind: "user", text: "x" }, { kind: "tool", text: ASKED }, { kind: "legion", text: "Filed." }]).asked).toBe(true);
   expect(Directives.turn([{ kind: "user", text: "x" }, { kind: "tool", text: "asked {}" }]).asked).toBe(false);
-  expect(Directives.turn([{ kind: "user", text: Directives.nudge("r") }, { kind: "unii", text: "ok?" }]).nudged).toBe(true);
+  expect(Directives.turn([{ kind: "user", text: Directives.nudge("r") }, { kind: "legion", text: "ok?" }]).nudged).toBe(true);
   expect(Directives.turn([]).reply).toBeNull();
 });
 

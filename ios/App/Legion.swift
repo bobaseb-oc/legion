@@ -1,4 +1,4 @@
-// UniiChat for iOS
+// Legion for iOS
 // ================
 // The site (Site.swift) in a web view, and what only an app does there:
 //
@@ -11,7 +11,7 @@
 // - Export Memory's download goes to the share sheet; the site's prompt()
 //   (Delete account asks the name) is an alert.
 // - Credit is bought through the App Store, the only payment it allows in
-//   an app: the page asks the bridge (`unii`, web/src/main.ts) for
+//   an app: the page asks the bridge (`legion`, web/src/main.ts) for
 //   `credits.<dollars>`, StoreKit sells it for the account signed in
 //   (appAccountToken: its id), and its signed transaction goes to the
 //   server (/api/apple), which grants it once; it is finished only once
@@ -26,7 +26,7 @@ import UserNotifications
 import WebKit
 
 @main
-struct Unii: App {
+struct Legion: App {
 
   @UIApplicationDelegateAdaptor private var phone: Phone
 
@@ -81,7 +81,7 @@ final class Page: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageH
     conf.allowsInlineMediaPlayback = true
     web = WKWebView(frame: .zero, configuration: conf)
     super.init()
-    web.configuration.userContentController.add(self, name: "unii")
+    web.configuration.userContentController.add(self, name: "legion")
     // the sign-in once kept in the app group (a plist, in backups) is gone;
     // it is in the Keychain now (Site.session)
     Site.group.removeObject(forKey: "session")
@@ -96,7 +96,7 @@ final class Page: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageH
   func webView(_ web: WKWebView, didFinish nav: WKNavigation!) {
     Task {
       let cookies = await web.configuration.websiteDataStore.httpCookieStore.allCookies()
-      let session = cookies.first { $0.name == "unii" && $0.domain == Site.url.host }?.value
+      let session = cookies.first { $0.name == "legion" && $0.domain == Site.url.host }?.value
       // RED ZONE (security review SE, DRAFT awaiting the user's sign-off):
       // kept in the Keychain; no cookie (signed out) deletes it
       if Site.session != session {

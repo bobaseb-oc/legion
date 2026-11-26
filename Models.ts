@@ -6,7 +6,7 @@
 // strongest first, as a tier runs its model or one below (Tools.child).
 // From the checked-in local/models.json, so a model's release or
 // retirement is a data change, not a code change; config.json's `catalog`
-// key (or UNII_CATALOG, JSON) changes an entry by vendor and label, or
+// key (or LEGION_CATALOG, JSON) changes an entry by vendor and label, or
 // adds one. Read once, at import: a catalog that isn't one stops the
 // process, never a model guessed. The web app is built from this module
 // too (View.ts through Pick.ts): models.json is imported, so the bundle
@@ -86,16 +86,16 @@ function catalog_entry(vendor: string, raw: any): Entry {
   return { ...(raw.tier === undefined ? {} : { tier: raw.tier }), label: raw.label, id: raw.id, speeds: [...raw.speeds], rate: { ...raw.rate }, ...(raw.long === undefined ? {} : { long: { ...raw.long } }) };
 }
 
-// config.json's catalog (Config.ts reads the same file): UNII_CATALOG first;
+// config.json's catalog (Config.ts reads the same file): LEGION_CATALOG first;
 // in a browser none
 function catalog_over(): unknown {
   if (typeof window !== "undefined") {
     return undefined;
   }
-  if (process.env.UNII_CATALOG !== undefined) {
-    return JSON.parse(process.env.UNII_CATALOG);
+  if (process.env.LEGION_CATALOG !== undefined) {
+    return JSON.parse(process.env.LEGION_CATALOG);
   }
-  const dir = (process.env.UNII_DIR ?? "~/.unii").replace(/^~(?=\/)/, os.homedir());
+  const dir = (process.env.LEGION_DIR ?? "~/.legion").replace(/^~(?=\/)/, os.homedir());
   const file = dir + "/config.json";
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).catalog : undefined;
 }

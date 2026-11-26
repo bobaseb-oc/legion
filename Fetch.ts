@@ -71,7 +71,7 @@ const ENTITIES: Record<string, string> = {
 
 export namespace Fetch {
 
-  export const AGENT = "unii-fetch/1 (a reader for an AI agent)";
+  export const AGENT = "legion-fetch/1 (a reader for an AI agent)";
 
   // what a fetch uses, a test's stand-ins: how a name resolves, how a
   // request goes, the hosts config names, how long it may take (ms), the
@@ -185,7 +185,7 @@ export namespace Fetch {
       }
     });
     if (named.some((d) => d !== "" && (host === d || host.endsWith("." + d)))) {
-      return host + " is one of unii's own services.";
+      return host + " is one of legion's own services.";
     }
     return null;
   }

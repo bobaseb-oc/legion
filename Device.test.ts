@@ -211,8 +211,8 @@ test("device_wire refuses a socket path with ':' or too long; device_fetch with 
 });
 
 // a device's report for the web's status line (Device.device_status): the
-// folder Unii works in (its home repo, else <work>/main), its branch
-test("a device reports the folder Unii works in and its branch", () => {
+// folder Legion works in (its home repo, else <work>/main), its branch
+test("a device reports the folder Legion works in and its branch", () => {
   const repo = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
   Bun.spawnSync(["git", "init", "-q", "-b", "trunk", repo]);
   const s = Device.device_status({ work: "/nowhere", home: repo, computer: false }, Date.now()) as any;
@@ -302,7 +302,7 @@ test("a device reads its inbox with gh, acli and git; what fails is said, not th
   expect(ran.some((c) => c.join(" ").includes("query digest"))).toBe(false);
 });
 
-// spaces found, not listed: git repos under the roots (UNII_SPACES; by
+// spaces found, not listed: git repos under the roots (LEGION_SPACES; by
 // default /Volumes/dev/git and ~/.claude) and the home repo, 4 folders
 // deep at most, not inside a repo, node_modules or a hidden folder; a
 // linked worktree (its .git a file) not a space; newest activity first;
@@ -847,19 +847,19 @@ test("the sandbox temp dir is looked under for legion tidy --list only, never th
   expect(Device.TIDY_LISTED).toEqual(["/private/tmp/claude-" + process.getuid!()]);
   const listed = tidy_repos();
   const none = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
-  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS, listed: process.env.UNII_TIDY_LISTED };
-  process.env.UNII_SPACES = none;
-  process.env.UNII_TIDY_ROOTS = none;
-  process.env.UNII_TIDY_LISTED = listed.T;
+  const was = { spaces: process.env.LEGION_SPACES, tidy: process.env.LEGION_TIDY_ROOTS, listed: process.env.LEGION_TIDY_LISTED };
+  process.env.LEGION_SPACES = none;
+  process.env.LEGION_TIDY_ROOTS = none;
+  process.env.LEGION_TIDY_LISTED = listed.T;
   try {
     const msg = await Device.device_inbox({ work: "/w", computer: false }, tidy_exec, new Date(), nog2) as any;
     expect(msg.inbox.clean.some((c: any) => c.path.startsWith(listed.T))).toBe(false);
     const rows = await Device.device_tidy_scan(tidy_exec);
     expect(rows.some((c) => c.path.startsWith(listed.T + "/r-worktrees/"))).toBe(true);
   } finally {
-    process.env.UNII_SPACES = was.spaces;
-    process.env.UNII_TIDY_ROOTS = was.tidy;
-    process.env.UNII_TIDY_LISTED = was.listed;
+    process.env.LEGION_SPACES = was.spaces;
+    process.env.LEGION_TIDY_ROOTS = was.tidy;
+    process.env.LEGION_TIDY_LISTED = was.listed;
   }
 }, 30e3);
 
@@ -867,17 +867,17 @@ test("the tidy also looks under ~/repos, for its list only", async () => {
   expect(Device.TIDY_ROOTS).toEqual(["~/repos"]);
   const { T, R } = tidy_repos();
   const empty = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-none-"));
-  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS };
-  process.env.UNII_SPACES = empty;
-  process.env.UNII_TIDY_ROOTS = T;
+  const was = { spaces: process.env.LEGION_SPACES, tidy: process.env.LEGION_TIDY_ROOTS };
+  process.env.LEGION_SPACES = empty;
+  process.env.LEGION_TIDY_ROOTS = T;
   try {
     const msg = await Device.device_inbox({ work: "/w", computer: false }, tidy_exec, new Date(), nog2) as any;
     expect(msg.inbox.clean.some((c: any) => c.path.startsWith(T + "/r-worktrees/"))).toBe(true);
     // not a space of the digest or the sidebar
     expect(msg.inbox.spaces).not.toContain("r");
   } finally {
-    process.env.UNII_SPACES = was.spaces;
-    process.env.UNII_TIDY_ROOTS = was.tidy;
+    process.env.LEGION_SPACES = was.spaces;
+    process.env.LEGION_TIDY_ROOTS = was.tidy;
     void R;
   }
 });
@@ -974,17 +974,17 @@ test("a worktree with an ignored .env file is not safe: named in the row and the
   expect(rows.get(w.merged)).toMatchObject({ changes: 0, envs: [".env"], safe: false });
   expect(rows.get(w.gone)).toMatchObject({ envs: ["api/.env.local"], safe: false });
   expect(rows.get(w.again)).toMatchObject({ envs: [], safe: true });
-  const was = { spaces: process.env.UNII_SPACES, tidy: process.env.UNII_TIDY_ROOTS, listed: process.env.UNII_TIDY_LISTED };
-  process.env.UNII_SPACES = R;
-  process.env.UNII_TIDY_ROOTS = R;
-  process.env.UNII_TIDY_LISTED = R;
+  const was = { spaces: process.env.LEGION_SPACES, tidy: process.env.LEGION_TIDY_ROOTS, listed: process.env.LEGION_TIDY_LISTED };
+  process.env.LEGION_SPACES = R;
+  process.env.LEGION_TIDY_ROOTS = R;
+  process.env.LEGION_TIDY_LISTED = R;
   try {
     const list = Device.device_tidy_list((await Device.device_tidy_scan(tidy_exec)).filter((r) => r.path === w.merged));
     expect(list).toContain(".env");
   } finally {
-    process.env.UNII_SPACES = was.spaces;
-    process.env.UNII_TIDY_ROOTS = was.tidy;
-    process.env.UNII_TIDY_LISTED = was.listed;
+    process.env.LEGION_SPACES = was.spaces;
+    process.env.LEGION_TIDY_ROOTS = was.tidy;
+    process.env.LEGION_TIDY_LISTED = was.listed;
   }
   const out = await Device.device_tidy([w.merged], tidy_exec);
   expect(out.removed).toEqual([]);

@@ -1,7 +1,7 @@
 // Shared
 // ======
 // Legion's own checkout of OnCorps/oncorps-shared-skills, in
-// $UNII_DIR/shared-skills (default ~/.unii), at the tip of the ref
+// $LEGION_DIR/shared-skills (default ~/.legion), at the tip of the ref
 // local/shared.json names (0.x): the OnCorps plugins the agents' skills
 // index lists (local/skills.ts) and the gate's hooks.json (Hooks.ts) come
 // from it, not from Claude Code's install, which lags the branch. The
@@ -47,7 +47,7 @@ export namespace Shared {
 
   // the checkout, in Legion's dir, read at each call
   export function dir(): string {
-    return (process.env.UNII_DIR ?? "~/.unii").replace(/^~(?=\/|$)/, os.homedir()) + "/shared-skills";
+    return (process.env.LEGION_DIR ?? "~/.legion").replace(/^~(?=\/|$)/, os.homedir()) + "/shared-skills";
   }
 
   // the checkout's marketplace plugins, or null when it has none readable

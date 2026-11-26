@@ -569,7 +569,7 @@ test("super: the bootstrap reads past answers from the log: a (rec) answer was t
 // sign-in hash), however it reaches it, goes to auto mode's reviewer,
 // even a plain read
 test("auto reviews shell commands touching Legion's trust state", () => {
-  for (const c of ["cat ~/.unii/cloud.db", "cd ~/.unii && cat cloud.db", "sqlite3 cloud.db .dump", "tail server.log", "cat signin-hash", "ls $UNII_DIR", "ls ~/.unii"]) {
+  for (const c of ["cat ~/.legion/cloud.db", "cd ~/.legion && cat cloud.db", "sqlite3 cloud.db .dump", "tail server.log", "cat signin-hash", "ls $LEGION_DIR", "ls ~/.legion"]) {
     expect([c, Modes.reviews("auto", "shell", { command: c })]).toEqual([c, true]);
   }
   expect(Modes.reviews("auto", "shell", { command: "ls src" })).toBe(false);
@@ -662,7 +662,7 @@ test("floor: writing a repo's agent rules or hooks is high", () => {
 test("floor: a write's path counts as it resolves; a .. is at least medium", () => {
   const p = "../../users/10/notes/directives.md";
   expect(Modes.floor("write", { path: p, content: "x" })).toBe("medium");
-  expect(Modes.floor("write", { path: p, content: "x" }, ["/Users/u/.unii/users/10/notes/directives.md"])).toBe("high");
+  expect(Modes.floor("write", { path: p, content: "x" }, ["/Users/u/.legion/users/10/notes/directives.md"])).toBe("high");
   expect(Modes.floor("edit", { file_path: "a.md" }, ["/repo/.claude/rules/a.md"])).toBe("high");
   expect(Modes.floor("write", { path: "a.md", content: "x" }, ["/repo/a.md"])).toBe("low");
 });

@@ -1,7 +1,7 @@
 // Shared test
 // ===========
 // `bun run test Shared.test.ts`. Legion's own checkout of
-// oncorps-shared-skills ($UNII_DIR/shared-skills): synced to the tip of its
+// oncorps-shared-skills ($LEGION_DIR/shared-skills): synced to the tip of its
 // ref at each start, edits in it wiped, a failed fetch keeping the last
 // copy; its plugins read from its marketplace.json, by the allowlist.
 
@@ -128,12 +128,12 @@ test("plugins: the allowlisted ones in the checkout's marketplace, with roots in
   expect(Shared.plugins(["full"], DIR + "/none")).toEqual([]);
 });
 
-test("the checkout is $UNII_DIR/shared-skills", () => {
-  const was = process.env.UNII_DIR;
-  process.env.UNII_DIR = DIR + "/u";
+test("the checkout is $LEGION_DIR/shared-skills", () => {
+  const was = process.env.LEGION_DIR;
+  process.env.LEGION_DIR = DIR + "/u";
   try {
     expect(Shared.dir()).toBe(DIR + "/u/shared-skills");
   } finally {
-    was === undefined ? delete process.env.UNII_DIR : (process.env.UNII_DIR = was);
+    was === undefined ? delete process.env.LEGION_DIR : (process.env.LEGION_DIR = was);
   }
 });

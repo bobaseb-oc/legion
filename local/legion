@@ -1,1 +1,380 @@
-unii-local.sh
+#!/usr/bin/env bash
+# legion (local/legion; legion, the old name, is this file)
+# ======
+# Legion from this source, on the LiteLLM proxy ($LITELLM_API_BASE,
+# $LITELLM_API_KEY): the server's key and Claude API origin are set for
+# the server process only. Term.ts opens loopback servers only. Web
+# search goes through a SearXNG in Docker on 127.0.0.1 (pinned image),
+# when Docker runs; without it the chat runs with no search.
+#
+#   legion              start the server if it is not running, open the chat
+#   legion serve        run the server in the foreground
+#   legion start|stop   start (background) or stop the server and SearXNG
+#   legion login        sign in (the terminal's own key, read by legion-key)
+#   legion web          a one-use link (printed) that signs your browser in as your terminal
+#   legion device       this computer runs the agents' jobs with no terminal open
+#                     (foreground; `legion device --install` keeps one running
+#                     at login with launchd, `--uninstall` removes it)
+#   legion server --install  keep the server running at login with launchd
+#                     (routines run with no tab or terminal open; it reads the
+#                     gateway's key from $LEGION_KEY_HELPER at each start),
+#                     `--uninstall` removes it
+#   legion log          follow the server's log (no sign-in link prints there)
+#   legion tidy --list  every linked worktree: merged or gone, changes, unpushed, size, in use, safe (read-only)
+#   legion knowledge    rebuild ~/.legion-prime/knowledge.json (OKF, graphify guides,
+#                     repo digests and cards; local/prime/knowledge.ts)
+#   legion mcp-login S  sign in to the MCP server S with OAuth (e.g. atlassian);
+#                     the grant goes to the Keychain only
+#   legion mcp-logout S delete that grant
+#   legion google-login [client.json]  sign in to Google for the cockpit's
+#                     calendar, transcripts, Gmail, Chat (read-only; Keychain only)
+#   legion google-logout  revoke that grant at Google and delete it
+#   legion harvest-login  keep a Harvest personal access token in the Keychain
+#                     (asked for, not echoed); the timesheet's drafts and Submit
+#   legion harvest-logout delete it
+#   legion <args>       anything else goes to Term.ts (e.g. login, version)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+PORT="${LEGION_PORT:-8788}"
+URL="http://127.0.0.1:$PORT"
+DIR="${LEGION_DIR:-$HOME/.legion}"
+LOG="$DIR/server.log"
+PID="$DIR/server.pid"
+
+SEARX_NAME="legion-searxng"
+SEARX_PORT="${LEGION_SEARXNG_PORT:-8888}"
+SEARX_DIR="$DIR/searxng"
+SEARX_IMAGE="searxng/searxng:2026.10.4-d48c4b555@sha256:76b0bf285aca014c7191fc4d9234c4bfb358624ac33d8883833d496c059ec072"
+
+# the SearXNG the server's `search` tool uses ("": none)
+SEARCH=""
+
+mkdir -p "$DIR"
+chmod 700 "$DIR"
+
+# SearXNG, started if it is not running: its settings made once (JSON
+# results on, its own random secret key, no rate limiter), its port bound
+# to 127.0.0.1 only. Sets SEARCH once it answers
+searxng_start() {
+  if ! command -v docker >/dev/null || ! docker info >/dev/null 2>&1; then
+    echo "legion: Docker is not running; web search is off" >&2
+    return 0
+  fi
+  if [[ ! -f "$SEARX_DIR/settings.yml" ]]; then
+    mkdir -p "$SEARX_DIR"
+    (umask 077 && printf 'use_default_settings: true\nserver:\n  secret_key: "%s"\n  limiter: false\n  image_proxy: false\n  public_instance: false\nsearch:\n  formats:\n    - html\n    - json\n' "$(openssl rand -hex 32)" >"$SEARX_DIR/settings.yml")
+  fi
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$SEARX_NAME" 2>/dev/null)" != "true" ]]; then
+    docker rm -f "$SEARX_NAME" >/dev/null 2>&1 || true
+    docker run -d --name "$SEARX_NAME" -p "127.0.0.1:$SEARX_PORT:8080" -v "$SEARX_DIR:/etc/searxng" "$SEARX_IMAGE" >/dev/null
+  fi
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$SEARX_PORT/healthz" 2>/dev/null; then
+      SEARCH="http://127.0.0.1:$SEARX_PORT"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "legion: SearXNG did not answer; web search is off (docker logs $SEARX_NAME)" >&2
+}
+
+# the server: its key and origin from LiteLLM, Opus 5.5 by default, Haiku
+# 5.5 for summaries, search by SearXNG instead of Anthropic's server tool
+# (LiteLLM serves Claude from Bedrock, which has none), your Claude Code
+# rules live (local/rules.md), no mail or push keys, and (RED ZONE,
+# security review R6, signed off by the user 2026-11-19) no GChat
+# webhook: the server reads it from the Keychain (LEGION_GCHAT_KEYCHAIN=1),
+# as its environment is readable by any process of this user (ps -wwE).
+# RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
+# for the same reason the gateway's key is in neither its environment
+# nor its arguments: it is written by the printf builtin into a pipe the
+# server reads once, at its start, as fd 3 (LEGION_ANTHROPIC_KEY_FD, Config.ts)
+server_exec() {
+  local key="${LITELLM_API_KEY:?set LITELLM_API_KEY}"
+  exec env -u RESEND_API_KEY -u APNS_KEY -u OPENAI_API_KEY -u GCHAT_WEBHOOK_URL \
+    -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
+    LEGION_GCHAT_KEYCHAIN=1 \
+    LEGION_ANTHROPIC_KEY_FD=3 \
+    LEGION_ANTHROPIC_URL="${LITELLM_API_BASE:?set LITELLM_API_BASE}" \
+    LEGION_PICK="${LEGION_PICK:-claude-api:opus-5.5:high:slow}" \
+    LEGION_COMPACTOR="${LEGION_COMPACTOR:-claude-api:haiku-5.5:high:slow}" \
+    LEGION_SEARCHES=0 \
+    LEGION_SEARXNG_URL="$SEARCH" \
+    LEGION_MCP="$DIR/mcp.json" \
+    LEGION_RULES="${LEGION_RULES:-$ROOT/local/rules.md}" \
+    LEGION_SITE="$URL" \
+    bun "$ROOT/Server.ts" "$PORT" 3< <(printf '%s' "$key")
+}
+
+# the server as launchd runs it (`legion server --install`): the gateway's
+# key, never in its plist, is read at each start from the helper named
+# (an absolute path to an executable that prints it, as Claude Code's
+# apiKeyHelper), kept in a shell variable only (not exported: the bun runs
+# before the server's don't get it) for server_exec. A server already up (one `legion` started) is waited on
+# for 10 s, then this one ends and launchd starts it again later: one
+# server per user (Server.ts Main.lock)
+server_run() {
+  if [[ -z "${LITELLM_API_KEY:-}" ]]; then
+    key_helper_check || return 1
+    LITELLM_API_KEY="$("$LEGION_KEY_HELPER")" || { echo "legion: $LEGION_KEY_HELPER failed: no key for the server" >&2; return 1; }
+    [[ -n "$LITELLM_API_KEY" ]] || { echo "legion: $LEGION_KEY_HELPER printed no key" >&2; return 1; }
+  fi
+  searxng_start
+  skills_make
+  mcp_make
+  server_exec
+}
+
+key_helper_check() {
+  if [[ "${LEGION_KEY_HELPER:-}" != /* || ! -f "$LEGION_KEY_HELPER" || ! -x "$LEGION_KEY_HELPER" ]]; then
+    echo "legion: set LEGION_KEY_HELPER to the absolute path of an executable that prints the gateway's key (e.g. Claude Code's apiKeyHelper)" >&2
+    return 1
+  fi
+}
+
+# Claude Code's logs staged anew (local/prime/logs.ts), redacted, so the
+# chat's import, asked at its start, finds what was said since the last
+logs_make() {
+  bun "$ROOT/local/prime/logs.ts" || echo "legion: Claude Code logs not staged" >&2
+}
+
+# the terminal: its /import reads only the redacted copy of Claude Code's
+# logs (local/prime/redact.ts), never ~/.claude or ~/.codex themselves.
+# RED ZONE (security review SB, DRAFT awaiting the user's sign-off) M2:
+# it runs the agents' jobs, so it gets no gateway, vendor, mail, push or
+# GChat webhook key (the status line's spend reads LiteLLM's key from the
+# Keychain)
+term_exec() {
+  exec env -u LITELLM_API_KEY -u LITELLM_KEY -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u OPENAI_API_KEY -u RESEND_API_KEY -u APNS_KEY -u GCHAT_WEBHOOK_URL \
+    LEGION_IMPORT_DIRS="${LEGION_IMPORT_DIRS:-$HOME/.legion-prime/claude/projects}" LEGION_IMPORT_ASK="${LEGION_IMPORT_ASK:-}" bun "$ROOT/Term.ts" "$@"
+}
+
+# RED ZONE (T1, DRAFT awaiting the user's sign-off): legion-key, the one
+# program the terminal key's and the sign-in secret's Keychain items
+# trust, which asks for Touch ID (or the password) before every read
+# (local/legion-key/main.swift), built here with swiftc into $DIR/bin
+# (0700), ad hoc signed with the hardened runtime (no debugger attaches,
+# no library is injected), only when its source's sha256 is not the one
+# kept beside it or it is gone. A new build is new code to the Keychain:
+# its first read of each item asks (legion-key wants to use...), where
+# Always Allow is fine. No swiftc, or a failed build: said loudly, and
+# Term.ts runs keyless (no approving from the terminal, local sign-in
+# refused), never falling back to `security`
+KEY_SRC="$ROOT/local/legion-key/main.swift"
+KEY_BIN="$DIR/bin/legion-key"
+key_make() {
+  local sum tmp
+  sum="$(shasum -a 256 "$KEY_SRC" | cut -d' ' -f1)"
+  if [[ -x "$KEY_BIN" && "$(cat "$KEY_BIN.sha256" 2>/dev/null)" == "$sum" ]]; then
+    return 0
+  fi
+  mkdir -p "$DIR/bin"
+  chmod 700 "$DIR/bin"
+  tmp="$DIR/bin/legion-key.new"
+  rm -f "$tmp"
+  if command -v swiftc >/dev/null && swiftc -O -o "$tmp" "$KEY_SRC" >/dev/null 2>&1 \
+    && codesign -s - -o runtime --identifier legion-key --force "$tmp" >/dev/null 2>&1; then
+    chmod 700 "$tmp"
+    mv -f "$tmp" "$KEY_BIN"
+    printf '%s\n' "$sum" >"$KEY_BIN.sha256"
+    echo "legion: built legion-key ($KEY_BIN) from a new source; its first read of each key asks whether this build may use it: Always Allow if you expected it (you changed or pulled local/legion-key), else Deny and check git diff local/legion-key" >&2
+    return 0
+  fi
+  rm -f "$tmp"
+  {
+    echo "legion: WARNING: could not build legion-key (no swiftc?): get it with  xcode-select --install  then run legion again."
+    echo "legion: WARNING: until then approving from the terminal is OFF and a local sign-in is refused (the web still works)."
+  } >&2
+  return 0
+}
+
+# `legion device --install`: a launchd agent (at login, kept alive) that
+# runs `legion device-run`, so the cockpit's reads go on with no window
+# open; it gets this shell's PATH (gh, acli, git, bun) and LEGION_* settings,
+# never a secret (the device signs in with the terminal's saved session).
+# It does not start the server: it waits for one (the socket opens again)
+AGENT_LABEL="com.oncorps.legion.device"
+AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+xml() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' <<<"$1"; }
+device_install() {
+  local env="" name
+  for name in PATH HOME LEGION_PORT LEGION_DIR LEGION_SPACES LEGION_HOME_REPO LEGION_WORK LEGION_COMPUTER; do
+    if [[ -n "${!name:-}" ]]; then
+      env+="    <key>$name</key><string>$(xml "${!name}")</string>"$'\n'
+    fi
+  done
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat >"$AGENT_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AGENT_LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$(xml "$ROOT/local/legion")</string><string>device-run</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+$env  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardErrorPath</key><string>$(xml "$DIR/device.log")</string>
+  <key>StandardOutPath</key><string>/dev/null</string>
+</dict>
+</plist>
+PLIST
+  plutil -lint "$AGENT_PLIST" >/dev/null
+  launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST"
+  echo "legion: device agent installed ($AGENT_PLIST); its log: $DIR/device.log; legion device --uninstall removes it" >&2
+}
+device_uninstall() {
+  launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
+  rm -f "$AGENT_PLIST"
+  echo "legion: device agent removed" >&2
+}
+
+# `legion server --install`: the same for the server (its own label), so
+# routines run while the Mac is on and you are logged in, with no tab or
+# terminal open. Its plist gets PATH, LEGION_* settings, the gateway's URL
+# and the key helper's path, never a key
+SERVER_LABEL="com.oncorps.legion.server"
+SERVER_PLIST="$HOME/Library/LaunchAgents/$SERVER_LABEL.plist"
+server_install() {
+  local env="" name
+  key_helper_check || return 1
+  : "${LITELLM_API_BASE:?set LITELLM_API_BASE}"
+  for name in PATH HOME LEGION_PORT LEGION_DIR LEGION_PICK LEGION_COMPACTOR LEGION_RULES LEGION_SEARXNG_PORT LITELLM_API_BASE LEGION_KEY_HELPER; do
+    if [[ -n "${!name:-}" ]]; then
+      env+="    <key>$name</key><string>$(xml "${!name}")</string>"$'\n'
+    fi
+  done
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat >"$SERVER_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$SERVER_LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$(xml "$ROOT/local/legion")</string><string>server-run</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+$env  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardErrorPath</key><string>$(xml "$LOG")</string>
+  <key>StandardOutPath</key><string>$(xml "$LOG")</string>
+</dict>
+</plist>
+PLIST
+  plutil -lint "$SERVER_PLIST" >/dev/null
+  launchctl bootout "gui/$(id -u)/$SERVER_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$SERVER_PLIST"
+  echo "legion: server agent installed ($SERVER_PLIST); its log: $LOG; legion server --uninstall removes it" >&2
+}
+server_uninstall() {
+  launchctl bootout "gui/$(id -u)/$SERVER_LABEL" 2>/dev/null || true
+  rm -f "$SERVER_PLIST"
+  echo "legion: server agent removed" >&2
+}
+
+# the MCP servers the agents may use (local/mcp.ts): Claude Code's and
+# the extra ones installed in local/tools, no secret written (each is read
+# from ~/.claude.json as its server opens)
+mcp_make() {
+  if [[ ! -d "$ROOT/local/tools/node_modules" ]]; then
+    echo "legion: browser tools are not installed: npm ci --prefix $ROOT/local/tools" >&2
+  fi
+  bun "$ROOT/local/mcp.ts" "$DIR/mcp.json" >&2 || echo "legion: no MCP servers" >&2
+}
+
+# the skills index the rules import (local/skills.ts): what Claude Code
+# has installed and enabled now, so a plugin installed there shows here
+# at the next start. First, Legion's own oncorps-shared-skills checkout
+# ($DIR/shared-skills, Shared.ts) goes to the tip of local/shared.json's
+# ref: its OnCorps plugins and the gate's hooks replace Claude Code's
+# (RED ZONE, PLP-2945, DRAFT awaiting the user's sign-off). A failed sync
+# keeps the last copy; with none, Claude Code's OnCorps plugins are used
+skills_make() {
+  LEGION_DIR="$DIR" bun "$ROOT/Shared.ts" >&2 || echo "legion: shared-skills not synced" >&2
+  LEGION_DIR="$DIR" bun "$ROOT/local/skills.ts" "$DIR/skills.md" >&2 || echo "legion: no skills index" >&2
+}
+
+# RED ZONE (security review U1, DRAFT awaiting the user's sign-off): up
+# means answering on its unix socket (only this user's processes can bind
+# it), so a process squatting the TCP port is not taken for the server
+server_up() {
+  curl -fsS --max-time 2 -o /dev/null --unix-socket "$DIR/server.sock" "$URL/" 2>/dev/null
+}
+
+server_start() {
+  if server_up; then
+    return 0
+  fi
+  searxng_start
+  skills_make
+  mcp_make
+  (trap '' HUP && server_exec) >>"$LOG" 2>&1 &
+  echo "$!" >"$PID"
+  for _ in $(seq 1 50); do
+    if server_up; then
+      echo "legion: server on $URL, search ${SEARCH:-off} (log: $LOG)" >&2
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "legion: server did not start; see $LOG" >&2
+  return 1
+}
+
+server_stop() {
+  if [[ -f "$PID" ]] && kill -0 "$(cat "$PID")" 2>/dev/null; then
+    kill "$(cat "$PID")"
+    rm -f "$PID"
+    echo "legion: server stopped" >&2
+  else
+    echo "legion: no server started by this script is running" >&2
+  fi
+  if [[ -f "$SERVER_PLIST" ]]; then
+    echo "legion: launchd keeps a server running (legion server --uninstall stops it)" >&2
+  fi
+  if command -v docker >/dev/null && docker stop "$SEARX_NAME" >/dev/null 2>&1; then
+    echo "legion: SearXNG stopped" >&2
+  fi
+}
+
+case "${1:-}" in
+  serve) searxng_start && skills_make && mcp_make && server_exec ;;
+  start) server_start ;;
+  stop)  server_stop ;;
+  web)   server_start && key_make && term_exec web "$URL" ;;
+  device)
+    case "${2:-}" in
+      --install)   device_install ;;
+      --uninstall) device_uninstall ;;
+      *)           server_start && term_exec device "$URL" ;;
+    esac ;;
+  device-run) term_exec device "$URL" ;;
+  server)
+    case "${2:-}" in
+      --install)   server_install ;;
+      --uninstall) server_uninstall ;;
+      *)           echo "legion: legion server --install | --uninstall (legion serve runs it in the foreground)" >&2; exit 2 ;;
+    esac ;;
+  server-run) server_run ;;
+  log)   exec tail -f "$LOG" ;;
+  tidy)  exec bun "$ROOT/local/tidy.ts" "${@:2}" ;;
+  knowledge) bun "$ROOT/local/prime/knowledge.ts" && echo "legion: then, in the chat: /import ~/.legion-prime/knowledge.json" >&2 ;;
+  mcp-login)  mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" ;;
+  mcp-logout) mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" --logout ;;
+  google-login)  exec bun "$ROOT/local/google-login.ts" "${@:2}" ;;
+  google-logout) exec bun "$ROOT/local/google-login.ts" --logout ;;
+  harvest-login)  exec bun "$ROOT/local/harvest-login.ts" "${@:2}" ;;
+  harvest-logout) exec bun "$ROOT/local/harvest-login.ts" --logout ;;
+  "")    server_start && key_make && logs_make && LEGION_IMPORT_ASK=1 term_exec "$URL" ;;
+  login) key_make && term_exec "$@" ;;
+  *)     term_exec "$@" ;;
+esac

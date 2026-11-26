@@ -20,7 +20,7 @@ import { hl_lang, hl_lines } from "../../Hl.ts";
 
 // where File issue goes: Legion's own repo, GitHub's own page (nothing is
 // posted from here)
-export const ISSUES = "https://github.com/bobaseb-oc/uniichat/issues/new";
+export const ISSUES = "https://github.com/bobaseb-oc/legion/issues/new";
 
 // the inbox's state in the page: sections shut, the cursor's row, rows
 // picked, the row whose details show
@@ -164,7 +164,7 @@ export function away_html(a: Cockpit.Away): string {
 }
 
 // Home: the head (date, greeting, who needs the user; New agent, Focus),
-// the card of what happened while away (if any), the stats, Unii's
+// the card of what happened while away (if any), the stats, Legion's
 // agents working then done, the apps, the activity
 export function home_html(v: View.View, now: Date, away: Cockpit.Away | null = null): string[] {
   const day = now.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
@@ -215,7 +215,7 @@ export const SPACES = 12;
 const MARK: Record<string, string> = Cockpit.MARK;
 
 // the sidebar: search or run (the palette), the pages (the one shown
-// marked; the inbox's count, the crew's pill), Unii's agents by ticket,
+// marked; the inbox's count, the crew's pill), Legion's agents by ticket,
 // the spaces (a click: the inbox filtered by it), Settings, Add machine
 export function side_html(v: View.View, mode: View.Mode, now: number): string[] {
   const here = (m: string) => (m === mode ? ` class="here"` : "");
@@ -269,7 +269,7 @@ export function routines_html(v: View.View, now: number): string[] {
     }
     // an agent's proposal: marked, its name and why quoted as the agent's
     // words, its whole task beside Turn on (what turning it on approves)
-    const who = r.by === "main" ? "Unii" : esc(r.by!);
+    const who = r.by === "main" ? "Legion" : esc(r.by!);
     return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc(r.name)}”</b>${when}</div>`
       + `<blockquote class="rwhy">${who}'s words: “${esc(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
@@ -293,7 +293,7 @@ export function timers_html(v: View.View): string[] {
   }
   const time = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const rows = ts.map((t) => {
-    const who = t.who === "main" ? "Unii" : esc(t.who);
+    const who = t.who === "main" ? "Legion" : esc(t.who);
     const close = `<button class="pbtn"${act_html({ $: "Timer", n: t.id })}>Close</button>`;
     return `<div class="routine"><div class="rh"><b>${t.id}. ${who}</b><span class="meta">at ${esc(time(t.at))}</span></div><p class="rtask">${esc(t.note)}</p><div class="acts">${close}</div></div>`;
   });
@@ -310,7 +310,7 @@ export function digest_html(v: View.View): string[] {
   const d = v.inbox?.digest ?? null;
   const refresh = `<button class="pbtn"${act_html({ $: "Fetch" })}>Refresh</button>`;
   if (d === null) {
-    return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (UNII_SPACES on the device, else its home repo).</p>${refresh}</div>`];
+    return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo).</p>${refresh}</div>`];
   }
   const head = `<div class="phead"><h2>${esc(d.repos.join(", "))}: last 7 days</h2><p class="meta">${d.merged.length} merged · ${d.open.length} open</p>`
     + `<button class="pbtn"${act_html({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
@@ -656,10 +656,10 @@ function pins_html(pins: View.Pin[]): string {
   return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's 📌 in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
 }
 
-// Unii's notes (Notes.ts), each an edit box: Edit saves its text (main.ts
+// Legion's notes (Notes.ts), each an edit box: Edit saves its text (main.ts
 // note_edit), Drop drops it; untrusted text, so all of it escaped
 function notes_html(notes: Note[]): string {
-  const head = `<h3>Notes</h3><p class="meta">What Unii keeps across runs and reads at each call: edit or drop any.</p>`;
+  const head = `<h3>Notes</h3><p class="meta">What Legion keeps across runs and reads at each call: edit or drop any.</p>`;
   const rows = notes.map((n) => `<form class="mnote" data-note="${esc(n.name)}"><b>${esc(n.name)}</b> <span class="meta">${esc(n.line)}</span>`
     + `<textarea data-keep="note-${esc(n.name)}" rows="3" aria-label="the note's text">${esc(n.text)}</textarea>`
     + `<div class="acts"><button type="submit" class="pbtn">Edit</button><button type="button" class="pbtn"${act_html({ $: "Note", name: n.name, drop: true })}>Drop</button></div></form>`).join("");

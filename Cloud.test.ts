@@ -6,8 +6,8 @@
 import { afterAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 
-process.env.UNII_DIR = fs.mkdtempSync("/tmp/cloud-test-");
-process.env.UNII_SITE = "http://127.0.0.1";
+process.env.LEGION_DIR = fs.mkdtempSync("/tmp/cloud-test-");
+process.env.LEGION_SITE = "http://127.0.0.1";
 const { Cloud } = await import("./Cloud.ts");
 // the site, as the first test file to load Config set it (one process)
 const config = await import("./Config.ts");
@@ -15,14 +15,14 @@ const config = await import("./Config.ts");
 // accounts in a dir made anew; the last test's goes after all. local: a
 // server with no mail key (S1b), else one that mails (its post a stub)
 function cloud_new(local = false) {
-  fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true });
-  fs.mkdirSync(process.env.UNII_DIR ?? "", { recursive: true });
+  fs.rmSync(process.env.LEGION_DIR ?? "", { recursive: true, force: true });
+  fs.mkdirSync(process.env.LEGION_DIR ?? "", { recursive: true });
   const cloud = Cloud.open(() => {}, () => {}, async () => null);
   cloud.local = local;
   return cloud;
 }
 
-afterAll(() => fs.rmSync(process.env.UNII_DIR ?? "", { recursive: true, force: true }));
+afterAll(() => fs.rmSync(process.env.LEGION_DIR ?? "", { recursive: true, force: true }));
 
 test("Cloud.net: IPv4 whole, IPv6 by its /48", () => {
   expect(Cloud.net("1.2.3.4")).toBe("1.2.3.4");
@@ -110,7 +110,7 @@ test("a terminal sign-in approves its device key and its terminal key with one c
   const bearer = (token: string) => new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + token } });
   const cookie = Cloud.session(cloud, { id: "u9", name: "b@x.com" });
   expect(Cloud.speaks(cloud, bearer(termkey))).toBe(true);
-  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + cookie } }))).toBe(true);
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "legion=" + cookie } }))).toBe(true);
   expect(Cloud.speaks(cloud, bearer(key))).toBe(false);
   expect(Cloud.speaks(cloud, bearer(Cloud.random()))).toBe(false);
   expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/"))).toBe(false);
@@ -157,7 +157,7 @@ test("an emailed link survives its preview; its POST signs in once", async () =>
   expect(sessions()).toEqual(before);
   const first = await post();
   expect(first?.status).toBe(302);
-  expect(first?.headers.get("set-cookie") ?? "").toMatch(/^unii=[^;]+/);
+  expect(first?.headers.get("set-cookie") ?? "").toMatch(/^legion=[^;]+/);
   const again = await post();
   expect(again?.headers.get("set-cookie") ?? "").toBe("");
   expect(again?.headers.get("location")).toContain("expired=1");
@@ -183,7 +183,7 @@ test("sessions expire by age and idleness; old rows migrate; logout-all ends the
   old.query("insert into sessions values (?, ?, ?)").run(Cloud.hash("oldidle"), "u0", "old@x.com");
   old.close();
   const cloud = Cloud.open(() => {}, () => {}, async () => null);
-  const as = (token: string) => Cloud.who(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + token } }));
+  const as = (token: string) => Cloud.who(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "legion=" + token } }));
   const bearer = (token: string) => Cloud.who(cloud, new Request("http://127.0.0.1/", { headers: { authorization: "Bearer " + token } }));
   expect(as("oldtoken")).toEqual({ id: "u0", name: "old@x.com" });
   const day = 864e5;
@@ -219,7 +219,7 @@ test("sessions expire by age and idleness; old rows migrate; logout-all ends the
   const a = Cloud.session(cloud, { id: "u3", name: "c@x.com" });
   const b = Cloud.session(cloud, { id: "u3", name: "c@x.com" });
   const other = Cloud.session(cloud, { id: "u4", name: "d@x.com" });
-  const all = (method: string) => Cloud.http(cloud, new Request("http://127.0.0.1/api/logout-all", { method, headers: { cookie: "unii=" + a } }));
+  const all = (method: string) => Cloud.http(cloud, new Request("http://127.0.0.1/api/logout-all", { method, headers: { cookie: "legion=" + a } }));
   expect((await all("GET"))?.status).toBe(405);
   expect(as(b)).not.toBeNull();
   const out = await all("POST");
@@ -255,7 +255,7 @@ test("sign-in posts over SMALL bytes are refused unread", async () => {
 });
 
 // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): the
-// client's address behind a proxy (UNII_PROXY=1) is the X-Forwarded-For
+// client's address behind a proxy (LEGION_PROXY=1) is the X-Forwarded-For
 // entry it appended (the last), never one the client wrote; none, or no
 // proxy (off, the default: the client may write the header), the socket's
 test("Cloud.ip: behind a proxy its entry, else the socket's address", () => {
@@ -283,7 +283,7 @@ test("/api/web-link: Bearer only, once, briefly, for the same user", async () =>
   const mint = (headers: Record<string, string>) => Cloud.http(cloud, new Request("http://127.0.0.1/api/web-link", { method: "POST", headers }));
   expect((await mint({}))?.status).toBe(401);
   expect((await mint({ authorization: "Bearer " + Cloud.random() }))?.status).toBe(401);
-  expect((await mint({ cookie: "unii=" + me }))?.status).toBe(401);
+  expect((await mint({ cookie: "legion=" + me }))?.status).toBe(401);
   expect((await Cloud.http(cloud, new Request("http://127.0.0.1/api/web-link", { headers: { authorization: "Bearer " + me } })))?.status).toBe(405);
   const res = await mint({ authorization: "Bearer " + me });
   expect(res?.status).toBe(200);
@@ -294,10 +294,10 @@ test("/api/web-link: Bearer only, once, briefly, for the same user", async () =>
   expect(first?.status).toBe(302);
   expect(first?.headers.get("location")).toBe(config.SITE + "/");
   const cookie = first?.headers.get("set-cookie") ?? "";
-  const token = /^unii=([^;]+)/.exec(cookie)?.[1] ?? "";
+  const token = /^legion=([^;]+)/.exec(cookie)?.[1] ?? "";
   expect(token).not.toBe("");
   expect(token).not.toBe(me);
-  const browser = Cloud.who(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + token } }));
+  const browser = Cloud.who(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "legion=" + token } }));
   expect(browser).toEqual({ id: "u1", name: "me@x.com" });
   // used up
   const again = await open();
@@ -345,7 +345,7 @@ test("a web ticket can't confirm a terminal", async () => {
 });
 
 // Phones (APNs pushes, push tokens, the iOS app's AASA) are off unless
-// UNII_PHONE=1: no route answers and nothing is stored or sent.
+// LEGION_PHONE=1: no route answers and nothing is stored or sent.
 test("phone features are off by default", async () => {
   const cloud = cloud_new();
   expect(cloud.phone).toBe(false);

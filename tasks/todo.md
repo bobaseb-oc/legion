@@ -1368,3 +1368,19 @@ Problem: agents filed "clean up worktrees" todos; the inbox showed no reason on 
 - Mutation: 8 of 8 mutants killed (safe filter, consent, main-only call and list, asked paths, gate error, server why, Remove all safe only).
 - tsc not compared: no node_modules or tsconfig in the checkouts to repeat the 84-error baseline.
 - Not done: the terminal cockpit has no Remove; out of scope.
+
+## Full rename Unii → Legion (2026-11-26, branch chore/rename-legion, one PR, RED ZONE parts)
+
+Intent: no "unii" name left in code, data or the repo. The main agent is "Legion"; upstream is credited in the README only.
+Decisions (user, 2026-11-26): agent named Legion; no upstream merges; iOS ids change; one PR; stored history rewritten once; cookie renamed (one sign-in again); uniichat.com only in README.
+Not renamed: tasks/todo.md and tasks/lessons.md history (records of what was done); README's Origin link to VictorTaelin/uniichat.
+
+- [ ] 1. Mechanical rename (code, tests, docs): `UNII_*`→`LEGION_*`, `~/.unii`→`~/.legion`, `~/.unii-prime`→`~/.legion-prime`, `Unii`/`UniiChat`→`Legion`, kind `"unii"`→`"legion"`, `local/unii-local.sh`→`local/legion` (the symlink goes), package `uniichat`→`legion`. → verify: `git grep -i unii` lists only the kept places; full `bun run test` green.
+- [ ] 2. Read-back of renamed prose: "Legion, Legion's…" collisions fixed by hand. → verify: grep for "Legion's Legion", "Legion of Legion".
+- [ ] 3. RED ZONE `Machine.trust_dirs` / `gating`: `~/.unii` stays a protected name (the migration leaves it as a symlink). Red test first: a write or shell command naming `~/.unii/config.json` is still trust state. → verify: test fails without the legacy name.
+- [ ] 4. RED ZONE cookie `unii`→`legion` (Cloud.ts COOKIE). Red test: the new name is set and read; the old cookie no longer signs in.
+- [ ] 5. RED ZONE migration `local/rename.ts` (run by the user, server and device stopped): back up `users/`, rewrite top-level `kind:"unii"`→`"legion"` in every `.jsonl` (parsed per line, not text-replaced), delete `*.index` (Memory.index rebuilds them), move `~/.unii`→`~/.legion` and `~/.unii-prime`→`~/.legion-prime`, leave symlinks; idempotent; refuses while the server lock is held. Red tests on a fixture dir.
+- [ ] 6. iOS: bundle ids `com.oncorps.legion*`, app name Legion, `LegionSite` from a build setting with no default, no `applinks:uniichat.com`.
+- [ ] 7. README: replace the "Upstream names stay" bullet; document the migration.
+- [ ] 8. Rebuild `web/app.js`; full `bun run test`; pre-ship polish; PR via `gh stack`.
+- [ ] After merge (user): stop server and device; run the migration; `~/.zshrc`: `UNII_HOME_REPO`→`LEGION_HOME_REPO`, drop `alias unii`; `legion device --install` and `legion server --install` again (plists hold the old env and path); sign in again with `legion web`; rename GitHub repo and local checkout (asked separately).

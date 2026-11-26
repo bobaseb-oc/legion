@@ -248,7 +248,7 @@ test("memory, as the web's page: pins and the last recall's hits to pick; Enter 
   const v = team();
   View.view_hear(v, { $: "state", ...v, pins: [{ i: 12, kind: "user", date: "2026-11-12T10:00:00Z", text: "keep this", size: 100 }] });
   View.view_act(v, { $: "Search", q: "cache" });
-  View.view_hear(v, { $: "recalled", q: "cache", hits: [{ i: 40, kind: "unii", date: "2026-11-12T11:00:00Z", text: "the cache is warm" }], more: false });
+  View.view_hear(v, { $: "recalled", q: "cache", hits: [{ i: 40, kind: "legion", date: "2026-11-12T11:00:00Z", text: "the cache is warm" }], more: false });
   const d = Deck.deck_new("memory");
   expect(Deck.deck_lines(v, d, W, H, 0).map(text).join("\n")).toMatch(/Pinned, 1 of[\s\S]*#12 ·[\s\S]*keep this[\s\S]*“cache”[\s\S]*#40 ·[\s\S]*the cache is warm/);
   expect(key(v, d, "j", "j").deck.sel).toBe("h40");
@@ -469,7 +469,7 @@ test("a PR body, an event title, a routine's why: drawn without their escapes", 
   expect(drawn(menu, W).replace(OWN, "").replace(/\r\n/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
 });
 
-// Notes: the terminal's Memory page lists Unii's notes,
+// Notes: the terminal's Memory page lists Legion's notes,
 // read-only (edited on the web)
 test("L2-AC14: the terminal Memory page lists both notes' names", () => {
   const v = team();

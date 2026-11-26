@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { Search } from "./Search.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-search-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-search-");
 
 const RESULTS = Array.from({ length: 30 }, (_, i) => ({ title: "Title " + i, url: "https://site.test/" + i, content: "Snippet " + i + "\nmore" }));
 
@@ -67,8 +67,8 @@ test("a failed search says why in a line, never a stack", async () => {
 
 test("the search tool is listed only when searxng_url is set", () => {
   const code = 'import { Tools } from "./Tools.ts"; console.log(Tools.list({ agents: new Map() } as any, "main").map((t) => t.name).includes("search"))';
-  const { UNII_SEARXNG_URL, ...rest } = process.env;
-  const run = (env: Record<string, string>) => Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, UNII_DIR: DIR, ...env } }).stdout.toString().trim();
+  const { LEGION_SEARXNG_URL, ...rest } = process.env;
+  const run = (env: Record<string, string>) => Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, LEGION_DIR: DIR, ...env } }).stdout.toString().trim();
   expect(run({})).toBe("false");
-  expect(run({ UNII_SEARXNG_URL: "http://127.0.0.1:8888" })).toBe("true");
+  expect(run({ LEGION_SEARXNG_URL: "http://127.0.0.1:8888" })).toBe("true");
 });

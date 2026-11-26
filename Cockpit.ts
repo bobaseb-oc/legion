@@ -137,7 +137,7 @@ export function inbox_badge(inbox: Inbox | null): number {
 
 // Home
 // ====
-// Herdr's digest: a greeting, who needs the user, the stat cards, Unii's
+// Herdr's digest: a greeting, who needs the user, the stat cards, Legion's
 // own agents as cards (working, then done), the apps' lines, the
 // activity. An agent's cost is an estimate at list price (Tools.spent).
 
@@ -194,7 +194,7 @@ export function ticket_of(text: string): string | null {
 // cost, age, status, how many agents under it
 export type Card = { name: string; title: string; repo: string | null; ticket: string | null; pr: string | null; cost: string; age: string; status: Crew["status"]; under: number };
 
-// Unii's own agents (the crew's top), working (or waiting, asking) first,
+// Legion's own agents (the crew's top), working (or waiting, asking) first,
 // then done (done, stopped, failed)
 export function home_cards(v: View, now: number): { working: Card[]; done: Card[] } {
   const top = v.crew.filter((c) => c.parent === "main");
@@ -253,7 +253,7 @@ export function away_seen(v: View, now: number): Seen {
 }
 
 // what happened since the look (none kept, the first look; or away less
-// than AWAY; or nothing: none): Unii's own agents done, any agent failed,
+// than AWAY; or nothing: none): Legion's own agents done, any agent failed,
 // each only if not so at the look; inbox: the rows changed (inbox_changed)
 export function away(v: View, seen: Seen | null, now: number, inbox = 0): Away | null {
   if (seen === null || now - seen.at < AWAY) {
@@ -410,7 +410,7 @@ export function review_cmd(v: View, how: "review" | "fix", arg: string, now: num
 export function digest_text(v: View): string {
   const d = v.inbox?.digest ?? null;
   if (d === null) {
-    return "No digest yet: a device reads it from your spaces' GitHub repos (UNII_SPACES on the device, else its home repo). /refresh asks again.";
+    return "No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo). /refresh asks again.";
   }
   const pr = (p: DigestPr) => p.title + " #" + p.number;
   const merged = digest_groups(d.merged).map((g) => "  " + g.author + ": " + ((v.themes?.[g.author] ?? []).length > 0 ? v.themes![g.author]!.join("; ") : g.prs.map(pr).join("; ")));
@@ -616,7 +616,7 @@ export function lane_text(name: string, marks: Mark[]): string {
 export type SideAgent = { name: string; title: string; status: Crew["status"]; age: string; under: number };
 export type SideGroup = { ticket: string | null; agents: SideAgent[] };
 
-// Unii's own agents by the ticket in their title, in the order first
+// Legion's own agents by the ticket in their title, in the order first
 // seen; those with none last
 export function side_groups(v: View, now: number): SideGroup[] {
   const { working, done } = home_cards(v, now);

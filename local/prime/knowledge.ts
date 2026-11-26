@@ -1,8 +1,8 @@
 // Knowledge
 // =========
 // `bun local/prime/knowledge.ts`. OnCorps knowledge for the memory tree,
-// as a Claude website export (~/.unii-prime/knowledge.json, for
-// `/import ~/.unii-prime/knowledge.json`), every text redacted:
+// as a Claude website export (~/.legion-prime/knowledge.json, for
+// `/import ~/.legion-prime/knowledge.json`), every text redacted:
 // - OKF's markdown (src/, plans/) at its branch, read from git, never
 //   its working tree; a document a chat, dated by its last commit
 // - graphify's guides over all_oncorps (agent guides, onboarding,

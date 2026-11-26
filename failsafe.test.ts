@@ -15,9 +15,9 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-failsafe-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-failsafe-");
 
-process.env.UNII_DIR = DIR;
+process.env.LEGION_DIR = DIR;
 
 // a process reads Config once (maybe for another test)
 const config = await import("./Config.ts");
@@ -39,7 +39,7 @@ const SHORT = "not enough credit";
 // the model refuses
 const COUNT   = 16;
 const REFUSED = 5;
-const MSGS    = Array.from({ length: COUNT }, (_, k) => ({ kind: "unii" as const, text: k + " " + "word ".repeat(200) }));
+const MSGS    = Array.from({ length: COUNT }, (_, k) => ({ kind: "legion" as const, text: k + " " + "word ".repeat(200) }));
 
 const real = { setTimeout, fetch, error: console.error };
 const logged: string[] = [];

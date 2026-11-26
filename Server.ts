@@ -197,11 +197,11 @@ type Limit = { rate: number; most: number; keys: Map<string, { n: number; at: nu
 // =========
 
 // one server at a time for this user, whatever its dir: HOME's lock (a
-// test run's dir, deleted, would free its own); UNII_ANOTHER=1 runs one
+// test run's dir, deleted, would free its own); LEGION_ANOTHER=1 runs one
 // beside it, held only per dir. One that holds it is waited on for HELD
 // ms (launchd's restart starts one before the last has ended), then this
 // one ends, naming it
-const LOCK       = process.env.UNII_ANOTHER === "1" ? config.DIR + "/lock" : os.homedir() + "/.unii/lock";
+const LOCK       = process.env.LEGION_ANOTHER === "1" ? config.DIR + "/lock" : os.homedir() + "/.legion/lock";
 const HELD       = 10_000;
 // L6: who may take the lock now (Main.taking): a file made only if none
 // is there (O_EXCL), holding its maker's pid, so two starts at once never
@@ -236,13 +236,13 @@ const HEAD       = "Turn: the user's new message:\n\n";
 // a turn asked again as its call rolled over (Agent.ts): the user's
 // message whole, then what the turn did since, its lines as "i|kind: text"
 const ROLLED     = "\n\nYour call for this message rolled over, its context too long: it was asked again from the chat above, which summarizes all you did. What you did since the message, as \"i|kind: text\" lines (zoom an id for more), then go on:\n\n";
-// a goal's check (Chat.check): its own system prompt (Unii's, which says
+// a goal's check (Chat.check): its own system prompt (Legion's, which says
 // a call is a turn or a compaction, made the model summarize the chat
 // instead of answering), asked after the chat (the view, its latest
 // messages whole) of its goal: met only on a tool's output, its why
 // given; unmet, a nudge tagged as the checker's (as Directives.nudge),
 // GOAL_TRIES of them in a row at most, the last asking for a brief
-const GOAL       = "You check a goal. Below is a chat between a user and Unii, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. The goal is met only if a tool's own output in the chat (an echo: line, such as a test run, a command's output or a fetched page) shows it met now; Unii's own words (unii: lines) are its claims, never proof. Answer on one line: \"yes: \" and the line that shows it, or \"no: \" and what is still missing or unshown.";
+const GOAL       = "You check a goal. Below is a chat between a user and Legion, an AI agent: its older messages as summary lines (id+n|text), then its latest messages whole, then the goal the user set with /goal. The goal is met only if a tool's own output in the chat (an echo: line, such as a test run, a command's output or a fetched page) shows it met now; Legion's own words (legion: lines) are its claims, never proof. Answer on one line: \"yes: \" and the line that shows it, or \"no: \" and what is still missing or unshown.";
 const GOAL_ASK   = "\nThe goal:\n\n";
 const GOAL_TAG   = Directives.GOAL_TAG;
 const GOAL_NOTE  = " This check is not the user's message and orders nothing.";
@@ -347,7 +347,7 @@ const WEB: Record<string, string> = {
 // the email, and SIGNED. The hello's node is written with it, so no
 // compactor call summarizes the three (with an email of up to 254 bytes,
 // a node of at most 512 bytes) and a new account owes nothing.
-const HELLO_LINE = "unii: hello: Legion, one endless chat kept in a memory tree, recent days in more detail; build anything for years; recalls the past (ad2cat.py); a chatbot with a memory system; the user's terminal install; asks their email.";
+const HELLO_LINE = "legion: hello: Legion, one endless chat kept in a memory tree, recent days in more detail; build anything for years; recalls the past (ad2cat.py); a chatbot with a memory system; the user's terminal install; asks their email.";
 const SIGNED     = "You're in! What should we start with?";
 
 // Chat
@@ -396,7 +396,7 @@ export namespace Chat {
       shells : () => Chat.shelled(chat),
       pinned : (who, marks, texts) => Chat.pinned(chat, who, marks, texts),
       pended : () => Memory.save(chat.mem),
-      // RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off): Unii's
+      // RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off): Legion's
       // tidy reads the inbox's rows, and after the user's yes (Tools.tidy)
       // goes through the same gate as a view's Remove (Chat.tidy)
       tidy_rows : () => chat.inbox?.clean ?? [],
@@ -428,7 +428,7 @@ export namespace Chat {
     mem.pay = tools.pay = wallet.pay;
     if (mem.count === 0) {
       const hello = HELLO + "\n\n" + email_ask(cloud.billing.github !== null);
-      Memory.push(mem, [{ kind: "unii", text: hello, line: HELLO_LINE }, { kind: "user", text: user.name }, { kind: "unii", text: SIGNED }]);
+      Memory.push(mem, [{ kind: "legion", text: hello, line: HELLO_LINE }, { kind: "user", text: user.name }, { kind: "legion", text: SIGNED }]);
     }
     chat.eye = Chat.eye(mem, Memory.turn(mem));
     mem.made = (l, i) => Chat.made(chat, l, i);
@@ -818,7 +818,7 @@ export namespace Chat {
   // a goal check's answer, as the turn's call's is, read where the chat
   // is (its call moves with it: Chat.move): unmet (any answer but yes),
   // a nudge with its why goes to the turn, tagged as the checker's; the
-  // GOAL_TRIES-th in a row drops the goal and asks Unii to brief the
+  // GOAL_TRIES-th in a row drops the goal and asks Legion to brief the
   // user; met, the goal ends, its evidence noted. A check that fails, a
   // stop, a message or a /halt meanwhile end it with no nudge, so the
   // turn ends; false: it ends
@@ -1098,7 +1098,7 @@ export namespace Chat {
         // only main reads the inbox: an event to anyone else, from disk, fails
         if (e.to !== "main") {
           e.state = "failed";
-          Chat.note(chat, "Event " + e.key + " from " + e.src + " is not for Unii; dropped.");
+          Chat.note(chat, "Event " + e.key + " from " + e.src + " is not for Legion; dropped.");
           continue;
         }
         if (Cloud.act_get(chat.acct, act) === null) {
@@ -1122,9 +1122,9 @@ export namespace Chat {
     });
   }
 
-  // a work message to Unii, logged; taken as a turn of its own (take, and
+  // a work message to Legion, logged; taken as a turn of its own (take, and
   // credit left), as a post is, so the chat never rests between the two.
-  // A report (Chat.report), or a refused call of an agent Unii started
+  // A report (Chat.report), or a refused call of an agent Legion started
   // waiting for its overrule (Tools.appeal; RED ZONE, DRAFT)
   export function work(chat: Chat, text: string, take: boolean): void {
     Chat.hold(chat, () => {
@@ -1139,11 +1139,11 @@ export namespace Chat {
     });
   }
 
-  // a turn's last message, Unii's reply or why there was none, to the
+  // a turn's last message, Legion's reply or why there was none, to the
   // user's phones (Cloud.push)
   export function phone(chat: Chat): void {
     const last = Memory.message(chat.mem, chat.mem.count - 1);
-    if (last !== null && (last.kind === "unii" || last.kind === "note")) {
+    if (last !== null && (last.kind === "legion" || last.kind === "note")) {
       Cloud.push(Chat.cloud, chat.acct.user, last.text);
     }
   }
@@ -1174,7 +1174,7 @@ export namespace Chat {
   // import, or past the credits
   export async function ingest(chat: Chat, id: string, body: Body): Promise<Answer> {
     if (chat.busy || chat.batch !== null) {
-      return { error: (chat.busy ? "Unii is answering" : "An import is under way") + ": import again once it ends." };
+      return { error: (chat.busy ? "Legion is answering" : "An import is under way") + ": import again once it ends." };
     }
     const done = Chat.done(chat);
     const sizes: number[] = [];
@@ -1298,7 +1298,7 @@ export namespace Chat {
   // a message imported (a page); a line with no kind or no text refuses
   // the import whole (ingest reads every line before it logs one)
   export function imported(x: any): Log {
-    const kinds: Kind[] = ["user", "unii", "tool", "echo", "note"];
+    const kinds: Kind[] = ["user", "legion", "tool", "echo", "note"];
     if (!kinds.includes(x?.kind)) {
       throw Chat.told("An import has no kind " + x?.kind + ".");
     }
@@ -1381,7 +1381,7 @@ export namespace Chat {
     }
   }
 
-  // the work a restart cut goes on, told so: each agent, and Unii's turn
+  // the work a restart cut goes on, told so: each agent, and Legion's turn
   // by a note (none for a chat ended meanwhile)
   export async function resume(chat: Chat, work: string[]): Promise<void> {
     if (work.length === 0 || Chat.chats.get(chat.acct.user) !== chat) {
@@ -1440,7 +1440,7 @@ export namespace Chat {
     }
   }
 
-  // what runs: Unii's turn, the agents at work
+  // what runs: Legion's turn, the agents at work
   export function running(chat: Chat): string[] {
     return [...(chat.busy ? [TURN] : []), ...Tools.working(chat.tools).map((a) => a.name)];
   }
@@ -1576,7 +1576,7 @@ export namespace Chat {
     const link = { send: (msg: object) => Chat.send(sock, msg), live: () => chat.socks.has(sock), computer, work, home: home ?? undefined };
     sock.data.device = Tools.attach(chat.tools, tab, host, sock.data.who, link);
     if (sock.data.device !== host) {
-      Chat.send(sock, { $: "note", text: host + " was taken: Unii calls this computer " + sock.data.device + "." });
+      Chat.send(sock, { $: "note", text: host + " was taken: Legion calls this computer " + sock.data.device + "." });
     }
   }
 
@@ -1614,7 +1614,7 @@ export namespace Chat {
     if (err?.told === true) {
       return { error: String(err.message) };
     }
-    console.error("unii: failed: " + (err?.stack ?? err));
+    console.error("legion: failed: " + (err?.stack ?? err));
     return { error: "Something went wrong on the server; it was logged." };
   }
 
@@ -1730,7 +1730,7 @@ export namespace Chat {
         const what = Chat.running(chat).filter((w) => name === null || w === name);
         const why = "Stopped by the user: " + what.join(", ") + ".";
         const turn = what.includes(TURN);
-        // the user's Stop of all work: every timer goes too, Unii's and
+        // the user's Stop of all work: every timer goes too, Legion's and
         // an agent's not at work (R4, RED ZONE: signed off by the user
         // 2026-11-19); one agent's Stop drops its own (Tools.stop)
         if (name === null && chat.mem.timers.length > 0) {
@@ -1778,7 +1778,7 @@ export namespace Chat {
         return Chat.go(chat, msg.on === true || msg.on === "true");
       }
       case "guess": {
-        // a read: an import priced here, not by a unii older than PRICE
+        // a read: an import priced here, not by a legion older than PRICE
         let sizes = "";
         for await (const data of msg.req?.body ?? []) {
           sizes += Buffer.from(data);
@@ -1905,7 +1905,7 @@ export namespace Chat {
         return Chat.bang(chat, id, String(msg.command ?? "").trim(), device, says, msg.device, msg.dir);
       }
       case "tell": {
-        // the person's message to an agent, as Unii's tell; refused as a
+        // the person's message to an agent, as Legion's tell; refused as a
         // post is, short of credit
         const text = String(msg.text ?? "").trim();
         if (text === "") {
@@ -2055,7 +2055,7 @@ export namespace Chat {
     return {};
   }
 
-  // the user's edit or drop of one of Unii's notes (Notes.ts): a view's
+  // the user's edit or drop of one of Legion's notes (Notes.ts): a view's
   // act only, as Chat.pin's (N6); an edit with no line keeps the old one
   export function noted(chat: Chat, device: string, msg: any): Answer {
     if (device !== "") {
@@ -2072,7 +2072,7 @@ export namespace Chat {
       if (typeof msg.text !== "string") {
         return { error: "Give the note's text." };
       }
-      // only Unii makes notes (Tools.notes): a view edits one that is
+      // only Legion makes notes (Tools.notes): a view edits one that is
       const had = Notes.notes_read(dir, name);
       if (typeof had === "string") {
         return { error: had };
@@ -2153,9 +2153,9 @@ export namespace Chat {
   }
 
   // the person's answer to an open question (Tools.question): logged as
-  // their message quoting it, which Unii answers in a turn (refused as a
+  // their message quoting it, which Legion answers in a turn (refused as a
   // post is, short of credit); no text dismisses it, a note, no turn (a
-  // note of Unii's, notify, dismissed silently)
+  // note of Legion's, notify, dismissed silently)
   export async function reply(chat: Chat, id: string, n: number, text: string): Promise<Answer> {
     const q = chat.mem.questions.find((x) => x.id === n);
     if (q === undefined) {
@@ -2253,7 +2253,7 @@ export namespace Chat {
     return {};
   }
 
-  // a message logged as the user's, which Unii answers in a turn (the
+  // a message logged as the user's, which Legion answers in a turn (the
   // user is here: timers may be set again, Tools.timer)
   export function said(chat: Chat, id: string, text: string): Promise<void> {
     chat.tools.rung = false;
@@ -2421,7 +2421,7 @@ export namespace Chat {
   }
 
   // a device's answer to an undo or a handoff sent it: only a device's,
-  // once, a note in the chat (so Unii knows the user undid an agent)
+  // once, a note in the chat (so Legion knows the user undid an agent)
   export function did(chat: Chat, device: string, msg: any): Answer {
     const id = String(msg?.id ?? "");
     if (device === "" || !chat.dids?.delete(id)) {
@@ -3278,7 +3278,7 @@ const LIKES = 30;
   }
 
   // the agents' timers due (Routines.ts), gone from the list, each a
-  // message "[Timer n] note" to whoever set it: Unii's a turn of its own,
+  // message "[Timer n] note" to whoever set it: Legion's a turn of its own,
   // as a report is (Chat.report); an agent's, its own reminder (Tools.remind:
   // a note, read between calls, or an idle one goes on). Whether any fired.
   // RED ZONE (who may start unattended work; security review R4): signed
@@ -3399,7 +3399,7 @@ const LIKES = 30;
     }
     chat.mem.timers = chat.mem.timers.filter((x) => x !== t);
     Memory.save(chat.mem);
-    Chat.note(chat, "The user closed timer " + t.id + " (" + (t.who === "main" ? "Unii" : t.who) + "'s: " + t.note.slice(0, 200) + ").");
+    Chat.note(chat, "The user closed timer " + t.id + " (" + (t.who === "main" ? "Legion" : t.who) + "'s: " + t.note.slice(0, 200) + ").");
     Chat.change(chat);
     return {};
   }
@@ -3467,7 +3467,7 @@ const LIKES = 30;
     return {};
   }
 
-  // the user sets the chat's mode (Modes.ts): a note Unii reads, no turn
+  // the user sets the chat's mode (Modes.ts): a note Legion reads, no turn
   export function remode(chat: Chat, to: unknown): Answer {
     if (!MODES.includes(to as Mode)) {
       return { error: "No mode " + String(to) + "; one of " + MODES.join(", ") + "." };
@@ -3485,7 +3485,7 @@ const LIKES = 30;
 
   // the user's answer to the plan waiting (Tools.plan): approved, the
   // mode they picked (by default auto); sent back, still plan mode, their
-  // feedback; either way a message Unii answers in a turn (refused as a
+  // feedback; either way a message Legion answers in a turn (refused as a
   // post is, short of credit)
   export async function verdict(chat: Chat, id: string, yes: boolean, to: unknown, text: string): Promise<Answer> {
     const plan = chat.mem.plan;
@@ -3509,7 +3509,7 @@ const LIKES = 30;
   }
 
   // RED ZONE (DRAFT awaiting the user's sign-off): the user's Ctrl+B or
-  // Stop on a shell command running (B2: an agent's call, Unii's, their
+  // Stop on a shell command running (B2: an agent's call, Legion's, their
   // own !command): sent to the background (op "bg": Tools.background,
   // within its caps) or stopped ("stop": Tools.halt_shells); job: that
   // one, none: each in the foreground. Only from what speaks for the
@@ -3544,13 +3544,13 @@ const LIKES = 30;
   // bridge, whose acts are answers, assignments and decisions), run as
   // they would in their own shell: a user_shell job, past the hooks, the
   // reviewer and Legion's gating (Machine.ts), never through an agent's
-  // tool path; in the chat's dir (Unii's: the home repo, else its work
+  // tool path; in the chat's dir (Legion's: the home repo, else its work
   // dir) on the device named (!@name), else the one it came from, else
   // the only one open; in a folder if given (the Files page's box: cd
   // there first). Told to the views as it starts; stopped after bang_ms;
   // its command and output (CAP, head and tail) a note the AI reads,
   // starting no turn; RED ZONE (PLP-2946, DRAFT awaiting the user's
-  // sign-off): if Unii's turn runs, sent into that call too, as a note
+  // sign-off): if Legion's turn runs, sent into that call too, as a note
   // (as an agent's, Tools.ts), so it needn't wait for the next turn.
   // Answered at once; the note comes when it ends
   export function bang(chat: Chat, id: string, command: string, from: string, says: boolean, named?: unknown, dir?: unknown): Answer {
@@ -3763,7 +3763,7 @@ export namespace Main {
         fs.rmSync(TAKE, { force: true });
       }
       if (Date.now() > until) {
-        console.error("unii: a Legion server already runs (" + (held || "an older one, or not a server") + "), holding " + LOCK + ". Stop it first, or set UNII_ANOTHER=1 to run another beside it.");
+        console.error("legion: a Legion server already runs (" + (held || "an older one, or not a server") + "), holding " + LOCK + ". Stop it first, or set LEGION_ANOTHER=1 to run another beside it.");
         process.exit(1);
       }
       await Bun.sleep(500);
@@ -3855,7 +3855,7 @@ export namespace Main {
     const confirm = String(Cloud.json(text).confirm ?? "").trim().toLowerCase();
     if (user === null || confirm !== user.name.toLowerCase()) {
       const name = user === null ? "you are signed out." : "type \"" + user.name + "\".";
-      const error = "Deleting your account erases your chat and Unii's memory for good" + cloud.billing.closes + ". To confirm, " + name;
+      const error = "Deleting your account erases your chat and Legion's memory for good" + cloud.billing.closes + ". To confirm, " + name;
       return Response.json({ error }, { status: 400 });
     }
     await Main.here(user.id);
@@ -3900,7 +3900,7 @@ export namespace Main {
         return new Response(Main.stream(Memory.page(mem)), { headers: { "content-type": "text/html; charset=utf-8" } });
       }
       case "/export": {
-        const name = "unii-memory-" + new Date().toISOString().slice(0, 10) + ".json";
+        const name = "legion-memory-" + new Date().toISOString().slice(0, 10) + ".json";
         const json = { "content-type": "application/json", "content-disposition": 'attachment; filename="' + name + '"' };
         return new Response(Main.stream(Memory.dump(mem, await Cloud.data(Chat.cloud, user))), { headers: json });
       }
@@ -4013,7 +4013,7 @@ export namespace Main {
           return new Response("a terminal or device names itself: ?device=", { status: 400 });
         }
         const who  = Cloud.hash(Cloud.token(req));
-        const work = q.get("work") ?? "~/.unii/work";
+        const work = q.get("work") ?? "~/.legion/work";
         const home = q.get("home") || null;
         const data = { user, who, tab: q.get("tab") ?? "", wire: q.get("wire"), host, computer: q.get("computer") === "1", work, home, device: null, seen: new Set<string>(), watch: new Set<string>(), says: Cloud.speaks(cloud, req) };
         return server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 400 });
@@ -4040,7 +4040,7 @@ export namespace Main {
     try {
       run();
     } catch (err: any) {
-      console.error("unii: " + what + " failed: " + (err?.stack ?? err));
+      console.error("legion: " + what + " failed: " + (err?.stack ?? err));
       fail();
     }
   }
@@ -4102,7 +4102,7 @@ export namespace Main {
     // RED ZONE (security review U1, DRAFT awaiting the user's sign-off):
     // alone (no supervisor: no handover, Main.lock holds the dir), the
     // devices' socket is made ready first, or the server ends
-    const alone = process.env.UNII_WORKER === undefined;
+    const alone = process.env.LEGION_WORKER === undefined;
     if (alone) {
       await Main.unix(SOCK);
     }
@@ -4135,7 +4135,7 @@ export namespace Main {
           Main.opened(ws.data.user.id, 1);
           Main.event("a socket of user " + ws.data.user.id, () => {
             if (ws.data.wire !== String(WIRE)) {
-              ws.send(JSON.stringify({ $: "error", text: "This page or unii is older than the server: reload or reopen it (`legion update` for the latest)." }));
+              ws.send(JSON.stringify({ $: "error", text: "This page or legion is older than the server: reload or reopen it (`legion update` for the latest)." }));
               return;
             }
             const chat = Chat.open(ws.data.user);
@@ -4190,7 +4190,7 @@ export namespace Main {
       Mcp.end();
       Chat.quit();
     });
-    console.log("unii: " + config.SITE + ", users in " + config.DIR + "/users, worker " + Main.index + " of " + Main.count + " on 127.0.0.1:" + port);
+    console.log("legion: " + config.SITE + ", users in " + config.DIR + "/users, worker " + Main.index + " of " + Main.count + " on 127.0.0.1:" + port);
     // the bridge on: the grant read now, while the user who started this
     // is here for its one prompt, not first when they're away
     Chat.gchat_token?.().catch((err: any) => console.error("gchat: replies won't be read: " + String(err?.message ?? err).split("\n")[0]!.slice(0, 200)));
@@ -4210,7 +4210,7 @@ export namespace Main {
   // it (a chat's note, a log line), so this is a bug, logged, never the
   // end of the worker and every chat it holds
   export function unowned(err: unknown): void {
-    console.error("unii: a failure no one owned: " + ((err as any)?.stack ?? err));
+    console.error("legion: a failure no one owned: " + ((err as any)?.stack ?? err));
   }
 
   // a worker hears its supervisor
@@ -4318,7 +4318,7 @@ export namespace Main {
           peer.send({ $: "users", addr: Main.addr, users: [...Chat.chats.keys(), ...Main.coming.keys()] });
           [...Chat.chats.values()].forEach((chat) => Chat.give(chat, peer, msg.tools));
           Main.done();
-        }).catch((err) => console.error("unii: giving the chats failed: " + (err?.stack ?? err)));
+        }).catch((err) => console.error("legion: giving the chats failed: " + (err?.stack ?? err)));
         return;
       }
       case "users": {
@@ -4538,8 +4538,8 @@ export namespace Main {
   }
 
   // the workers' supervisor (run: what starts one, on port+1+k,
-  // UNII_WORKER=k): holds the lock, starts again a worker that dies,
-  // answers each request with its worker's address (`x-unii-worker`:
+  // LEGION_WORKER=k): holds the lock, starts again a worker that dies,
+  // answers each request with its worker's address (`x-legion-worker`:
   // README; past its network's limit, NETS, 429), relays a worker's word
   // to all, sends their mail. A deploy (SIGHUP) starts each worker anew,
   // which takes the chats of the one before (Main.start); one that fails
@@ -4566,7 +4566,7 @@ export namespace Main {
       }
     };
     const start = (k: number) => {
-      const env = { ...config.config_env(), UNII_WORKER: String(k), BUN_CONFIG_MAX_HTTP_REQUESTS: String(FETCHES) };
+      const env = { ...config.config_env(), LEGION_WORKER: String(k), BUN_CONFIG_MAX_HTTP_REQUESTS: String(FETCHES) };
       const ipc = (msg: any, proc: Bun.Subprocess) => hear(k, proc, msg);
       const proc = Bun.spawn([...run, String(port + 1 + k)], { env, ipc, stdio: ["ignore", "inherit", "inherit"] });
       all.add(proc);
@@ -4586,7 +4586,7 @@ export namespace Main {
         }
         const user = Cloud.who(cloud, req);
         const k = Main.shard(user?.id ?? Cloud.token(req));
-        return new Response(null, { headers: { "x-unii-worker": "127.0.0.1:" + (port + 1 + k) } });
+        return new Response(null, { headers: { "x-legion-worker": "127.0.0.1:" + (port + 1 + k) } });
       },
     });
     const stop = () => {
@@ -4598,8 +4598,8 @@ export namespace Main {
       process.on(sig, stop);
     }
     process.on("SIGHUP", () => workers.forEach((_, k) => start(k)));
-    console.log("unii: " + config.SITE + ", " + config.WORKERS + " workers on 127.0.0.1:" + (port + 1) + "-" + (port + config.WORKERS) + ", routes on " + port);
-    console.log("unii: no device socket with workers: devices and terminals on this computer connect only over " + SOCK + ", which a lone server (workers 0) opens");
+    console.log("legion: " + config.SITE + ", " + config.WORKERS + " workers on 127.0.0.1:" + (port + 1) + "-" + (port + config.WORKERS) + ", routes on " + port);
+    console.log("legion: no device socket with workers: devices and terminals on this computer connect only over " + SOCK + ", which a lone server (workers 0) opens");
   }
 
   // a worker ended (`now`: worker k's, the last that started): as the
@@ -4607,7 +4607,7 @@ export namespace Main {
   // k's again; one that never started (none is), the server ends
   export function died(k: number, code: number | null, now: Bun.Subprocess | undefined, proc: Bun.Subprocess, again: () => void): void {
     if (code !== 0) {
-      console.error("unii: worker " + k + " ended (" + code + ")");
+      console.error("legion: worker " + k + " ended (" + code + ")");
     }
     if (Main.leaving || (now !== undefined && now !== proc)) {
       return;
@@ -4621,9 +4621,9 @@ export namespace Main {
 }
 
 // run: the command that starts this server again, to start a worker
-// (null: the server is one process: no workers, or `unii serve`)
+// (null: the server is one process: no workers, or `legion serve`)
 export async function serve(port: number, run: string[] | null): Promise<void> {
-  const worker = process.env.UNII_WORKER;
+  const worker = process.env.LEGION_WORKER;
   Main.count = run === null ? 1 : config.WORKERS;
   Main.index = Number(worker ?? 0);
   if (worker === undefined) {

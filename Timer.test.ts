@@ -2,9 +2,9 @@
 // ==========
 // `bun test Timer.test.ts`. Agents wait and set timers, and propose
 // routines (user's ask 2026-11-18). wait: a pause within one call, cut by
-// a stop. timer: a note that wakes whoever set it (Unii: a turn; an agent:
+// a stop. timer: a note that wakes whoever set it (Legion: a turn; an agent:
 // a message), kept with the chat (view.json) and keeping it open. routine:
-// Unii proposes one, added off (RED ZONE: who may start unattended work);
+// Legion proposes one, added off (RED ZONE: who may start unattended work);
 // only the user's own Turn on, from a view, starts it.
 
 import { expect, test } from "bun:test";
@@ -66,7 +66,7 @@ const open = chat.mem.timers.map((x) => ({ id: x.id, who: x.who, note: x.note })
 const state = Chat.state(chat).timers.length;
 const saved = Memory.load(chat.mem.dir, () => null).timers.length;
 
-// they fire: Unii's as a turn, the worker's as a message to it
+// they fire: Legion's as a turn, the worker's as a message to it
 const before = asks.length;
 for (const x of chat.mem.timers) if (x.id <= 2) x.at = 0;
 Chat.ticked(chat, Date.now());
@@ -81,7 +81,7 @@ const left = chat.mem.timers.map((x) => x.id);
 Tools.stop(chat.tools, worker);
 const afterstop = chat.mem.timers.filter((x) => x.who === worker).length;
 
-// routines: Unii proposes, added off; only a view's Turn on starts it
+// routines: Legion proposes, added off; only a view's Turn on starts it
 const sub = await call(worker, "routine", { name: "R", task: "t", when: { $: "daily", at: "09:00" }, why: "w" }, "r0");
 const p1 = await call("main", "routine", { name: "Standup", task: "Summarize my PRs", when: { $: "daily", at: "09:00" }, why: "you asked for it daily" }, "r1");
 const review = await call("main", "routine", { name: "Rev", task: "t", when: { $: "review" }, why: "w" }, "r2");
@@ -106,14 +106,14 @@ const stilldev = chat.mem.timers.some((x) => x.id === tid);
 const closeview = await Chat.act(chat, "x3", { $: "timer", n: tid }, "");
 const goneview = !chat.mem.timers.some((x) => x.id === tid);
 const closenone = await Chat.act(chat, "x4", { $: "timer", n: 999 }, "");
-// b) the user's Stop (all) clears every timer: Unii's, and one of an agent not at work
+// b) the user's Stop (all) clears every timer: Legion's, and one of an agent not at work
 await call("main", "timer", { minutes: 30, note: "again" }, "x5");
 chat.mem.timers.push({ id: 900, who: "Old", at: Date.now() + 60e3, note: "n", made: Date.now() });
 await Chat.act(chat, "x6", { $: "stop" }, "");
 const stopped = chat.mem.timers.length;
 
 // c) (RED ZONE): a timer that fired while no view was open: no new timer
-// (Unii's or an agent's) till a view is open or the user speaks
+// (Legion's or an agent's) till a view is open or the user speaks
 const c3 = Chat.open({ id: "u3", name: "e@f.g" });
 Chat.chats.set("u3", c3);
 c3.socks.add(view);
@@ -170,9 +170,9 @@ process.exit(0);
 `;
 
 test("wait, timers and proposed routines, end to end on a server", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/timer.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/timer.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/timer.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   // wait: 1 to 600 s, cut by a stop
   expect(out.w0.fail).toBe(true);
@@ -181,7 +181,7 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   expect(out.waited).toBeGreaterThanOrEqual(950);
   expect(out.w2).toMatchObject({ fail: true, text: expect.stringContaining("Stopped") });
   expect(out.cutms).toBeLessThan(1000);
-  // everyone gets wait and timer; only Unii, routine
+  // everyone gets wait and timer; only Legion, routine
   expect(out.tools.main).toEqual(expect.arrayContaining(["wait", "timer", "routine"]));
   expect(out.tools.sub).toEqual(expect.arrayContaining(["wait", "timer"]));
   expect(out.tools.sub).not.toContain("routine");
@@ -196,7 +196,7 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   expect(out.open[0]).toEqual({ id: 1, who: "main", note: "check CI" });
   expect(out.state).toBe(5);
   expect(out.saved).toBe(5);
-  // fired: Unii takes a turn on "[Timer 1] check CI"; the worker is told
+  // fired: Legion takes a turn on "[Timer 1] check CI"; the worker is told
   expect(out.turned).toBeGreaterThanOrEqual(1);
   expect(out.work).toEqual(["[Timer 1] check CI"]);
   // R4 d): the worker's timer reaches it as its own reminder (a note), not as its parent's message
@@ -204,8 +204,8 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   expect(out.left).not.toContain(1);
   expect(out.left).not.toContain(2);
   expect(out.afterstop).toBe(0);
-  // proposals: Unii only, by the clock, added off with whose and why
-  expect(out.sub).toMatchObject({ fail: true, text: expect.stringContaining("Only Unii") });
+  // proposals: Legion only, by the clock, added off with whose and why
+  expect(out.sub).toMatchObject({ fail: true, text: expect.stringContaining("Only Legion") });
   expect(out.p1).toMatchObject({ fail: false, text: expect.stringContaining("only once the user turns it on") });
   expect(out.review.fail).toBe(true);
   expect(out.proposed).toEqual([{ name: "Standup", on: false, by: "main", why: "you asked for it daily" }]);
@@ -230,7 +230,7 @@ test("wait, timers and proposed routines, end to end on a server", async () => {
   expect(r4.closeview).toEqual({});
   expect(r4.goneview).toBe(true);
   expect(r4.closenone).toMatch(/^No timer/);
-  // b) the user's Stop clears them all, Unii's and an idle agent's
+  // b) the user's Stop clears them all, Legion's and an idle agent's
   expect(r4.stopped).toBe(0);
   // c) RED ZONE: no timer set from a timer's unattended wake, till a view or the user's word
   expect(r4.before3.fail).toBe(false);

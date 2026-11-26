@@ -117,9 +117,9 @@ process.exit(0);
 `;
 
 test("the server: super answers an unlocked kind with its pick, asks the rest; answers count and teach; Undo from a view only, once; relock; import", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/super.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/super.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/super.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.mode).toBe("super");
   expect(out.fresh).toEqual({});

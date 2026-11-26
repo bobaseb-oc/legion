@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { Fetch } from "./Fetch.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-fetch-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-fetch-");
 
 const PUBLIC = "93.184.216.34";
 
@@ -249,8 +249,8 @@ test("a long page comes in pages from character at", async () => {
 
 test("the fetch tool is listed unless fetches is 0; plan mode refuses it", () => {
   const code = 'import { Tools } from "./Tools.ts"; const t = { agents: new Map(), mem: { mode: "plan" } } as any; console.log(Tools.list(t, "main").map((t) => t.name).includes("fetch"), Tools.moded(t, "fetch", { url: "https://a.test/" }) !== null, Tools.moded({ ...t, mem: { mode: "full" } }, "fetch", { url: "https://a.test/" }) === null)';
-  const { UNII_FETCHES, ...rest } = process.env;
-  const run = (env: Record<string, string>) => Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, UNII_DIR: DIR, ...env } }).stdout.toString().trim();
+  const { LEGION_FETCHES, ...rest } = process.env;
+  const run = (env: Record<string, string>) => Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, LEGION_DIR: DIR, ...env } }).stdout.toString().trim();
   expect(run({})).toBe("true true true");
-  expect(run({ UNII_FETCHES: "0" })).toBe("false true true");
+  expect(run({ LEGION_FETCHES: "0" })).toBe("false true true");
 });

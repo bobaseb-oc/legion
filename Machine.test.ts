@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { ENV, Machine, USER_SHELL } from "./Machine.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-machine-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-machine-");
 
 test("a read past a file's end says so, never an empty range", () => {
   const file = DIR + "/three";
@@ -80,10 +80,10 @@ test("a stop still kills a shell that may be sent away", async () => {
   expect(out.text).toContain("(stopped in ");
 });
 
-// Unii's jobs (cwd "main") run in the device's home repo when it has one;
+// Legion's jobs (cwd "main") run in the device's home repo when it has one;
 // an agent's in its own dir under the work dir, home or not
-test("Unii's jobs run in the home repo; an agent's in its own work dir", async () => {
-  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+test("Legion's jobs run in the home repo; an agent's in its own work dir", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
   const work = DIR + "/work";
   const pwd = async (cwd: string, h?: string) => (await Machine.run({ name: "shell", input: { command: "pwd -P" }, cwd }, work, new AbortController().signal, undefined, h)).text.split("\n")[0].trim();
   expect(await pwd("main", home)).toBe(fs.realpathSync(home));
@@ -95,7 +95,7 @@ test("Unii's jobs run in the home repo; an agent's in its own work dir", async (
 // read into transcript lines, its result last; a stop kills it. A fake
 // claude on PATH tells its arguments and its directory
 test("claude runs headless in auto mode; its events come back as a transcript, its result last", async () => {
-  const bin = fs.mkdtempSync(os.tmpdir() + "/unii-bin-");
+  const bin = fs.mkdtempSync(os.tmpdir() + "/legion-bin-");
   const seen = bin + "/args";
   const events = [
     { type: "system", subtype: "init" },
@@ -111,11 +111,11 @@ test("claude runs headless in auto mode; its events come back as a transcript, i
     const work = DIR + "/work";
     const out = await Machine.run({ name: "claude", input: { task: "find files", model: "claude-haiku-5-5" }, cwd: "Bot" }, work, new AbortController().signal);
     expect(out.fail).toBe(false);
-    expect(out.text).toBe("unii: Looking.\ntool: Bash({\"command\":\"ls\"})\necho: a.txt\n\nResult ($0.0123): Found a.txt.");
+    expect(out.text).toBe("legion: Looking.\ntool: Bash({\"command\":\"ls\"})\necho: a.txt\n\nResult ($0.0123): Found a.txt.");
     const args = fs.readFileSync(seen, "utf8").split("\n");
     expect(args.slice(0, 9)).toEqual(["-p", "find files", "--model", "claude-haiku-5-5", "--permission-mode", "auto", "--output-format", "stream-json", "--verbose"]);
     expect(args[9]).toBe(fs.realpathSync(work) + "/Bot");
-    const there = fs.mkdtempSync(os.tmpdir() + "/unii-repo-");
+    const there = fs.mkdtempSync(os.tmpdir() + "/legion-repo-");
     await Machine.run({ name: "claude", input: { task: "x", dir: there }, cwd: "Bot" }, work, new AbortController().signal);
     const again = fs.readFileSync(seen, "utf8").split("\n");
     expect(again.slice(2, 4)).toEqual(["--model", "claude-sonnet-5-5"]);
@@ -190,8 +190,8 @@ test("glob and grep run as device tools, in the agent's dir", async () => {
 // RED ZONE (DRAFT awaiting the user's sign-off): the user's own !command
 // (a user_shell job, made only by Chat.bang) runs as they would in their
 // own shell: no hook asked, though one refuses every agent's shell
-test("the user's !command runs ungated, in Unii's dir; an agent's shell is still refused by the hook", async () => {
-  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
+test("the user's !command runs ungated, in Legion's dir; an agent's shell is still refused by the hook", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
   const hook = DIR + "/deny.sh";
   fs.writeFileSync(hook, "#!/bin/sh\necho no >&2\nexit 2\n");
   fs.chmodSync(hook, 0o755);
@@ -208,12 +208,12 @@ test("the user's !command runs ungated, in Unii's dir; an agent's shell is still
 // ================================================================
 
 // M2: a job's shell and a claude worker get an allowlisted environment:
-// none of this unii's secrets (its gateway key, the vendors', a token)
-test("a job's shell and a claude worker get none of this unii's secrets", async () => {
+// none of this legion's secrets (its gateway key, the vendors', a token)
+test("a job's shell and a claude worker get none of this legion's secrets", async () => {
   const fake = { LITELLM_API_KEY: "fake-1", ANTHROPIC_API_KEY: "fake-2", OPENAI_API_KEY: "fake-3", GH_TOKEN: "fake-4", RESEND_API_KEY: "fake-5", ANTHROPIC_BASE_URL: "http://gw.example" };
   const was = Object.fromEntries(Object.keys(fake).map((k) => [k, process.env[k]]));
   Object.assign(process.env, fake);
-  const bin = fs.mkdtempSync(os.tmpdir() + "/unii-bin-");
+  const bin = fs.mkdtempSync(os.tmpdir() + "/legion-bin-");
   const seen = bin + "/env";
   fs.writeFileSync(bin + "/claude", "#!/bin/sh\nenv | cut -d= -f1 > " + seen + "\n");
   fs.chmodSync(bin + "/claude", 0o755);
@@ -227,7 +227,7 @@ test("a job's shell and a claude worker get none of this unii's secrets", async 
     for (const k of ["LITELLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "RESEND_API_KEY", "ANTHROPIC_BASE_URL"]) {
       expect([k, names.includes(k)]).toEqual([k, false]);
     }
-    expect(names).toEqual(expect.arrayContaining(["PATH", "HOME", "UNII_RUN"]));
+    expect(names).toEqual(expect.arrayContaining(["PATH", "HOME", "LEGION_RUN"]));
     expect(names.every((n) => ENV.test(n))).toBe(true);
     await Machine.run({ name: "claude", input: { task: "x" }, cwd: "Env" }, DIR + "/work", live);
     const told = fs.readFileSync(seen, "utf8").split("\n").filter((n) => n !== "");
@@ -235,7 +235,7 @@ test("a job's shell and a claude worker get none of this unii's secrets", async 
       expect([k, told.includes(k)]).toEqual([k, false]);
     }
     // the gateway's address (not a secret) it may need; its key comes from Claude Code's apiKeyHelper
-    expect(told).toEqual(expect.arrayContaining(["PATH", "HOME", "UNII_RUN", "ANTHROPIC_BASE_URL"]));
+    expect(told).toEqual(expect.arrayContaining(["PATH", "HOME", "LEGION_RUN", "ANTHROPIC_BASE_URL"]));
   } finally {
     process.env.PATH = path;
     for (const [k, v] of Object.entries(was)) {
@@ -374,37 +374,37 @@ test("read refuses a secret path spelled with Unicode lookalikes", () => {
   }
 });
 
-// Legion's own config (~/.unii, or $UNII_DIR): config.json holds mcp_reads
+// Legion's own config (~/.legion, or $LEGION_DIR): config.json holds mcp_reads
 // (what auto mode skips and plan mode runs), mcp.json the commands started;
 // an agent's write or edit reaches none of them, in any case
 test("write and edit refuse Legion's config.json, mcp.json and mcp.local.json", () => {
   for (const f of ["config.json", "mcp.json", "mcp.local.json", "MCP.json"]) {
-    expect([f, Machine.gating(os.homedir() + "/.unii/" + f)]).toEqual([f, true]);
+    expect([f, Machine.gating(os.homedir() + "/.legion/" + f)]).toEqual([f, true]);
   }
-  expect(Machine.gating(os.homedir() + "/.unii/okf-gaps.jsonl")).toBe(false);
-  expect(Machine.gating(os.homedir() + "/.unii/work/config.json")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/okf-gaps.jsonl")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/work/config.json")).toBe(false);
 });
 
-// RED ZONE (R7): a chat's view.json (~/.unii/users/<id>/) holds its mode,
+// RED ZONE (R7): a chat's view.json (~/.legion/users/<id>/) holds its mode,
 // routines (on or off), tallies (what super auto decides) and timers: an
 // agent's write or edit reaches none, in any case; the chat's other files,
 // and a view.json elsewhere, aren't refused
 test("write and edit refuse a chat's view.json under Legion's dir", () => {
-  expect(Machine.gating(os.homedir() + "/.unii/users/10/view.json")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/Users/10/VIEW.json")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/users/10/main.index")).toBe(false);
-  expect(Machine.gating(os.homedir() + "/.unii/work/users/10/view.json")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/users/10/view.json")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/Users/10/VIEW.json")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/users/10/main.index")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/work/users/10/view.json")).toBe(false);
   expect(Machine.gating(os.tmpdir() + "/repo/view.json")).toBe(false);
 });
 
 // RED ZONE (security review 4 N1, signed off by the user 2026-11-25): a
-// chat's notes (~/.unii/users/<id>/notes/: its standing directives and
+// chat's notes (~/.legion/users/<id>/notes/: its standing directives and
 // index, read into every turn): no agent's write or edit, in any case
 test("write and edit refuse a chat's notes under Legion's dir", () => {
-  expect(Machine.gating(os.homedir() + "/.unii/users/10/notes/directives.md")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/Users/10/Notes/x.md")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/users/10/notes")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/work/users/10/notes/x.md")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/users/10/notes/directives.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/Users/10/Notes/x.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/users/10/notes")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/work/users/10/notes/x.md")).toBe(false);
   expect(Machine.gating(os.tmpdir() + "/repo/users/10/notes/x.md")).toBe(false);
 });
 
@@ -421,16 +421,16 @@ test("write and edit refuse this live checkout and Legion's bin dir", () => {
   expect(Machine.gating(import.meta.dir)).toBe(true);
   expect(Machine.gating(import.meta.dir + "/.claude/worktrees/x/Term.ts")).toBe(false);
   expect(Machine.gating(os.tmpdir() + "/other/Term.ts")).toBe(false);
-  const bin = os.homedir() + "/.unii/bin/";
+  const bin = os.homedir() + "/.legion/bin/";
   for (const f of ["legion-key", "legion-key.sha256", "Legion-Key"]) {
     expect([f, Machine.gating(bin + f)]).toEqual([f, true]);
     expect([f, Machine.trust(bin + f)]).toEqual([f, true]);
   }
   const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
-  for (const c of ["cp x ~/.unii/bin/legion-key", "cat $HOME/.unii/bin/legion-key.sha256", "printf x > \"$UNII_DIR/bin/legion-key\""]) {
+  for (const c of ["cp x ~/.legion/bin/legion-key", "cat $HOME/.legion/bin/legion-key.sha256", "printf x > \"$LEGION_DIR/bin/legion-key\""]) {
     expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
   }
-  expect(shell("ls ~/.unii/work")).toBe(null);
+  expect(shell("ls ~/.legion/work")).toBe(null);
   expect(Machine.gating(os.tmpdir() + "/repo/bin/legion-key")).toBe(false);
 });
 
@@ -443,14 +443,14 @@ test("write and edit refuse this checkout's local/mcp.extra.json", () => {
 });
 
 // RED ZONE (S1c, DRAFT awaiting the user's sign-off): Legion's own trust
-// state (in ~/.unii or $UNII_DIR): cloud.db (its sessions) and its -wal,
+// state (in ~/.legion or $LEGION_DIR): cloud.db (its sessions) and its -wal,
 // -shm, the sign-in secret's hash, server.log, a terminal's token file
 // (<host>/token). An agent's read, grep or glob gets none (secret), its
 // write or edit none (gating), its shell command naming one by its path
 // is refused before any hook, in every mode (guard); a file of the same
 // name elsewhere (a repo's server.log) is not
 test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, server.log, token files", () => {
-  const dir = os.homedir() + "/.unii";
+  const dir = os.homedir() + "/.legion";
   const files = ["cloud.db", "cloud.db-wal", "cloud.db-shm", "Cloud.DB", "signin-hash", "server.log", "127.0.0.1:8788/token"];
   for (const f of files) {
     expect([f, Machine.secret(dir + "/" + f)]).toEqual([f, true]);
@@ -462,23 +462,23 @@ test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, ser
   expect(Machine.gating(os.tmpdir() + "/repo/cloud.db")).toBe(false);
   expect(Machine.secret(dir + "/users/10/main.index")).toBe(false);
   const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
-  for (const c of ["cat ~/.unii/cloud.db", "sqlite3 $HOME/.unii/cloud.db 'select * from sessions'", "cp x ~/.unii/cloud.db-wal", "tail -f ~/.unii/server.log", "grep auth ${HOME}/.unii/server.log",
-    "echo h > ~/.unii/signin-hash", "rm ~/.unii/signin-hash", "cat \"$UNII_DIR/cloud.db\"", "cat " + dir + "/server.log", "local/legion log", "legion log | tail"]) {
+  for (const c of ["cat ~/.legion/cloud.db", "sqlite3 $HOME/.legion/cloud.db 'select * from sessions'", "cp x ~/.legion/cloud.db-wal", "tail -f ~/.legion/server.log", "grep auth ${HOME}/.legion/server.log",
+    "echo h > ~/.legion/signin-hash", "rm ~/.legion/signin-hash", "cat \"$LEGION_DIR/cloud.db\"", "cat " + dir + "/server.log", "local/legion log", "legion log | tail"]) {
     expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
   }
-  for (const c of ["grep -n cloud.db Cloud.ts", "tail server.log", "ls ~/.unii", "legion login"]) {
+  for (const c of ["grep -n cloud.db Cloud.ts", "tail server.log", "ls ~/.legion", "legion login"]) {
     expect([c, shell(c)]).toEqual([c, null]);
   }
-  // a $UNII_DIR of another name, written out in the command
-  const was = process.env.UNII_DIR;
+  // a $LEGION_DIR of another name, written out in the command
+  const was = process.env.LEGION_DIR;
   const other = os.tmpdir() + "/legion-trust-dir";
-  process.env.UNII_DIR = other;
+  process.env.LEGION_DIR = other;
   try {
     expect(shell("sqlite3 " + other + "/cloud.db .dump")).toContain("Refused");
     expect(shell("cat " + other + "/notes.txt")).toBeNull();
     expect(Machine.secret(other + "/server.log")).toBe(true);
   } finally {
-    process.env.UNII_DIR = was;
+    process.env.LEGION_DIR = was;
   }
 });
 
@@ -505,12 +505,12 @@ test("a Claude Code worker's flags: --model the id sent, else the catalog's sonn
 // skills the agents follow, and local/shared.json names its repo, ref and
 // allowlist: an agent's write or edit reaches none, in any case
 test("write and edit refuse Legion's shared-skills checkout and local/shared.json", () => {
-  const dir = (process.env.UNII_DIR ?? os.homedir() + "/.unii") + "/shared-skills";
+  const dir = (process.env.LEGION_DIR ?? os.homedir() + "/.legion") + "/shared-skills";
   expect(Machine.gating(dir)).toBe(true);
   expect(Machine.gating(dir + "/skills/oc-coding-assistant/hooks/hooks.json")).toBe(true);
   expect(Machine.gating(dir.toUpperCase() + "/X/SKILL.md")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/shared-skills/a.md")).toBe(true);
+  expect(Machine.gating(os.homedir() + "/.legion/shared-skills/a.md")).toBe(true);
   expect(Machine.gating(import.meta.dir + "/local/shared.json")).toBe(true);
-  expect(Machine.gating(os.homedir() + "/.unii/shared-skills-notes.md")).toBe(false);
+  expect(Machine.gating(os.homedir() + "/.legion/shared-skills-notes.md")).toBe(false);
   expect(Machine.gating(os.tmpdir() + "/other/local/shared.json")).toBe(false);
 });

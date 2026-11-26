@@ -5,14 +5,14 @@
 // command's last lines (Tools.shells); the user's Ctrl+B sends one to the
 // background, its caller going on told its number; agents read and stop
 // their own background commands only (RED ZONE, DRAFT awaiting the
-// user's sign-off), within caps on count, time and output; Unii is told
+// user's sign-off), within caps on count, time and output; Legion is told
 // when one ends; the user's stop of all ends every one.
 
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-process.env.UNII_DIR = fs.mkdtempSync(os.tmpdir() + "/unii-shells-");
+process.env.LEGION_DIR = fs.mkdtempSync(os.tmpdir() + "/legion-shells-");
 
 const { Tools } = await import("./Tools.ts");
 const { CAP } = await import("./Clip.ts");
@@ -24,7 +24,7 @@ function chat(): { tools: any; jobs: any[]; notes: string[]; told: () => number;
   let told = 0;
   const jobs: any[] = [];
   let ids: string[] = [];
-  const tools: any = Tools.serve({ agents: new Map(), dir: process.env.UNII_DIR + "/" } as any, { note: (t: string) => notes.push(t), shells: () => (told += 1) } as any);
+  const tools: any = Tools.serve({ agents: new Map(), dir: process.env.LEGION_DIR + "/" } as any, { note: (t: string) => notes.push(t), shells: () => (told += 1) } as any);
   Tools.attach(tools, "t1", "mac", "u", { send: (m: any) => (m.$ === "job" ? jobs.push(m) : m.$ === "jobs" ? (ids = m.ids) : 0), live: () => true, computer: false, work: "~/w" });
   return { tools, jobs, notes, told: () => told, ids: () => ids };
 }
@@ -49,7 +49,7 @@ test("a running shell command shows its last lines as the device tells them; a t
   expect(Tools.shells(tools)[0].command.length).toBeLessThanOrEqual(200);
 });
 
-test("Ctrl+B: an agent's call returns at once with its number, the command runs on; Unii is told as it ends", async () => {
+test("Ctrl+B: an agent's call returns at once with its number, the command runs on; Legion is told as it ends", async () => {
   const { tools, notes, ids } = chat();
   let back: any = null;
   void call(tools, "Ada", "sleep 9", "j1").then((out) => (back = out));
@@ -81,7 +81,7 @@ test("the user's !command sent to the background is still waited on to its end (
 });
 
 // RED ZONE (DRAFT): shell_output and shell_stop take the caller's own
-// background command only: another agent's, Unii's or the user's is as
+// background command only: another agent's, Legion's or the user's is as
 // none
 test("an agent reads and stops only its own background commands", async () => {
   const { tools, ids } = chat();

@@ -1,5 +1,5 @@
 {
-  "name": "uniichat",
+  "name": "legion",
   "private": true,
   "scripts": {
     "test": "bash test/run.sh",

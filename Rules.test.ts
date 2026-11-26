@@ -6,7 +6,7 @@ import { rules_repo, rules_touched, RULES_CAP } from "./Rules.ts";
 
 // a git repo of files (path: text), real path
 function repo(files: Record<string, string>): string {
-  const top = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/unii-repo-"));
+  const top = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/legion-repo-"));
   Bun.spawnSync(["git", "init", "-q", top]);
   for (const [f, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(top + "/" + f), { recursive: true });
@@ -47,7 +47,7 @@ test(".claude/rules load at the root; one with paths: only when the touched file
 // user's call 2026-11-20: as Claude Code once approved, an import may
 // point outside the repo; a secret's never loads
 test("imports expand inside the repo and out of it; a secret's stays as text", () => {
-  const outside = fs.mkdtempSync(os.tmpdir() + "/unii-out-") + "/x.md";
+  const outside = fs.mkdtempSync(os.tmpdir() + "/legion-out-") + "/x.md";
   fs.writeFileSync(outside, "OUTSIDE");
   const top = repo({ "CLAUDE.md": "@docs/inc.md\n@" + outside + "\n@.env", "docs/inc.md": "inc", ".env": "SECRET" });
   const [r] = rules_repo(top, top + "/CLAUDE.md", [], (p) => p.endsWith(".env"));
@@ -55,7 +55,7 @@ test("imports expand inside the repo and out of it; a secret's stays as text", (
 });
 
 test("a secret file is never loaded; a symlink out of the repo neither", () => {
-  const outside = fs.mkdtempSync(os.tmpdir() + "/unii-out-") + "/CLAUDE.md";
+  const outside = fs.mkdtempSync(os.tmpdir() + "/legion-out-") + "/CLAUDE.md";
   fs.writeFileSync(outside, "OUTSIDE");
   const top = repo({ "AGENTS.md": "secret one", "a/x": "" });
   fs.symlinkSync(outside, top + "/a/CLAUDE.md");

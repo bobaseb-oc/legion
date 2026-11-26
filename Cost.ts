@@ -2,9 +2,9 @@
 // ====
 // Today's actual LiteLLM spend, for the terminal's status line, as Claude
 // Code's status line shows it: read from the cache the user's refresher
-// keeps (UNII_COST_CACHE, default ~/.cache/statusline: litellm-<UTC day>.json,
-// {spend, fetched_at}), never fetched here, so no key passes through unii.
-// Past DUE the refresher (UNII_COST_REFRESH, default Claude Code's
+// keeps (LEGION_COST_CACHE, default ~/.cache/statusline: litellm-<UTC day>.json,
+// {spend, fetched_at}), never fetched here, so no key passes through legion.
+// Past DUE the refresher (LEGION_COST_REFRESH, default Claude Code's
 // ~/.claude/hooks/litellm-cost.js, if there) runs detached, once at a
 // time; past STALE the spend shows marked. A cache missing or unreadable
 // is no spend, never a throw.
@@ -19,8 +19,8 @@ export type Spend = { spend: number | null; stale: boolean; due: boolean };
 const DUE   = 90e3;
 const STALE = 15 * 60e3;
 
-export const COST_CACHE   = (process.env.UNII_COST_CACHE || "~/.cache/statusline").replace(/^~(?=\/)/, os.homedir());
-export const COST_REFRESH = (process.env.UNII_COST_REFRESH || "~/.claude/hooks/litellm-cost.js").replace(/^~(?=\/)/, os.homedir());
+export const COST_CACHE   = (process.env.LEGION_COST_CACHE || "~/.cache/statusline").replace(/^~(?=\/)/, os.homedir());
+export const COST_REFRESH = (process.env.LEGION_COST_REFRESH || "~/.claude/hooks/litellm-cost.js").replace(/^~(?=\/)/, os.homedir());
 
 let refreshing: { exited: Promise<number> } | null = null;
 

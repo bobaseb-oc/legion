@@ -1,7 +1,7 @@
 // Redact
 // ======
 // `bun local/prime/redact.ts`. Stages the manifest's taken sources
-// (collect.ts) in ~/.unii-prime, secrets redacted: documents as text
+// (collect.ts) in ~/.legion-prime, secrets redacted: documents as text
 // (staged.json: kind, path, date, text; each at most CAP characters),
 // Claude Code logs as JSON lines again (claude/projects/<dir>/, read by
 // `/import` through CLAUDE_CONFIG_DIR). A secret is a key of a known

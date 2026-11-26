@@ -9,7 +9,7 @@ import * as View from "./View.ts";
 // (K4): a relative or absolute path, or a file with a known extension, a
 // :line dropped; prose, URLs, commands and flags are not paths
 test("view_path: paths named in the chat, not prose, URLs or commands", () => {
-  for (const [text, path] of [["src/a.ts", "src/a.ts"], ["./Tools.ts:120", "./Tools.ts"], ["/Volumes/dev/x/README.md", "/Volumes/dev/x/README.md"], ["Server.ts", "Server.ts"], ["~/.unii/config.json", "~/.unii/config.json"], ["web/src/main.ts:12:3", "web/src/main.ts"]]) {
+  for (const [text, path] of [["src/a.ts", "src/a.ts"], ["./Tools.ts:120", "./Tools.ts"], ["/Volumes/dev/x/README.md", "/Volumes/dev/x/README.md"], ["Server.ts", "Server.ts"], ["~/.legion/config.json", "~/.legion/config.json"], ["web/src/main.ts:12:3", "web/src/main.ts"]]) {
     expect([text, View.view_path(text)]).toEqual([text, path]);
   }
   for (const text of ["hello world", "https://x.com/a/b", "git status", "--force", "a/b c/d", "v1.2", "x".repeat(600) + ".ts", "../../etc/passwd zz"]) {
@@ -81,8 +81,8 @@ test("view_shell: the input is in shell mode while it starts with !", () => {
 test("an agent's or Legion's words starting with ! never become a !command", () => {
   const v = View.view_new();
   const heard = [
-    ...View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "!rm -rf ~" }, 1: { kind: "work", text: "!ls" } } }),
-    ...View.view_hear(v, { $: "entry", agent: "Mgr", id: 0, kind: "unii", text: "!echo pwned", date: "" }),
+    ...View.view_hear(v, { $: "know", whole: { 0: { kind: "legion", text: "!rm -rf ~" }, 1: { kind: "work", text: "!ls" } } }),
+    ...View.view_hear(v, { $: "entry", agent: "Mgr", id: 0, kind: "legion", text: "!echo pwned", date: "" }),
     ...View.view_hear(v, { $: "note", text: "!echo note" }),
   ];
   expect(heard.some((m) => m.$ === "bang")).toBe(false);
@@ -93,9 +93,9 @@ test("an agent's or Legion's words starting with ! never become a !command", () 
 test("view_code: the last code block Legion wrote", () => {
   const v = View.view_new();
   expect(View.view_code(v)).toBe(null);
-  View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "Run:\n```sh\nnpm i\n```" }, 1: { kind: "user", text: "```\nmine\n```" } } });
+  View.view_hear(v, { $: "know", whole: { 0: { kind: "legion", text: "Run:\n```sh\nnpm i\n```" }, 1: { kind: "user", text: "```\nmine\n```" } } });
   expect(View.view_code(v)).toBe("npm i");
-  View.view_hear(v, { $: "know", whole: { 2: { kind: "unii", text: "First\n```sh\ngcloud auth login\n```\nthen\n```\nbun run test\n```" }, 3: { kind: "unii", text: "Done." } } });
+  View.view_hear(v, { $: "know", whole: { 2: { kind: "legion", text: "First\n```sh\ngcloud auth login\n```\nthen\n```\nbun run test\n```" }, 3: { kind: "legion", text: "Done." } } });
   expect(View.view_code(v)).toBe("bun run test");
 });
 
@@ -103,7 +103,7 @@ test("view_code: the last code block Legion wrote", () => {
 // code block /copy copies
 test("view_code: a text block of nudges is the one /copy copies", () => {
   const v = View.view_new();
-  View.view_hear(v, { $: "know", whole: { 0: { kind: "unii", text: "- https://github.com/a/b/pull/1 - Fix\n\n```text\n- https://github.com/a/b/pull/1 - Fix - ask @ana\n```" } } });
+  View.view_hear(v, { $: "know", whole: { 0: { kind: "legion", text: "- https://github.com/a/b/pull/1 - Fix\n\n```text\n- https://github.com/a/b/pull/1 - Fix - ask @ana\n```" } } });
   expect(View.view_code(v)).toBe("- https://github.com/a/b/pull/1 - Fix - ask @ana");
 });
 
@@ -279,7 +279,7 @@ test("a pulse is kept per agent; the view watches what it shows", () => {
   expect(View.view_watch(v)).toEqual(["A"]);
 });
 
-// The Crew grid (no agent in focus): a tile per agent Unii started, with
+// The Crew grid (no agent in focus): a tile per agent Legion started, with
 // a dot per agent under it (any depth), its roll-up and its pulse
 const { demo_crew, demo_pulses } = await import("./Demo.ts");
 
@@ -291,7 +291,7 @@ test("the demo crew: 8 managers, 40 workers, a sub-manager, one asking", () => {
   expect(new Set(crew.map((c) => c.status)).size).toBe(6);
 });
 
-test("tiles: one per agent Unii started, dots for all under it", () => {
+test("tiles: one per agent Legion started, dots for all under it", () => {
   const v = View.view_new();
   const crew = demo_crew(1e12);
   View.view_hear(v, { $: "state", ...v, crew });
@@ -332,7 +332,7 @@ test("the lane: marks by time, spawns, stalls", () => {
   View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Kid", "Mgr", "worker", "done", 1e12 + 50000)] });
   View.view_act(v, { $: "Goto", name: "Mgr" });
   View.view_hear(v, { $: "agent", name: "Mgr", found: true });
-  for (const [kind, text, s] of [["user", "the task", 0], ["tool", "shell: ls", 10], ["mind", "hmm", 20], ["unii", "Done.\nAll good", 400]] as const) {
+  for (const [kind, text, s] of [["user", "the task", 0], ["tool", "shell: ls", 10], ["mind", "hmm", 20], ["legion", "Done.\nAll good", 400]] as const) {
     View.view_hear(v, { $: "entry", agent: "Mgr", kind, text, date: t(s) });
   }
   View.view_hear(v, { $: "entry", agent: "Mgr", kind: "note", text: "no date" });
@@ -447,10 +447,10 @@ test("the status line, and the web's from the state", () => {
   expect(View.status_text({ ...s, up: false, branch: null, working: 0, spend: { spend: null, stale: false }, questions: 0, mode: undefined })).toBe("offline · repo · opus");
   const v = View.view_new();
   expect(View.view_status(v)).toBe("");
-  View.view_hear(v, { $: "state", ...v, up: true, agents: ["A"], mode: "auto", status: { device: "mac", dir: "uniichat", branch: "feat/crew-ui", spend: 0.5, stale: false } } as any);
+  View.view_hear(v, { $: "state", ...v, up: true, agents: ["A"], mode: "auto", status: { device: "mac", dir: "legion", branch: "feat/crew-ui", spend: 0.5, stale: false } } as any);
   v.up = true;
   v.pick = { model: "sonnet-5.5" } as any;
-  expect(View.view_status(v)).toBe("mac: uniichat ⎇ feat/crew-ui · sonnet-5.5 · 1 agent at work · $0.50 today · auto mode");
+  expect(View.view_status(v)).toBe("mac: legion ⎇ feat/crew-ui · sonnet-5.5 · 1 agent at work · $0.50 today · auto mode");
 });
 
 // the mode controls (M3): Shift+Tab / the chip cycles the mode, /mode sets
@@ -700,7 +700,7 @@ test("shell commands in sight: their lines, the keys, the acts on them", () => {
   expect(View.view_bg_lines(v, 20_000)).toEqual(["1 · running 19s · Legion on mac · $ tail -f log", "2 · done (exit 0 in 9.0 s) · Ada on pc · $ sleep 9"]);
 });
 
-// Notes: Unii's notes come in the state as `notebook`; the
+// Notes: Legion's notes come in the state as `notebook`; the
 // view's own `notes` (its toast queue, strings) is left as it is
 test("L2: a state message with a notebook keeps the view's toasts and lists the note", () => {
   const v = View.view_new();

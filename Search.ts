@@ -1,7 +1,7 @@
 // Search
 // ======
 // The `search` tool (Tools.ts): a query to SearXNG, a metasearch engine
-// run on this computer (config searxng_url; local/unii-local.sh starts
+// run on this computer (config searxng_url; local/legion starts
 // it in Docker), asked for JSON. Its first n results (1 to 20) come as
 // numbered entries: title, URL, snippet, a line each. They are the web's
 // words, so they come framed as data. A SearXNG not on this computer is

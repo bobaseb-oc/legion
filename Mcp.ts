@@ -1,6 +1,6 @@
 // Mcp
 // ===
-// A client of MCP servers (~/.unii/mcp.json, local/mcp.ts): each a
+// A client of MCP servers (~/.legion/mcp.json, local/mcp.ts): each a
 // process of this computer spoken to over its stdin and stdout, a JSON
 // message a line, or a URL (streamable HTTP: a POST answered as JSON or
 // as SSE). A server is opened as a tool of it is first wanted, and closed
@@ -15,8 +15,8 @@
 // server that fails to open is skipped, said once in a line; the others
 // go on.
 // A server process runs in its own process group (detached), so what it
-// starts (a browser) is in it too; as unii quits, end() ends every group.
-// Their pids and start times are kept in a file (sweep), so the next unii
+// starts (a browser) is in it too; as legion quits, end() ends every group.
+// Their pids and start times are kept in a file (sweep), so the next legion
 // ends those a crashed one left, if each is still the process it was.
 
 import { createHash } from "node:crypto";
@@ -126,7 +126,7 @@ export namespace Mcp {
         return undefined;
       }
     };
-    const auth = (name: string) => Auth.token(name, Auth.keychain("unii-mcp"));
+    const auth = (name: string) => Auth.token(name, Auth.keychain("legion-mcp"));
     return Mcp.pool(Array.isArray(got.servers) ? got.servers : [], { env, log, auth });
   }
 
@@ -275,7 +275,7 @@ export namespace Mcp {
       ? Mcp.http(s.url, Mcp.fill(s.headers ?? {}, pool.env), changed, s.oauth === true ? () => pool.auth(s.name) : undefined)
       : Mcp.stdio(s.command ?? "", s.args ?? [], Mcp.fill(s.env ?? {}, pool.env), changed);
     try {
-      await link.ask("initialize", { protocolVersion: VERSION, capabilities: {}, clientInfo: { name: "unii", version: "1" } }, signal);
+      await link.ask("initialize", { protocolVersion: VERSION, capabilities: {}, clientInfo: { name: "legion", version: "1" } }, signal);
       await link.tell("notifications/initialized", {});
       return link;
     } catch (err) {
@@ -483,7 +483,7 @@ export namespace Mcp {
     }, GRACE).unref?.();
   }
 
-  // as this unii quits: every child's group told to end (a browser may
+  // as this legion quits: every child's group told to end (a browser may
   // close itself); the file stays, so the next start kills any left
   export function end(): void {
     for (const pid of CHILDREN.keys()) {
@@ -494,7 +494,7 @@ export namespace Mcp {
 
   // at start: the groups of children listed in `file` killed, each only
   // if its process started when it was listed (else its pid is another's
-  // now); the file then kept of this unii's children
+  // now); the file then kept of this legion's children
   export function sweep(file: string): void {
     PIDS = file;
     let text = "";

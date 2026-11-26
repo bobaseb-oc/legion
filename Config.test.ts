@@ -9,12 +9,12 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-config-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-config-");
 const CODE = 'import { ANTHROPIC_URL } from "./Config.ts"; console.log(ANTHROPIC_URL)';
 
 // Config imported with anthropic_url set: its exit code and output
 function start(url: string): { code: number; text: string } {
-  const out = Bun.spawnSync([process.execPath, "-e", CODE], { cwd: import.meta.dir, env: { ...process.env, UNII_DIR: DIR, UNII_ANTHROPIC_URL: url } });
+  const out = Bun.spawnSync([process.execPath, "-e", CODE], { cwd: import.meta.dir, env: { ...process.env, LEGION_DIR: DIR, LEGION_ANTHROPIC_URL: url } });
   return { code: out.exitCode, text: (out.stdout.toString() + out.stderr.toString()).trim() };
 }
 
@@ -33,10 +33,10 @@ test("anthropic_url: plain http elsewhere, or no URL, refuses to start", () => {
 });
 
 // RED ZONE (security review SC, DRAFT awaiting the user's sign-off):
-// X-Forwarded-For is trusted (Cloud.ip) only with UNII_PROXY=1; off by default
-test("proxy: on only with UNII_PROXY=1", () => {
+// X-Forwarded-For is trusted (Cloud.ip) only with LEGION_PROXY=1; off by default
+test("proxy: on only with LEGION_PROXY=1", () => {
   const proxy = (value: string | null) => {
-    const env: Record<string, string | undefined> = { ...process.env, UNII_DIR: DIR, UNII_PROXY: value ?? undefined };
+    const env: Record<string, string | undefined> = { ...process.env, LEGION_DIR: DIR, LEGION_PROXY: value ?? undefined };
     const out = Bun.spawnSync([process.execPath, "-e", 'import { PROXY } from "./Config.ts"; console.log(PROXY)'], { cwd: import.meta.dir, env });
     return out.stdout.toString().trim();
   };
@@ -51,7 +51,7 @@ test("proxy: on only with UNII_PROXY=1", () => {
 // by whole name; one that is no mcp__<server>__<tool> refuses to start
 test("mcp_reads: exact mcp__server__tool names, comma-separated; others refuse to start", () => {
   const reads = (value: string | null) => {
-    const env: Record<string, string | undefined> = { ...process.env, UNII_DIR: DIR, UNII_MCP_READS: value ?? undefined };
+    const env: Record<string, string | undefined> = { ...process.env, LEGION_DIR: DIR, LEGION_MCP_READS: value ?? undefined };
     const out = Bun.spawnSync([process.execPath, "-e", 'import { MCP_READS } from "./Config.ts"; console.log(JSON.stringify(MCP_READS))'], { cwd: import.meta.dir, env });
     return { code: out.exitCode, text: (out.stdout.toString() + out.stderr.toString()).trim() };
   };
@@ -66,7 +66,7 @@ test("mcp_reads: exact mcp__server__tool names, comma-separated; others refuse t
 
 // RED ZONE (security review R6, signed off by the user 2026-11-19): the
 // GChat webhook's URL read by the server itself from the login Keychain
-// (UNII_GCHAT_KEYCHAIN=1, the launcher's), never from its environment
+// (LEGION_GCHAT_KEYCHAIN=1, the launcher's), never from its environment
 // (any process of this user reads that: ps -E), and not put back in a
 // worker's. The Keychain is a stub here (Auth.security replaced before
 // Config loads): the user's own item is never read
@@ -82,7 +82,7 @@ console.log(JSON.stringify({ hook: c.KEYS.gchat === ${JSON.stringify(HOOK)}, oth
 `;
 
 function keychain(env: Record<string, string | undefined>): { out: any; err: string } {
-  const all = { ...process.env, UNII_DIR: DIR, UNII_GCHAT_KEYCHAIN: undefined, UNII_GCHAT_SPACE: undefined, GCHAT_WEBHOOK_URL: undefined, ...env };
+  const all = { ...process.env, LEGION_DIR: DIR, LEGION_GCHAT_KEYCHAIN: undefined, LEGION_GCHAT_SPACE: undefined, GCHAT_WEBHOOK_URL: undefined, ...env };
   const out = Bun.spawnSync([process.execPath, "-e", KEYCHAIN], { cwd: import.meta.dir, env: all });
   const text = out.stdout.toString().trim();
   return { out: text === "" ? null : JSON.parse(text), err: out.stderr.toString() };
@@ -90,7 +90,7 @@ function keychain(env: Record<string, string | undefined>): { out: any; err: str
 
 test("gchat webhook: read from the Keychain by the server, never kept in its environment or a worker's", () => {
   const read = [["find-generic-password", "-s", "GCHAT_WEBHOOK_URL", "-w"]];
-  const on = { UNII_GCHAT_KEYCHAIN: "1", UNII_GCHAT_SPACE: "spaces/TESTSPACE" };
+  const on = { LEGION_GCHAT_KEYCHAIN: "1", LEGION_GCHAT_SPACE: "spaces/TESTSPACE" };
   expect(keychain(on).out).toEqual({ hook: true, other: false, empty: false, calls: read, env: false, worker: false });
   // Keychain first: a URL left in the environment is not used, and removed
   expect(keychain({ ...on, GCHAT_WEBHOOK_URL: "https://dev.example/hook" }).out).toEqual({ hook: true, other: false, empty: false, calls: read, env: false, worker: false });
@@ -99,14 +99,14 @@ test("gchat webhook: read from the Keychain by the server, never kept in its env
   expect(none.out).toEqual({ hook: false, other: false, empty: true, calls: read, env: false, worker: false });
   expect(none.err).toContain("GChat webhook");
   // no space: the Keychain not asked
-  expect(keychain({ UNII_GCHAT_KEYCHAIN: "1" }).out.calls).toEqual([]);
+  expect(keychain({ LEGION_GCHAT_KEYCHAIN: "1" }).out.calls).toEqual([]);
   // off (tests, a server run by hand): the environment's, never the Keychain
-  const off = keychain({ UNII_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://dev.example/hook" });
+  const off = keychain({ LEGION_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://dev.example/hook" });
   expect(off.out).toEqual({ hook: false, other: true, empty: false, calls: [], env: false, worker: true });
 });
 
 // RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
-// with UNII_ANTHROPIC_KEY_FD=3 (the launcher's server_exec) the gateway's
+// with LEGION_ANTHROPIC_KEY_FD=3 (the launcher's server_exec) the gateway's
 // key is read once, at the start, from fd 3 (a pipe), then the fd closed;
 // never from the environment (any process of this user reads that: ps
 // -wwE), nor put in a worker's (so no workers then: refused). Without it
@@ -118,12 +118,12 @@ const c = await import("./Config.ts");
 const env = c.config_env();
 let open = true;
 try { fs.fstatSync(3); } catch { open = false; }
-console.log(JSON.stringify({ len: c.KEYS.anthropic.length, env: "ANTHROPIC_API_KEY" in process.env, told: "UNII_ANTHROPIC_KEY_FD" in process.env, worker: "ANTHROPIC_API_KEY" in env, worker_told: "UNII_ANTHROPIC_KEY_FD" in env, open }));
+console.log(JSON.stringify({ len: c.KEYS.anthropic.length, env: "ANTHROPIC_API_KEY" in process.env, told: "LEGION_ANTHROPIC_KEY_FD" in process.env, worker: "ANTHROPIC_API_KEY" in env, worker_told: "LEGION_ANTHROPIC_KEY_FD" in env, open }));
 `;
 
 // Config imported with `key` piped to its fd 3 (null: fd 3 not open)
 function piped(key: string | null, env: Record<string, string | undefined>): { code: number; out: any; text: string } {
-  const all = { ...process.env, UNII_DIR: DIR, ANTHROPIC_API_KEY: undefined, UNII_ANTHROPIC_KEY_FD: undefined, UNII_WORKERS: undefined, PIPED: key ?? "", ...env };
+  const all = { ...process.env, LEGION_DIR: DIR, ANTHROPIC_API_KEY: undefined, LEGION_ANTHROPIC_KEY_FD: undefined, LEGION_WORKERS: undefined, PIPED: key ?? "", ...env };
   const run = key === null ? 'exec "$0" -e "$1" 3<&-' : 'printf "%s" "$PIPED" | exec "$0" -e "$1" 3<&0 </dev/null';
   const out = Bun.spawnSync(["/bin/sh", "-c", run, process.execPath, FD], { cwd: import.meta.dir, env: all });
   const stdout = out.stdout.toString().trim();
@@ -132,21 +132,21 @@ function piped(key: string | null, env: Record<string, string | undefined>): { c
 
 test("gateway key: read from fd 3 when told (the launcher's), never from or into an environment", () => {
   const key = "sk-fake-fd-key-0123456789";
-  const on = piped(key, { UNII_ANTHROPIC_KEY_FD: "3", ANTHROPIC_API_KEY: "sk-stray-env" });
+  const on = piped(key, { LEGION_ANTHROPIC_KEY_FD: "3", ANTHROPIC_API_KEY: "sk-stray-env" });
   expect(on.code).toBe(0);
   expect(on.out).toEqual({ len: key.length, env: false, told: false, worker: false, worker_told: false, open: false });
   expect(on.text).not.toContain(key);
   // a trailing newline is not the key's
-  expect(piped(key + "\n", { UNII_ANTHROPIC_KEY_FD: "3" }).out.len).toBe(key.length);
+  expect(piped(key + "\n", { LEGION_ANTHROPIC_KEY_FD: "3" }).out.len).toBe(key.length);
   // none on it, fd 3 not open, or no fd 3-9: no start, said without a key
   for (const [k, fd] of [["", "3"], [null, "3"], [key, "0"], [key, "1"], [key, "abc"], [key, ""]] as [string | null, string][]) {
-    const out = piped(k, { UNII_ANTHROPIC_KEY_FD: fd });
+    const out = piped(k, { LEGION_ANTHROPIC_KEY_FD: fd });
     expect([fd, k === null, out.code === 0]).toEqual([fd, k === null, false]);
     expect(out.text).toContain("config: ");
     expect(out.text).not.toContain(key);
   }
   // workers would need it in their environment: refused
-  const workers = piped(key, { UNII_ANTHROPIC_KEY_FD: "3", UNII_WORKERS: "2" });
+  const workers = piped(key, { LEGION_ANTHROPIC_KEY_FD: "3", LEGION_WORKERS: "2" });
   expect(workers.code).not.toBe(0);
   expect(workers.text).toContain("config: workers");
   expect(workers.text).not.toContain(key);
@@ -161,7 +161,7 @@ test("gateway key: read from fd 3 when told (the launcher's), never from or into
 // naming no model of the catalog refuses to start
 function roles(env: Record<string, string>, dir = DIR): { code: number; text: string } {
   const code = 'import * as c from "./Config.ts"; console.log(JSON.stringify({ pick: c.PICK.model, manager: c.MANAGER.model, worker: c.WORKER.model, observer: c.OBSERVER.model, claude: c.CLAUDE_WORKER }))';
-  const out = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...process.env, UNII_DIR: dir, ...env } });
+  const out = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...process.env, LEGION_DIR: dir, ...env } });
   return { code: out.exitCode, text: (out.stdout.toString() + out.stderr.toString()).trim() };
 }
 
@@ -172,23 +172,23 @@ test("roles: only the orchestrator defaults to opus; a Claude Code worker to son
 });
 
 test("roles: a tier and a versioned label name the same pick; claude_worker may be haiku", () => {
-  const tier = roles({ UNII_MANAGER: "claude-api:haiku:high:slow", UNII_CLAUDE_WORKER: "haiku" });
-  const label = roles({ UNII_MANAGER: "claude-api:haiku-5.5:high:slow", UNII_CLAUDE_WORKER: "haiku-5.5" });
+  const tier = roles({ LEGION_MANAGER: "claude-api:haiku:high:slow", LEGION_CLAUDE_WORKER: "haiku" });
+  const label = roles({ LEGION_MANAGER: "claude-api:haiku-5.5:high:slow", LEGION_CLAUDE_WORKER: "haiku-5.5" });
   expect(tier.code).toBe(0);
   expect(JSON.parse(tier.text)).toEqual(JSON.parse(label.text));
   expect(JSON.parse(tier.text).claude).toBe("claude-haiku-5-5");
 });
 
 test("roles: claude_worker opus, or a role naming no model of the catalog, refuses to start", () => {
-  for (const [key, value] of [["UNII_CLAUDE_WORKER", "opus"], ["UNII_CLAUDE_WORKER", "opus-5.5"], ["UNII_CLAUDE_WORKER", "gpt-9"], ["UNII_WORKER", "claude-api:gpt-9:medium:slow"]] as const) {
+  for (const [key, value] of [["LEGION_CLAUDE_WORKER", "opus"], ["LEGION_CLAUDE_WORKER", "opus-5.5"], ["LEGION_CLAUDE_WORKER", "gpt-9"], ["LEGION_WORKER", "claude-api:gpt-9:medium:slow"]] as const) {
     const out = roles({ [key]: value });
     expect(out.code).not.toBe(0);
-    expect(out.text).toContain("config: " + key.slice(5).toLowerCase());
+    expect(out.text).toContain("config: " + key.slice("LEGION_".length).toLowerCase());
   }
 });
 
 test("roles: config.json's catalog overrides an entry's id", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-catalog-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-catalog-");
   fs.writeFileSync(dir + "/config.json", JSON.stringify({ catalog: { "claude-api": [{ label: "sonnet-5.5", id: "claude-sonnet-9-9" }] } }));
   const out = roles({}, dir);
   expect(out.code).toBe(0);

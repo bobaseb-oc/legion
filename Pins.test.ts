@@ -12,9 +12,9 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-pins-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-pins-");
 
-process.env.UNII_DIR = DIR;
+process.env.LEGION_DIR = DIR;
 
 const config = await import("./Config.ts");
 config.KEYS.anthropic = "test";
@@ -60,7 +60,7 @@ const said = (blocks: Array<{ text: string }>) => blocks.map((b) => b.text).join
 test("a pinned message is whole before every turn's view, however old; its bytes come off the view's budget; kept", () => faked(async () => {
   const mem = Memory.load(DIR + "/pin", () => SHARE);
   const long = "the decision: <b>use X</b>\n" + "because ".repeat(250);
-  Memory.push(mem, [{ kind: "user", text: long }, { kind: "unii", text: "ok" }, { kind: "user", text: "later" }]);
+  Memory.push(mem, [{ kind: "user", text: long }, { kind: "legion", text: "ok" }, { kind: "user", text: "later" }]);
   await until(() => Memory.built(mem, 0, 0));
   const high = mem.view.high;
   // its node is a summary; unpinned, the view never has it whole
@@ -137,10 +137,10 @@ test("view.json's pins are checked as they load: only messages of the chat, once
 test("search: a case-insensitive substring, newest first, FOUND at most; each its index, date, kind and a snippet", async () => {
   const mem = Memory.load(DIR + "/find", () => SHARE);
   mem.hold[0] = "held";
-  Memory.push(mem, [{ kind: "user", text: "the Needle here" }, { kind: "unii", text: "nothing" }, { kind: "unii", text: "x".repeat(500) + "a NEEDLE deep in" + "y".repeat(500) }]);
+  Memory.push(mem, [{ kind: "user", text: "the Needle here" }, { kind: "legion", text: "nothing" }, { kind: "legion", text: "x".repeat(500) + "a NEEDLE deep in" + "y".repeat(500) }]);
   const found = await Memory.find(mem, "needle");
   expect(found.more).toBe(false);
-  expect(found.hits.map((h) => [h.i, h.kind])).toEqual([[2, "unii"], [0, "user"]]);
+  expect(found.hits.map((h) => [h.i, h.kind])).toEqual([[2, "legion"], [0, "user"]]);
   expect(found.hits[1]).toEqual({ i: 0, kind: "user", date: Memory.message(mem, 0)!.date, text: "the Needle here" });
   const deep = found.hits[0].text;
   expect(deep).toContain("a NEEDLE deep in");
@@ -187,7 +187,7 @@ const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 chat.mem.hold[0] = "held";
 const at = chat.mem.count; // after the chat's hello
-Memory.push(chat.mem, [{ kind: "user", text: "pin <me>" }, { kind: "unii", text: "A Zebra <it>" }]);
+Memory.push(chat.mem, [{ kind: "user", text: "pin <me>" }, { kind: "legion", text: "A Zebra <it>" }]);
 const sent = [];
 const sock = { send: (s) => sent.push(JSON.parse(s)), data: { watch: new Set(), seen: new Set(), device: null } };
 chat.socks.add(sock);
@@ -210,9 +210,9 @@ process.exit(0);
 `;
 
 test("the server: a pin is a view's act, checked; the state tells it; no agent tool pins; search answers the socket", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/pins.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/pins.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/pins.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.ok).toEqual({});
   expect(out.state).toMatchObject([{ i: out.at, kind: "user", text: "pin <me>" }]);
@@ -226,5 +226,5 @@ test("the server: a pin is a view's act, checked; the state tells it; no agent t
   expect(out.tools.filter((n: string) => /pin/i.test(n))).toEqual([]);
   expect(out.asks.every((e: string | null) => typeof e === "string")).toBe(true);
   expect(out.asked).toEqual({});
-  expect(out.found).toEqual([{ $: "recalled", q: "zebra", hits: [expect.objectContaining({ i: out.at + 1, kind: "unii", text: "A Zebra <it>" })], more: false }]);
+  expect(out.found).toEqual([{ $: "recalled", q: "zebra", hits: [expect.objectContaining({ i: out.at + 1, kind: "legion", text: "A Zebra <it>" })], more: false }]);
 });

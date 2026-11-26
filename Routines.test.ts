@@ -195,8 +195,8 @@ test("views: a proposal reads as proposed, its why shown (escaped), till the use
   // whole task (each of its lines) over what turning it on approves
   expect(View.view_routines_note(v)).toBe([
     "Your routines:",
-    "5. [proposed by Unii] “Standup” · daily at 09:00 · worker · off",
-    "   Unii's words: “you <asked>”",
+    "5. [proposed by Legion] “Standup” · daily at 09:00 · worker · off",
+    "   Legion's words: “you <asked>”",
     "   The task:",
     "     post the <standup>",
     "     then push to main",
@@ -207,16 +207,16 @@ test("views: a proposal reads as proposed, its why shown (escaped), till the use
   // as the terminal draws it (the routines page's lines): one row each
   const Deck = await import("./Deck.ts");
   const drawn = Deck.deck_lines(v, Deck.deck_new("routines"), 100, 40, at(9)).map((l) => l.map((r) => r.x).join(""));
-  expect(drawn).toContain("   Unii's words: “you <asked>”");
+  expect(drawn).toContain("   Legion's words: “you <asked>”");
   expect(drawn).toContain("     then push to main");
   // the web: the card marked (class and badge), the agent's words quoted,
   // the whole task beside Turn on, all escaped; the user's own plain
   const html = Pages.routines_html(v, at(9)).join("");
   const [mine, own] = html.split('<div class="routine').slice(1);
   expect(mine).toStartWith(' off proposed">');
-  expect(mine).toContain('<span class="rbadge">Proposed by Unii</span>');
+  expect(mine).toContain('<span class="rbadge">Proposed by Legion</span>');
   expect(mine).toContain("<b>5. “Standup”</b>");
-  expect(mine).toContain('<blockquote class="rwhy">Unii\'s words: “you &lt;asked&gt;”</blockquote>');
+  expect(mine).toContain('<blockquote class="rwhy">Legion\'s words: “you &lt;asked&gt;”</blockquote>');
   expect(mine).toContain('<div class="rapprove"><p class="meta">Turn on approves this task:</p><p class="rtask">post the &lt;standup&gt;\nthen push to main</p><div class="acts">');
   expect(mine.indexOf("rapprove")).toBeLessThan(mine.indexOf("Turn on</button>"));
   expect(own).toStartWith(' off">');
@@ -239,18 +239,18 @@ test("views: pending timers, whose, when and note, each with a close (the web), 
   const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5);
   v.timers = [{ id: 3, who: "main", at: at(14, 5), note: "check <CI>", made: at(13) }, { id: 4, who: "Wkr", at: at(15, 30), note: "poll the job", made: at(13) }];
   const note = View.view_timers_note(v);
-  expect(note).toContain("3. Unii · at " + hhmm(at(14, 5)) + " · check <CI>");
+  expect(note).toContain("3. Legion · at " + hhmm(at(14, 5)) + " · check <CI>");
   expect(note).toContain("4. Wkr · at " + hhmm(at(15, 30)) + " · poll the job");
   expect(note).toMatch(/Stop/);
   expect(View.view_act(v, { $: "Timer", n: 4 })).toEqual([{ $: "timer", n: 4 }]);
   expect(View.view_act(v, { $: "Timer", n: 9 })).toEqual([]);
   const html = Pages.timers_html(v).join("");
   expect(html).toContain("check &lt;CI&gt;");
-  expect(html).toContain("Unii");
+  expect(html).toContain("Legion");
   expect(html).toContain("Wkr");
   expect(html).toContain(JSON.stringify({ $: "Timer", n: 3 }).replace(/"/g, "&quot;"));
   expect(html).toContain(JSON.stringify({ $: "Timer", n: 4 }).replace(/"/g, "&quot;"));
   const rows = Deck.deck_lines(v, Deck.deck_new("routines"), 100, 30, 0).map((l) => l.map((r) => r.x).join(""));
-  expect(rows.some((l) => l.includes("3. Unii · at " + hhmm(at(14, 5)) + " · check <CI>"))).toBe(true);
+  expect(rows.some((l) => l.includes("3. Legion · at " + hhmm(at(14, 5)) + " · check <CI>"))).toBe(true);
   expect(rows.some((l) => l.includes("4. Wkr · at"))).toBe(true);
 });

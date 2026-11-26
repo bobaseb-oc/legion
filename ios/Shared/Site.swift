@@ -1,6 +1,6 @@
 // Site
 // ====
-// The server the app is a view of (Info.plist UniiSite), and a request to
+// The server the app is a view of (Info.plist LegionSite), and a request to
 // it as the user signed in: the app keeps the site's sign-in cookie in
 // the Keychain, in an access group the share extension reads too. The
 // answer is the server's JSON, or {error}, as the site's own post() reads it.
@@ -10,10 +10,10 @@ import Security
 
 enum Site {
 
-  static let url = URL(string: Bundle.main.object(forInfoDictionaryKey: "UniiSite") as! String)!
+  static let url = URL(string: Bundle.main.object(forInfoDictionaryKey: "LegionSite") as! String)!
 
   // where the sign-in was kept before the Keychain; only emptied now
-  static let group = UserDefaults(suiteName: "group.com.higherorderco.uniichat")!
+  static let group = UserDefaults(suiteName: "group.com.oncorps.legion")!
 
   // The sign-in cookie, a generic password in the Keychain, this device
   // only (not in backups), readable once the phone was first unlocked.
@@ -23,7 +23,7 @@ enum Site {
   // RED ZONE (security review SE, DRAFT awaiting the user's sign-off)
   static let item: [CFString: Any] = [
     kSecClass: kSecClassGenericPassword,
-    kSecAttrService: "com.higherorderco.uniichat",
+    kSecAttrService: "com.oncorps.legion",
     kSecAttrAccount: "session",
   ]
 
@@ -58,13 +58,13 @@ enum Site {
     req.httpBody = body
     req.setValue("Bearer " + (session ?? ""), forHTTPHeaderField: "Authorization")
     guard let (data, res) = try? await URLSession.shared.data(for: req) else {
-      return ["error": "Can't reach UniiChat. Try again."]
+      return ["error": "Can't reach Legion. Try again."]
     }
     if (res as? HTTPURLResponse)?.statusCode == 401 {
-      return ["error": "Open UniiChat and sign in first."]
+      return ["error": "Open Legion and sign in first."]
     }
     let out = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    return out ?? ["error": "UniiChat gave no answer. Try again."]
+    return out ?? ["error": "Legion gave no answer. Try again."]
   }
 
 }

@@ -17,7 +17,7 @@ function line(text: string): string {
 }
 
 function tree(): { src: string; out: string } {
-  const root = fs.mkdtempSync(os.tmpdir() + "/unii-logs-");
+  const root = fs.mkdtempSync(os.tmpdir() + "/legion-logs-");
   const src = root + "/projects";
   for (const [file, text] of [
     ["-Volumes-dev-git-app/a.jsonl", line("use " + KEY)],
