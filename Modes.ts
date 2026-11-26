@@ -126,11 +126,12 @@ export const SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/co
 // $LEGION_HOME): its sessions (cloud.db and its -wal, -shm, -journal), the
 // sign-in secret's hash (Cloud.ts SIGNIN), the server's log, a terminal's
 // device key (<host>/token). Machine.trust refuses them to agents' tools.
-// TRUST_WORDS: the same, or the dir, named in a shell command (SECRETS)
+// TRUST_WORDS: the same, or the dir (~/.unii too, its name before the
+// rename), named in a shell command (SECRETS)
 // RED ZONE (security review 4 F2, signed off by the user 2026-11-25):
 // and its bin dir (the built key helper, legion-key, and its .sha256)
 export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token|bin\/.+)$/i;
-const TRUST_WORDS = String.raw`\.legion\b|\bLEGION_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
+const TRUST_WORDS = String.raw`\.(legion|unii)\b|\bLEGION_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
 
 // a read-only command that may read secrets: still reviewed in auto mode
 // (the list above, in the line or its words; not a bare key: too common.

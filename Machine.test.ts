@@ -482,6 +482,32 @@ test("agents' tools refuse Legion's trust state: cloud.db, the sign-in hash, ser
   }
 });
 
+// RED ZONE (rename, DRAFT awaiting the user's sign-off): the migration
+// (local/rename.ts) leaves ~/.unii as a link to ~/.legion, so a path or a
+// command naming ~/.unii reaches the same trust state: still refused, by
+// the old name as by the real path
+test("after the rename, ~/.unii (the old dir, a link to ~/.legion) is still Legion's trust state", () => {
+  const legion = os.homedir() + "/.legion";
+  const old = os.homedir() + "/.unii";
+  fs.mkdirSync(legion, { recursive: true });
+  fs.rmSync(old, { force: true, recursive: true });
+  fs.symlinkSync(legion, old);
+  try {
+    for (const f of ["cloud.db", "signin-hash", "server.log", "config.json", "bin/legion-key"]) {
+      expect([f, Machine.secret(old + "/" + f) || Machine.gating(old + "/" + f)]).toEqual([f, true]);
+      expect([f, Machine.guard({ tool: "Write", input: { file_path: old + "/" + f, content: "x" } })]).toEqual([f, expect.stringContaining("Refused")]);
+    }
+    const shell = (command: string) => Machine.guard({ tool: "Bash", input: { command } });
+    for (const c of ["cat ~/.unii/cloud.db", "echo h > ~/.unii/signin-hash", "tail -f $HOME/.unii/server.log", "cat " + old + "/127.0.0.1:8788/token"]) {
+      expect([c, shell(c)]).toEqual([c, expect.stringContaining("Refused")]);
+    }
+  } finally {
+    fs.rmSync(old, { force: true });
+  }
+  // by its name alone, with no link (a command written before the move ran)
+  expect(Machine.guard({ tool: "Bash", input: { command: "cat ~/.unii/cloud.db" } })).toContain("Refused");
+});
+
 // a Claude Code worker runs the full model id the server sent (never an
 // alias, which gateway discovery re-resolves), if it is a Claude id of
 // the catalog below opus; any other (none, opus, not an id) runs sonnet's

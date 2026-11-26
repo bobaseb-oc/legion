@@ -109,13 +109,14 @@ const LIVE = import.meta.dir;
 
 // RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
 // naming Legion's trust state (Modes.ts TRUST) by its path in ~/.legion or
-// $LEGION_DIR / $LEGION_HOME, or the launcher's `legion log` (server.log):
+// $LEGION_DIR / $LEGION_HOME (or ~/.unii, its name before the rename), or the
+// launcher's `legion log` (server.log):
 // refused in every mode (Machine.trust_named; one naming the dir only, or
 // such a file elsewhere, goes to auto mode's reviewer: Modes SECRETS).
 // Residual: an agent's shell runs as the user, so a disguised command
 // (cd, a variable, a script) in full mode still reaches them; the gates
 // (the reviewer, hooks, these) are the boundary, not the disk
-const TRUST_SHELL = /(\.legion|\$\{?LEGION_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|bin\/|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|legion-local\.sh)\s+log\b/i;
+const TRUST_SHELL = /(\.(legion|unii)|\$\{?LEGION_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|bin\/|[^/\s'"`;|&<>()]+\/token\b)|\blegion\s+log\b/i;
 
 // RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
 // own !command (Chat.bang makes it, only from what speaks for the user:
@@ -290,11 +291,17 @@ export namespace Machine {
     return TRUST_SHELL.test(q) || Machine.trust_dirs().some((d) => after(d).some((rest) => TRUST.test(rest)));
   }
 
+  // RED ZONE (rename, DRAFT awaiting the user's sign-off): Legion's dir in
+  // the home, by its name now and before the rename: the migration
+  // (local/rename.ts) leaves ~/.unii a link to ~/.legion, so a path or a
+  // command naming the old one reaches the same trust state
+  export const HOME_DIRS = ["/.legion", "/.unii"];
+
   // Legion's dirs, as named and real: the server's (~/.legion, $LEGION_DIR)
   // and a terminal's ($LEGION_HOME, its token files)
   export function trust_dirs(): string[] {
     const env = [process.env.LEGION_DIR, process.env.LEGION_HOME].filter((d): d is string => !!d);
-    return [os.homedir() + "/.legion", ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
+    return [...Machine.HOME_DIRS.map((d) => os.homedir() + d), ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
   }
 
   // a path's real path: its symlinks followed as far as it exists
@@ -327,7 +334,7 @@ export namespace Machine {
     const at = path.resolve(p);
     const fold = (q: string) => q.normalize("NFKC").toLowerCase(); // the disk folds case and lookalikes
     const homes = [os.homedir() + "/.claude", Hooks.home()].flatMap((h) => [h, Machine.real(h)]).map(fold);
-    const dirs = [os.homedir() + "/.legion", ...(process.env.LEGION_DIR ? [process.env.LEGION_DIR] : [])];
+    const dirs = [...Machine.HOME_DIRS.map((d) => os.homedir() + d), ...(process.env.LEGION_DIR ? [process.env.LEGION_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA, CONF].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
     const shared = chats.map((d) => d + LEGION_SHARED);

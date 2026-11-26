@@ -569,7 +569,7 @@ test("super: the bootstrap reads past answers from the log: a (rec) answer was t
 // sign-in hash), however it reaches it, goes to auto mode's reviewer,
 // even a plain read
 test("auto reviews shell commands touching Legion's trust state", () => {
-  for (const c of ["cat ~/.legion/cloud.db", "cd ~/.legion && cat cloud.db", "sqlite3 cloud.db .dump", "tail server.log", "cat signin-hash", "ls $LEGION_DIR", "ls ~/.legion"]) {
+  for (const c of ["cat ~/.legion/cloud.db", "cd ~/.legion && cat cloud.db", "sqlite3 cloud.db .dump", "tail server.log", "cat signin-hash", "ls $LEGION_DIR", "ls ~/.legion", "cat ~/.unii/cloud.db", "ls ~/.unii"]) {
     expect([c, Modes.reviews("auto", "shell", { command: c })]).toEqual([c, true]);
   }
   expect(Modes.reviews("auto", "shell", { command: "ls src" })).toBe(false);
