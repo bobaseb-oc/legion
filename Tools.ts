@@ -207,8 +207,9 @@ export type Tools = {
 
 // RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off): a
 // call the reviewer refused for good: the refusal, the user's latest
-// message's index then (Tools.said_at), when, whether its boss was told
-type Refused = { text: string; said: number; at: number; told: boolean };
+// message's index then (Tools.said_at), the mode it was refused in, when,
+// whether its boss was told
+type Refused = { text: string; said: number; mode: string; at: number; told: boolean };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
 // number, who calls, its tool, what it does (shown), its fp (Pending.fp),
@@ -694,7 +695,8 @@ export namespace Tools {
     }
     const fp = Pending.fp(who, name, args);
     const said = Tools.said_at(tools.mem);
-    const again = Tools.refused_again(tools, who, name, args, fp, said);
+    const mode = Tools.mode_of(tools, who);
+    const again = Tools.refused_again(tools, who, name, args, fp, said, mode);
     if (again !== null) {
       return again;
     }
@@ -717,11 +719,11 @@ export namespace Tools {
           }
           // a stop is no answer: not kept
           if (!signal.aborted) {
-            Tools.refuse(tools, fp, refused!, said);
+            Tools.refuse(tools, fp, refused!, said, mode);
           }
           return refused;
         default:
-          Tools.refuse(tools, fp, refused!, said);
+          Tools.refuse(tools, fp, refused!, said, mode);
           return refused;
       }
     }
@@ -746,24 +748,24 @@ export namespace Tools {
   }
 
   // a refusal kept, as the reviewer's last word on the call (fp)
-  export function refuse(tools: Tools, fp: string, text: string, said: number): void {
+  export function refuse(tools: Tools, fp: string, text: string, said: number, mode: string): void {
     const kept = (tools.refused ??= new Map());
     kept.delete(fp);
-    kept.set(fp, { text, said, at: Date.now(), told: false });
+    kept.set(fp, { text, said, mode, at: Date.now(), told: false });
     while (kept.size > Tools.REFUSED.max) {
       kept.delete(kept.keys().next().value!);
     }
   }
 
-  // the same call refused for good before, since the user last spoke and
-  // within REFUSED.ms: refused again, no reviewer call, and told not to
+  // the same call refused for good before, since the user last spoke, in
+  // the same mode (super mode appeals what auto refuses) and within REFUSED.ms: refused again, no reviewer call, and told not to
   // resend it; a sub-agent's boss told once. null: the reviewer is asked
-  export function refused_again(tools: Tools, who: string, name: string, args: any, fp: string, said: number): string | null {
+  export function refused_again(tools: Tools, who: string, name: string, args: any, fp: string, said: number, mode: string): string | null {
     const kept = tools.refused?.get(fp);
     if (kept === undefined) {
       return null;
     }
-    if (kept.said !== said || Date.now() - kept.at >= Tools.REFUSED.ms) {
+    if (kept.said !== said || kept.mode !== mode || Date.now() - kept.at >= Tools.REFUSED.ms) {
       tools.refused!.delete(fp);
       return null;
     }
