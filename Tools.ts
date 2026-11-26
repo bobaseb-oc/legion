@@ -1669,16 +1669,22 @@ export namespace Tools {
     return role.tier + " of " + (parent === "main" ? "Legion" : parent) + model + effort + (plan ? READ_ONLY : "");
   }
 
+  // the main agent by its name in a note, now or before the rename
+  export function mained(name: string): string {
+    return name === "Legion" || name === "Unii" ? "main" : name;
+  }
+
   // a note read back (Tools.note; an older one's too); null: none
+  // (an older one names the main agent Unii, its name before the rename)
   export function noted(note: string): { role: Role; parent: string; plan?: true } | null {
     const cli = NOTED_CLI.exec(note);
     if (cli !== null) {
-      return { role: { $: "cli", device: cli[2], dir: cli[3] ?? null }, parent: cli[1] === "Legion" ? "main" : cli[1] };
+      return { role: { $: "cli", device: cli[2], dir: cli[3] ?? null }, parent: Tools.mained(cli[1]) };
     }
     const m = NOTED.exec(note);
     if (m !== null) {
       const role: Role = { $: "sub", tier: m[1] as Tier, effort: m[4] ?? null, model: m[3] ?? null };
-      return { role, parent: m[2] === "Legion" ? "main" : m[2], ...(m[5] === undefined ? {} : { plan: true as const }) };
+      return { role, parent: Tools.mained(m[2]), ...(m[5] === undefined ? {} : { plan: true as const }) };
     }
     if (note === SUB_NOTE || note.startsWith(SUB_NOTE + SUB_AT)) {
       const effort = note === SUB_NOTE ? null : note.slice((SUB_NOTE + SUB_AT).length);

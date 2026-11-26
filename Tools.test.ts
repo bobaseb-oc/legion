@@ -179,6 +179,10 @@ test("an agent's note says its tier, starter, model and effort, and reads back a
   expect(Tools.noted("subagent at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: null }, parent: "main" });
   expect(Tools.noted("computer task on mac")).toEqual({ role: { $: "hands", device: "mac" }, parent: "main" });
   expect(Tools.noted("something else")).toBeNull();
+  // a note from before the rename names the main agent Unii: still main
+  expect(Tools.noted("manager of Unii")).toEqual({ role: { $: "sub", tier: "manager", effort: null, model: null }, parent: "main" });
+  expect(Tools.noted("worker of Unii on sonnet-5.5 at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: "sonnet-5.5" }, parent: "main" });
+  expect(Tools.noted("Claude Code of Unii on mac in /r")).toEqual({ role: { $: "cli", device: "mac", dir: "/r" }, parent: "main" });
 });
 
 test("the crew: each agent's tier, starter, model and status; one dismissed is gone", () => {
