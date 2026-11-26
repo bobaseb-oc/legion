@@ -21,6 +21,8 @@
 #                     `--uninstall` removes it
 #   legion log          follow the server's log (no sign-in link prints there)
 #   legion tidy --list  every linked worktree: merged or gone, changes, unpushed, size, in use, safe (read-only)
+#   legion rename [--dry]  move the data from before the rename (~/.unii) to
+#                     ~/.legion, once, server and device stopped (local/rename.ts)
 #   legion knowledge    rebuild ~/.legion-prime/knowledge.json (OKF, graphify guides,
 #                     repo digests and cards; local/prime/knowledge.ts)
 #   legion mcp-login S  sign in to the MCP server S with OAuth (e.g. atlassian);
@@ -49,6 +51,22 @@ SEARX_IMAGE="searxng/searxng:2026.10.4-d48c4b555@sha256:76b0bf285aca014c7191fc4d
 
 # the SearXNG the server's `search` tool uses ("": none)
 SEARCH=""
+
+# RED ZONE (rename, DRAFT awaiting the user's sign-off): Legion's data from
+# before the rename (~/.unii a dir, not yet the link local/rename.ts
+# leaves) moves first, so nothing starts on an empty ~/.legion. Until then
+# only stop (the old server and SearXNG, in ~/.unii), the --uninstalls and
+# the move (legion rename [--dry]) run
+if [[ -z "${LEGION_DIR:-}" && -d "$HOME/.unii" && ! -L "$HOME/.unii" ]]; then
+  case "${1:-} ${2:-}" in
+    "stop "*)
+      DIR="$HOME/.unii" LOG="$HOME/.unii/server.log" PID="$HOME/.unii/server.pid" SEARX_NAME="unii-searxng" ;;
+    "device --uninstall" | "server --uninstall" | "rename "*) ;;
+    *)
+      echo "legion: ~/.unii holds Legion's data from before the rename. Stop the server and the device (legion stop; legion device --uninstall; legion server --uninstall), then run legion rename --dry, then legion rename" >&2
+      exit 1 ;;
+  esac
+fi
 
 mkdir -p "$DIR"
 chmod 700 "$DIR"
@@ -367,6 +385,7 @@ case "${1:-}" in
   server-run) server_run ;;
   log)   exec tail -f "$LOG" ;;
   tidy)  exec bun "$ROOT/local/tidy.ts" "${@:2}" ;;
+  rename) exec bun "$ROOT/local/rename.ts" "${@:2}" ;;
   knowledge) bun "$ROOT/local/prime/knowledge.ts" && echo "legion: then, in the chat: /import ~/.legion-prime/knowledge.json" >&2 ;;
   mcp-login)  mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" ;;
   mcp-logout) mcp_make && exec bun "$ROOT/local/mcp-login.ts" "${2:?which server, e.g. atlassian}" --logout ;;
