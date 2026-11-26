@@ -111,6 +111,9 @@ test("a terminal sign-in approves its device key and its terminal key with one c
   const cookie = Cloud.session(cloud, { id: "u9", name: "b@x.com" });
   expect(Cloud.speaks(cloud, bearer(termkey))).toBe(true);
   expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "legion=" + cookie } }))).toBe(true);
+  // RED ZONE (rename, DRAFT awaiting the user's sign-off): the cookie's
+  // name before the rename signs in no one, even with a live session
+  expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/", { headers: { cookie: "unii=" + cookie } }))).toBe(false);
   expect(Cloud.speaks(cloud, bearer(key))).toBe(false);
   expect(Cloud.speaks(cloud, bearer(Cloud.random()))).toBe(false);
   expect(Cloud.speaks(cloud, new Request("http://127.0.0.1/"))).toBe(false);

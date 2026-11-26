@@ -59,6 +59,8 @@ export type Cloud = {
 // Constants
 // =========
 
+// RED ZONE (rename, DRAFT awaiting the user's sign-off): "unii" before the
+// rename; a browser with only that cookie signs in again (legion web)
 const COOKIE = "legion";
 
 // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): a
