@@ -1439,3 +1439,13 @@ Why: 1,271 reviewer refusals in 3 days; the same call was refused up to
 - [x] Targeted and full suite green
 
 Review: 6 new tests; Tools+Modes+Machine 139/0; full suite 1103 pass, 1 skip, 0 fail. Mutation 9/10 killed; the survivor (`who !== "main"` before the boss note) is an equivalent mutant, kept as an explicit guard. Awaiting the user's RED ZONE sign-off.
+
+## Tracks and Digest fixes (2026-11-26)
+
+User: Tracks shows no agent todo lists and no summaries; Digest's title is a bold list of repos and "Summarize by theme" seems to do nothing.
+
+- [x] Todo lists: Tracks shows only Legion's direct agents; every checklist was a manager's worker's. Fixed by "No managers" above (new workers are Legion's).
+- [x] Summaries: 156 stored themes (124 of agents gone) filled the THEMES cap, so new agents were forced into the first theme and no card matched; a failure saved nothing, so every retry failed. Explain.explain_assign counts only the crew's themes; explain_cards matches a card's track as theme_name makes it. Red tests 02d03d7, fix 984ffca.
+- [x] Digest: title "Digest: last 7 days", repos as a plain line; Chat.themes matches authors in any case and without "@", a reply naming none is an error; the web toasts while it summarizes. Red tests cac8bba, fix 15675ef.
+
+Review: Explain, Cockpit, Pages, Tracks, Server, Html suites green (215 pass). Not checked in a browser (Chrome remote debugging off). Older agents under old managers stay off Tracks until they finish (they keep their old parent, see "No managers").
