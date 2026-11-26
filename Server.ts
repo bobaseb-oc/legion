@@ -396,6 +396,11 @@ export namespace Chat {
       shells : () => Chat.shelled(chat),
       pinned : (who, marks, texts) => Chat.pinned(chat, who, marks, texts),
       pended : () => Memory.save(chat.mem),
+      // RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off): Unii's
+      // tidy reads the inbox's rows, and after the user's yes (Tools.tidy)
+      // goes through the same gate as a view's Remove (Chat.tidy)
+      tidy_rows : () => chat.inbox?.clean ?? [],
+      tidy      : (paths) => Chat.tidy(chat, paths).error ?? null,
     }, moved?.tools.key);
     const wallet = cloud.billing.wallet({
       user  : user.id,

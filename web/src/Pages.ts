@@ -62,7 +62,8 @@ function detail_html(r: Cockpit.Row): string {
     }
     // security review 4 D2: .env files git can't give back keep it (Inbox.inbox_safe)
     const envs = (r.clean.envs ?? []).length === 0 ? "" : `<p class="fail">${esc("kept: .env files git can't give back: " + (r.clean.envs ?? []).join(", "))}</p>`;
-    return `<div class="ibd"><code>${esc(r.clean.path)}</code>${envs}</div>`;
+    const why = r.clean.why === undefined ? "" : `<p class="fail">${esc("kept: " + r.clean.why)}</p>`;
+    return `<div class="ibd"><code>${esc(r.clean.path)}</code>${why}${envs}</div>`;
   }
   const checks = p.failing.length === 0 ? "" : `<p class="fail">${p.failing.map(esc).join(" · ")}</p>`;
   const body = p.body.trim() === "" ? "" : `<div class="body">${esc(p.body)}</div>`;
@@ -78,6 +79,13 @@ function row_html(s: Cockpit.SectionId, r: Cockpit.Row, ui: InboxUi): string {
   return `<div class="ibr ${r.kind}${here}" data-row="${esc(r.key)}">${pick}<span class="sub">${esc(r.sub)}</span><span class="t">${esc(r.title)}</span>${tag}<span class="age">${esc(r.age)}</span>${row_acts(s, r)}${link_html(r.url)}${goto}</div>${open}`;
 }
 
+// the To clean up section's Remove of every row the server shows as safe:
+// one confirm listing them (View.tidy_ask), each checked again on the device
+function tidy_all(rows: Cockpit.Row[]): string {
+  const paths = rows.flatMap((r) => (r.clean?.safe === true ? [r.clean.path] : []));
+  return paths.length === 0 ? "" : `<p class="ibnote"><button class="ra"${act_html({ $: "Tidy", paths })} title="every worktree shown as safe: remove them (git worktree remove)">Remove all ${paths.length} safe</button></p>`;
+}
+
 // the inbox's sections; review requests older than Cockpit.OLD folded
 export function inbox_html(sections: Cockpit.Section[], ui: InboxUi): string[] {
   return sections.map((s) => {
@@ -86,7 +94,7 @@ export function inbox_html(sections: Cockpit.Section[], ui: InboxUi): string[] {
     const fresh = s.rows.filter((r) => !r.old).map((r) => row_html(s.id, r, ui)).join("");
     const old = s.rows.filter((r) => r.old);
     const folded = old.length === 0 ? "" : `<details class="old"><summary>${old.length} older than 60 days</summary>${old.map((r) => row_html(s.id, r, ui)).join("")}</details>`;
-    const note = s.note === undefined ? "" : `<p class="ibnote">${esc(s.note)}</p>`;
+    const note = (s.note === undefined ? "" : `<p class="ibnote">${esc(s.note)}</p>`) + (s.id === "clean" ? tidy_all(s.rows) : "");
     return `<section class="ibs${shut ? " shut" : ""}" data-sec="${s.id}">${head}<div class="ibrows">${note}${fresh}${folded}</div></section>`;
   });
 }

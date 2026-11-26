@@ -1350,3 +1350,21 @@ Workers (worktrees, merged into fix/security-review-4): W1 device (D1–D4), W2 
 - User-visible: `legion web` prints its link instead of opening it; `legion login` writes signin-hash itself; tidy keeps worktrees with .env files; agents can't write the live checkout, ~/.unii/bin, repo CLAUDE.md/AGENTS.md/.claude/rules|hooks (floor high), or users/<id>/notes.
 - Residuals: plain device-key text still in Ctrl+R history (sending it only chats); hook scripts named in settings and shell writes to rule files not floored; device git inherits launchd's GIT_* env; disguised commands in full mode (as before); no theme reset act.
 - [x] User: sign off the RED ZONE drafts (D1, D2, G1, G4, N1, F1, F2/G5, F3, G2, N2, N4, G3, Q2 floor): signed off 2026-11-25, markers updated (comment-only); restart the server and the device job to load them
+
+## One-click worktree tidy (2026-11-26, branch feat/tidy-consent)
+
+Problem: agents filed "clean up worktrees" todos; the inbox showed no reason on rows it kept, and Remove went one row at a time.
+
+- [x] Red tests: Tools (tidy consent, yes/no, unsafe paths, gate error, worker refused, assign wording), Inbox (why), Pages (Remove all, Kept + why). Commit b62965c.
+- [x] `Inbox.inbox_why` (moved from Device `tidy_why`); `clean_row` sets `why` on unsafe rows, the server's own.
+- [x] `Tools.tidy` (Unii only): one `ask_user` consent naming each safe path; a yes goes through `Chat.tidy` (hook); kept rows said, fenced.
+- [x] `Tools.shown` / `tidy_shown`: "Remove N worktrees …" plus each path (web card and Google Chat).
+- [x] Server hooks `tidy_rows`, `tidy`; `ASSIGN` says a worktree removal is not a todo.
+- [x] Inbox UI: Kept tag, "kept: <why>" in details, "Remove all N safe" button; `web/app.js` rebuilt.
+- [ ] RED ZONE sign-off by the user: an agent's tool now reaches `Chat.tidy`, after the user's consent.
+
+### Review
+- Targeted suites green; full suite 1086 pass, 2 fail (both Device tests at the 5 s timeout, load average about 20); Device.test.ts alone: 36 pass, 0 fail.
+- Mutation: 8 of 8 mutants killed (safe filter, consent, main-only call and list, asked paths, gate error, server why, Remove all safe only).
+- tsc not compared: no node_modules or tsconfig in the checkouts to repeat the 84-error baseline.
+- Not done: the terminal cockpit has no Remove; out of scope.

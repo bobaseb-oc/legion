@@ -49,6 +49,7 @@ import { Google } from "./Google.ts";
 import { Harvest } from "./Harvest.ts";
 import * as Notes from "./Notes.ts";
 import { Directives } from "./Directives.ts";
+import type { Clean } from "./Inbox.ts";
 import * as Pending from "./Pending.ts";
 import { rules_read, type RuleFile } from "./Rules.ts";
 import type { AgentHit, Assignment, Crew, Decided, Draft, Live, Mine, Pulse, Question, Shell, Status, Todo, Waiting } from "./View.ts";
@@ -177,6 +178,8 @@ type Hooks = {
   boss?  : (text: string) => void; // Unii hears a refused call of one it started (Tools.appeal): a turn of its own
   pinned?: (who: string, marks: Array<{ n: number; status: Todo["status"] }>, texts: string[]) => Mine[];
   pended?: () => void; // the approvals kept (Memory.pending) changed: saved (Server.ts)
+  tidy_rows?: () => Clean[]; // the latest inbox's worktrees to clean up, checked (Server.ts chat.inbox)
+  tidy?: (paths: string[]) => string | null; // the user's yes to Unii's tidy: Server.ts Chat.tidy's gate; its error, else null
 };
 
 // the tools: what pays the calls (none: the vendors' keys); where its
@@ -489,8 +492,12 @@ const NOTEBOOK = spec("notes", "Your notes, kept across runs: facts about the us
 // what an agent needs the user to do (any agent: Tools.assign), on their
 // Todo page till they tick it Done or drop it; at most ASSIGNS open
 const ASSIGNS = 30;
-const ASSIGN = spec("assign", "Put an action on the user's Todo page that only they can take, and that your work waits on or needs: approve or merge a PR on GitHub, run a login (say the command, as `! gcloud auth login`), send or sign something, decide in a meeting. One action each, said in full as a short brief: what, where (a link, a path, a command) and why. They tick it Done (you hear it: Unii as a message quoting it, an agent at work as a message) or drop it. Not for a decision (ask), news (notify) or anything you can do yourself. close: the number of a todo of yours no longer needed, to withdraw it.", { text: STR, close: INT }, []);
+const ASSIGN = spec("assign", "Put an action on the user's Todo page that only they can take, and that your work waits on or needs: approve or merge a PR on GitHub, run a login (say the command, as `! gcloud auth login`), send or sign something, decide in a meeting. One action each, said in full as a short brief: what, where (a link, a path, a command) and why. They tick it Done (you hear it: Unii as a message quoting it, an agent at work as a message) or drop it. Not for a decision (ask), news (notify), removing worktrees (Unii's tidy asks the user once) or anything you can do yourself. close: the number of a todo of yours no longer needed, to withdraw it.", { text: STR, close: INT }, []);
 // plan mode's way out (Modes.ts), as Claude Code's ExitPlanMode
+// RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off): Unii's
+// removal of the inbox's safe worktrees, put to the user as one consent
+// naming each path (Tools.tidy)
+const TIDY = spec("tidy", "Remove worktrees the inbox shows as safe to remove (merged or gone on origin, no changes, nothing unpushed, no stash, no .env file, no process in it): the user is asked once, with each path listed, and only their yes removes them; each is checked again on the device, and its branch stays. No paths: every safe one. Use it instead of a todo when worktrees pile up or the user asks to clean up; it says which are kept and why.", { paths: { type: "array", items: STR } }, []);
 const PLAN = spec("plan", "In plan mode: file your plan for the user's approval, once you (and your managers, reading) know enough. Say it whole: the steps, who does each, what changes where, how it will be checked. The user approves it (the mode they pick comes next, and you go ahead) or sends it back with their feedback.", { plan: STR }, ["plan"]);
 // auto mode's reviewer (Modes.ts): one call on the compactor's model per
 // shell, write or edit; what it is told of the call and its context, at
@@ -655,7 +662,7 @@ export namespace Tools {
 
   export function list(tools: Tools, who: string): Spec[] {
     if (who === "main") {
-      return [...OWN, ASK, WAITING, NOTIFY, NOTEBOOK, TODO_OF, ASSIGN, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
+      return [...OWN, ASK, WAITING, NOTIFY, NOTEBOOK, TODO_OF, ASSIGN, TIDY, TIMESHEET, PLAN, ROUTINE, ...BOSS, ...kit(who), ...BG, HAND, ...CODE, ...Mcp.cached(MCP)];
     }
     const role = tools.agents.get(who)?.role;
     if (role?.$ === "hands") {
@@ -804,7 +811,7 @@ export namespace Tools {
   // where it runs
   export function shown(name: string, args: any): string {
     const { device, ...input } = args ?? {};
-    const all = name === "shell" ? String(input.command) : (Tools.above_shown(name, input) ?? "") + name + " " + JSON.stringify(input);
+    const all = name === "shell" ? String(input.command) : name === "tidy" ? Tools.tidy_shown(input) : (Tools.above_shown(name, input) ?? "") + name + " " + JSON.stringify(input);
     return (all.length > 2000 ? all.slice(0, 2000) + "… (" + (all.length - 2000) + " more characters not shown)" : all) + " (on " + Tools.where(device) + ")";
   }
 
@@ -1086,6 +1093,9 @@ export namespace Tools {
       }
       case "notify": {
         return Tools.notify(tools, who, args);
+      }
+      case "tidy": {
+        return Tools.tidy(tools, who, args, signal);
       }
       case "notes": {
         return Tools.notes(tools, who, args);
@@ -2020,6 +2030,44 @@ export namespace Tools {
   export function directives_block(tools: Tools): Block[] {
     const note = Notes.notes_read(tools.mem.dir, Directives.NAME);
     return typeof note === "string" || note.big === true ? [] : [{ text: Google.fence("directives", note.text, "Standing directives from Legion's notes dir (saved by Unii's note tool; a file on this computer, not the user's words)") + "\n\n", mark: false }];
+  }
+
+  // RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off): Unii's
+  // removal of worktrees. Only the latest inbox's safe rows (Inbox.
+  // inbox_safe, the server's) of those asked for (none: all) are put to
+  // the user, as one consent naming each path (Tools.ask_user); only a
+  // yes sends them, through the server's gate again (hooks.tidy: Server.ts
+  // Chat.tidy), then each device's re-check (Device.device_tidy). Rows not
+  // safe are never asked about or sent: said, with why they are kept
+  export async function tidy(tools: Tools, who: string, args: any, signal: AbortSignal): Promise<Out> {
+    if (who !== "main" || tools.hooks.tidy_rows === undefined || tools.hooks.tidy === undefined) {
+      return { text: "Only Unii removes worktrees: tell it which, and why.", fail: true };
+    }
+    const rows = tools.hooks.tidy_rows();
+    const asked: string[] | null = Array.isArray(args?.paths) ? args.paths.filter((p: unknown): p is string => typeof p === "string") : null;
+    const wanted = rows.filter((r) => asked === null || asked.includes(r.path));
+    const paths = wanted.filter((r) => r.safe === true).map((r) => r.path);
+    const kept = wanted.filter((r) => r.safe !== true).map((r) => r.path + ": " + (r.why ?? "not safe"));
+    const unknown = (asked ?? []).filter((p) => !rows.some((r) => r.path === p)).map((p) => p + ": not in the inbox now");
+    // the paths are a device's words (security review 4 N3): fenced as its data
+    const why = [...kept, ...unknown].length === 0 ? "" : "\n" + Google.fence("inbox", [...kept, ...unknown].join("\n"), "Worktrees kept, as the devices' inbox lists them");
+    if (paths.length === 0) {
+      return { text: "No worktree in the inbox is safe to remove now." + why, fail: true };
+    }
+    if (!await Tools.ask_user(tools, who, "tidy", { paths }, signal)) {
+      return { text: "The user kept them." + why, fail: true };
+    }
+    const error = tools.hooks.tidy(paths);
+    if (error !== null) {
+      return { text: error, fail: true };
+    }
+    return { text: "Sent " + paths.length + " to the devices: each is checked again there, and their report follows." + why, fail: false };
+  }
+
+  // Unii's tidy as the user reads it: how many, then each path
+  export function tidy_shown(input: any): string {
+    const paths: string[] = Array.isArray(input?.paths) ? input.paths.map(String) : [];
+    return "Remove " + paths.length + " worktree" + (paths.length === 1 ? "" : "s") + " (each checked again on the device; branches stay):\n" + paths.join("\n");
   }
 
   // an action for the user filed by any agent (its text one line of spaces,

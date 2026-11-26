@@ -96,7 +96,7 @@ export function inbox_sections(inbox: Inbox | null, crew: Crew[], filter: string
   const clean = inbox.clean.map((c): Row => {
     const where = c.repo + " " + (c.branch ?? "(detached)");
     const title = c.changes > 0 ? plural(c.changes, "uncommitted change") + " in " + (c.merged ? "merged " : "") + where : "worktree of merged " + where + ": nothing left in it";
-    return { key: "clean:" + c.path, kind: "clean", title, sub: c.path, url: "", tag: c.merged ? "Merged" : "Uncommitted", tone: c.changes > 0 ? "warn" : "", age: "", stamp: String(c.changes), clean: c };
+    return { key: "clean:" + c.path, kind: "clean", title, sub: c.path, url: "", tag: c.safe === false ? "Kept" : c.merged ? "Merged" : "Uncommitted", tone: c.changes > 0 || c.safe === false ? "warn" : "", age: "", stamp: String(c.changes), clean: c };
   });
   const section = (id: SectionId, title: string, rows: Row[], sub = "", note?: string): Section => {
     const kept = rows.filter((r) => holds(r, filter));
