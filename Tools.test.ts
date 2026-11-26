@@ -13,6 +13,7 @@ process.env.LEGION_DIR = fs.mkdtempSync(os.tmpdir() + "/legion-tools-");
 
 const { Tools, MASTER } = await import("./Tools.ts");
 const { Price } = await import("./Price.ts");
+const Pending = await import("./Pending.ts");
 
 // the orchestrator decides what is its to decide (user's ask 2026-11-13):
 // reversible, in-scope calls made and reported; asked only for what is the
@@ -60,10 +61,10 @@ test("a call's MCP requests follow its chat past a process that ended", async ()
 
 // an agent at work (a worker of Legion, unless said), its call a stub that
 // counts its stops
-function working(tools: any, name: string, tier = "worker", parent = "main"): { stops: number } {
+function working(tools: any, name: string, parent = "main"): { stops: number } {
   const seen = { stops: 0 };
   const call = { stop: () => (seen.stops += 1) };
-  tools.agents.set(name, { name, parent, role: { $: "sub", tier, effort: null, model: null }, call, live: [], calls: {}, stop: false, replies: [], user: false });
+  tools.agents.set(name, { name, parent, role: { $: "sub", effort: null, model: null }, call, live: [], calls: {}, stop: false, replies: [], user: false });
   return seen;
 }
 
@@ -96,48 +97,14 @@ test("a subagent can't stop another, nor sees the stop tool", async () => {
   Tools.close(tools);
 });
 
-test("a worker has no spawn, tell or stop, and calling them is refused", async () => {
-  const tools = Tools.serve({} as any, {} as any);
-  working(tools, "Mgr", "manager");
-  working(tools, "Wkr", "worker", "Mgr");
-  const names = Tools.list(tools, "Wkr").map((t) => t.name);
-  expect(names).not.toContain("spawn");
-  expect(names).not.toContain("tell");
-  expect(names).not.toContain("stop");
-  expect(Tools.list(tools, "Mgr").map((t) => t.name)).toEqual(expect.arrayContaining(["spawn", "tell", "stop"]));
-  expect(Tools.list(tools, "Mgr").map((t) => t.name)).not.toContain("computer");
-  for (const tool of ["spawn", "tell", "stop"]) {
-    expect((await Tools.call(tools, "Wkr", tool, { tasks: ["x"], name: "Mgr", message: "hi", names: ["Mgr"] }, go(), "1")).fail).toBe(true);
-  }
-  Tools.close(tools);
-});
-
-test("a manager tells and stops only its own workers; stopping a manager stops its workers", async () => {
-  const tools = Tools.serve({} as any, {} as any);
-  working(tools, "MgrA", "manager");
-  const a = working(tools, "WkrA", "worker", "MgrA");
-  working(tools, "MgrB", "manager");
-  const b = working(tools, "WkrB", "worker", "MgrB");
-  const other = await Tools.call(tools, "MgrA", "stop", { names: ["WkrB"] }, go(), "1");
-  expect(b.stops).toBe(0);
-  expect(other.text).not.toContain("Stopped WkrB");
-  expect((await Tools.call(tools, "MgrA", "tell", { name: "WkrB", message: "hi" }, go(), "1")).fail).toBe(true);
-  expect((await Tools.call(tools, "MgrA", "stop", { names: ["WkrA"] }, go(), "1")).text).toContain("Stopped WkrA.");
-  expect(a.stops).toBe(1);
-  Tools.stop(tools, "MgrB");
-  expect(b.stops).toBe(1);
-  expect(tools.agents.get("WkrB")!.stop).toBe(true);
-  Tools.close(tools);
-});
-
-test("a child runs on its tier's model or one below it, never above nor another vendor's", async () => {
-  expect(Tools.child("manager", null)).toMatchObject({ model: "sonnet-5.5" });
-  expect(Tools.child("worker", "haiku-5.5")).toMatchObject({ model: "haiku-5.5" });
-  expect(typeof Tools.child("worker", "opus-5.5")).toBe("string");
-  expect(typeof Tools.child("manager", "gpt-6-luna")).toBe("string");
-  expect(typeof Tools.child("worker", "no-such-model")).toBe("string");
+test("a worker runs on the workers' model or one below it, never above nor another vendor's", async () => {
+  expect(Tools.child(null)).toMatchObject({ model: "sonnet-5.5" });
+  expect(Tools.child("haiku-5.5")).toMatchObject({ model: "haiku-5.5" });
+  expect(typeof Tools.child("opus-5.5")).toBe("string");
+  expect(typeof Tools.child("gpt-6-luna")).toBe("string");
+  expect(typeof Tools.child("no-such-model")).toBe("string");
   const tools = Tools.serve({} as any, { change: () => {} } as any);
-  // Legion's spawn above the tier's waits for the user (agents.test.ts:
+  // Legion's spawn above the workers' waits for the user (agents.test.ts:
   // "propose Opus"); a stop while it waits refuses it, nothing started
   const stop = new AbortController();
   const asked = Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "opus-5.5" }, stop.signal, "1");
@@ -152,47 +119,48 @@ test("a child runs on its tier's model or one below it, never above nor another 
 });
 
 // RED ZONE (security review 4 G2, signed off by the user 2026-11-25): a
-// spawn above its tier's model is put to the user saying so first, how
+// spawn above the workers' model is put to the user saying so first, how
 // many, on what, instead of what: never cut off behind a long task (the
 // GChat post shows the same text: Gchat.gchat_items)
-test("G2: a spawn above its tier's model is shown model first: how many start on what, instead of what; then the tasks", () => {
+test("G2: a spawn above the workers' model is shown model first: how many start on what, instead of what; then the tasks", () => {
   const long = "do the hard part ".repeat(200);
-  const manager = (Tools.child("manager", null) as any).model;
-  const worker = (Tools.child("worker", null) as any).model;
+  const worker = (Tools.child(null) as any).model;
   const two = Tools.shown("spawn", { tasks: [long, "and this"], model: "opus-5.5" });
-  expect(two.startsWith("Start 2 managers on opus-5.5 instead of " + manager)).toBe(true);
+  expect(two.startsWith("Start 2 workers on opus-5.5 instead of " + worker)).toBe(true);
   expect(two).toContain("do the hard part");
   const one = Tools.shown("spawn", { tasks: ["x"], model: "opus-5.5", as: "worker" });
   expect(one.startsWith("Start 1 worker on opus-5.5 instead of " + worker)).toBe(true);
-  // a spawn on its tier's model is shown as any call
-  expect(Tools.shown("spawn", { tasks: ["x"], model: manager })).toStartWith("spawn {");
+  // a Claude Code worker's spawn names no model it runs on: shown as any call
+  expect(Tools.shown("spawn", { tasks: ["x"], model: "opus-5.5", as: "claude" })).toStartWith("spawn {");
+  // a spawn on the workers' model is shown as any call
+  expect(Tools.shown("spawn", { tasks: ["x"], model: worker })).toStartWith("spawn {");
   expect(Tools.shown("spawn", { tasks: ["x"] })).toStartWith("spawn {");
 });
 
-test("an agent's note says its tier, starter, model and effort, and reads back as them", () => {
-  const role = { $: "sub" as const, tier: "worker" as const, effort: "high", model: "haiku-5.5" };
-  const note = Tools.note(role, "FireAnt");
-  expect(note).toBe("worker of FireAnt on haiku-5.5 at effort high");
-  expect(Tools.noted(note)).toEqual({ role, parent: "FireAnt" });
-  expect(Tools.noted(Tools.note({ $: "sub", tier: "manager", effort: null, model: null }, "main"))).toEqual({ role: { $: "sub", tier: "manager", effort: null, model: null }, parent: "main" });
+test("an agent's note says its starter, model and effort, and reads back as them", () => {
+  const role = { $: "sub" as const, effort: "high", model: "haiku-5.5" };
+  const note = Tools.note(role, "main");
+  expect(note).toBe("worker of Legion on haiku-5.5 at effort high");
+  expect(Tools.noted(note)).toEqual({ role, parent: "main" });
   // an older agent's: a worker of Legion
-  expect(Tools.noted("subagent at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: null }, parent: "main" });
+  expect(Tools.noted("subagent at effort low")).toEqual({ role: { $: "sub", effort: "low", model: null }, parent: "main" });
   expect(Tools.noted("computer task on mac")).toEqual({ role: { $: "hands", device: "mac" }, parent: "main" });
   expect(Tools.noted("something else")).toBeNull();
   // a note from before the rename names the main agent Unii: still main
-  expect(Tools.noted("manager of Unii")).toEqual({ role: { $: "sub", tier: "manager", effort: null, model: null }, parent: "main" });
-  expect(Tools.noted("worker of Unii on sonnet-5.5 at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: "sonnet-5.5" }, parent: "main" });
+  expect(Tools.noted("manager of Unii")).toEqual({ role: { $: "sub", effort: null, model: null }, parent: "main" });
+  expect(Tools.noted("worker of Unii on sonnet-5.5 at effort low")).toEqual({ role: { $: "sub", effort: "low", model: "sonnet-5.5" }, parent: "main" });
   expect(Tools.noted("Claude Code of Unii on mac in /r")).toEqual({ role: { $: "cli", device: "mac", dir: "/r" }, parent: "main" });
 });
 
-test("the crew: each agent's tier, starter, model and status; one dismissed is gone", () => {
+test("the crew: each agent's kind, starter, model and status; one dismissed is gone", () => {
   const tools = Tools.serve({} as any, { pick: () => ({ vendor: "claude-api", model: "claude-opus-5-5", effort: "high", speed: "slow" }) } as any);
-  working(tools, "Mgr", "manager");
-  working(tools, "Wkr", "worker", "Mgr");
-  tools.agents.set("Old", { name: "Old", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: "haiku-5.5" }, call: null, live: [], calls: {}, stop: false, replies: ["failed: boom"], user: false });
+  // Mgr: an older manager, loaded back as a worker; its worker still at work
+  working(tools, "Mgr");
+  working(tools, "Wkr", "Mgr");
+  tools.agents.set("Old", { name: "Old", parent: "main", role: { $: "sub", effort: null, model: "haiku-5.5" }, call: null, live: [], calls: {}, stop: false, replies: ["failed: boom"], user: false });
   tools.agents.get("Mgr")!.call = null;
   const crew = Object.fromEntries(Tools.crew(tools).map((c) => [c.name, c]));
-  expect(crew.Mgr).toMatchObject({ parent: "main", tier: "manager", model: "sonnet-5.5", status: "waiting" });
+  expect(crew.Mgr).toMatchObject({ parent: "main", tier: "worker", model: "sonnet-5.5", status: "waiting" });
   expect(crew.Wkr).toMatchObject({ parent: "Mgr", tier: "worker", status: "working" });
   expect(crew.Old).toMatchObject({ model: "haiku-5.5", status: "failed" });
   tools.agents.get("Old")!.hidden = true;
@@ -259,7 +227,7 @@ test("a device named whose links are all dead is not open to an agent's job", ()
 // "thinking"), its report's last line; each line at most PULSE_LINE chars
 test("an agent's pulse: status, its stream's last line, its report's last line", () => {
   const tools = Tools.serve({} as any, {} as any);
-  const agent = { name: "Ada", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
+  const agent = { name: "Ada", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
   tools.agents.set("Ada", agent);
   expect(Tools.pulse(tools, agent)).toEqual({ $: "pulse", name: "Ada", status: "done", act: "", last: "" });
   agent.runs = true;
@@ -277,12 +245,13 @@ test("an agent's pulse: status, its stream's last line, its report's last line",
 });
 
 // Labels: an agent's title (its goal) and the repos its work touches, set
-// by the agent itself or by Legion or a manager over it, trimmed and capped,
-// in the crew the views show; another's agent can't be labelled
+// by the agent itself, by Legion over it or by an older manager over its
+// older worker, trimmed and capped, in the crew the views show; another's
+// agent can't be labelled
 test("label: itself or an agent under it, trimmed and capped, in the crew", async () => {
   const tools = Tools.serve({} as any, { change: () => {} } as any);
-  const sub = (name: string, parent: string, tier: string) => ({ name, parent, role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
-  for (const a of [sub("Mgr", "main", "manager"), sub("Wkr", "Mgr", "worker"), sub("Other", "main", "manager")]) {
+  const sub = (name: string, parent: string) => ({ name, parent, role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
+  for (const a of [sub("Mgr", "main"), sub("Wkr", "Mgr"), sub("Other", "main")]) {
     tools.agents.set(a.name, a);
   }
   const label = (who: string, args: object) => Tools.call(tools, who, "label", args, new AbortController().signal, "x");
@@ -317,8 +286,8 @@ test("todo: an agent sets its own checklist, cleaned and capped, in the crew; ma
   // a real chat dir: the checklist is saved in its view.json too
   const { Memory } = await import("./Memory.ts");
   const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/legion-todo-"), () => ({}) as any), { change: () => {} } as any);
-  const sub = (name: string, parent: string, tier: string) => ({ name, parent, role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
-  tools.agents.set("Wkr", sub("Wkr", "main", "worker"));
+  const sub = (name: string, parent: string) => ({ name, parent, role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
+  tools.agents.set("Wkr", sub("Wkr", "main"));
   const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
   expect(Tools.list(tools, "Wkr").map((t) => t.name)).toContain("todo");
   // the orchestrator's todo is another agent's list only (its agent field)
@@ -349,7 +318,7 @@ test("todo: main closes and removes items on an agent's checklist, saved and not
   const notes: string[] = [];
   const mem = Memory.load(fs.mkdtempSync(os.tmpdir() + "/legion-todo-"), () => ({}) as any);
   const tools = Tools.serve(mem, { change: () => {}, note: (t: string) => notes.push(t) } as any);
-  const sub = (name: string) => ({ name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
+  const sub = (name: string) => ({ name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
   tools.agents.set("Wkr", sub("Wkr"));
   tools.agents.set("Oth", sub("Oth"));
   const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
@@ -375,25 +344,6 @@ test("todo: main closes and removes items on an agent's checklist, saved and not
   expect(Memory.load(mem.dir, () => ({}) as any).checklists["Wkr"]).toEqual([{ text: "Read it", status: "done" }, { text: "Fix it", status: "pending" }]);
 });
 
-// Claude Code workers are started by managers only: the orchestrator's
-// spawn offers no "claude" (nor its device and dir), and refuses one sent
-// anyway, starting nothing; a manager's spawn still offers it
-test("the orchestrator can't spawn a Claude Code worker; a manager can", async () => {
-  const tools = Tools.serve({} as any, { change: () => {} } as any);
-  tools.agents.set("Mgr", { name: "Mgr", parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any);
-  const spawn = (who: string) => Tools.list(tools, who).find((t) => t.name === "spawn")!.schema as any;
-  expect(spawn("main").properties.as.enum).not.toContain("claude");
-  expect(spawn("main").properties.as.description).not.toContain("claude");
-  expect(spawn("main").properties.device).toBeUndefined();
-  expect(spawn("main").properties.dir).toBeUndefined();
-  expect(spawn("Mgr").properties.as.enum).toContain("claude");
-  expect(spawn("Mgr").properties.device).toBeDefined();
-  const out = await Tools.call(tools, "main", "spawn", { tasks: ["fix it"], as: "claude", device: "mac" }, new AbortController().signal, "1");
-  expect(out.fail).toBe(true);
-  expect(out.text).toContain("manager");
-  expect([...tools.agents.keys()]).toEqual(["Mgr"]);
-});
-
 // plan mode (Modes.ts): only reading reaches a device; writes, edits,
 // shells that aren't read-only, computer tasks, MCP tools and Claude Code
 // workers are refused, saying so; every agent's devices block says the
@@ -401,8 +351,8 @@ test("the orchestrator can't spawn a Claude Code worker; a manager can", async (
 test("plan mode refuses what can change things, before any device; the devices block says the mode", async () => {
   const mem: any = { mode: "plan" };
   const tools = Tools.serve(mem, { change: () => {} } as any);
-  const sub = { name: "Mgr", parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
-  tools.agents.set("Mgr", sub);
+  const sub = { name: "Wkr", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
+  tools.agents.set("Wkr", sub);
   const call = (who: string, name: string, args: object) => Tools.call(tools, who, name, args, new AbortController().signal, "x");
   for (const [name, args] of [
     ["write", { device: "mac", path: "a", content: "x" }],
@@ -414,7 +364,7 @@ test("plan mode refuses what can change things, before any device; the devices b
     const out = await call("main", name, args);
     expect([name, out.fail, out.text]).toEqual([name, true, expect.stringContaining("plan mode")]);
   }
-  expect((await call("Mgr", "spawn", { tasks: ["code it"], as: "claude", device: "mac" })).text).toContain("plan mode");
+  expect((await call("main", "spawn", { tasks: ["code it"], as: "claude", device: "mac" })).text).toContain("plan mode");
   // reading goes on to the device (none here: refused for that, not the mode)
   for (const [name, args] of [["read", { device: "mac", path: "a" }], ["shell", { device: "mac", command: "git status" }], ["grep", { device: "mac", pattern: "x" }]] as const) {
     const out = await call("main", name, args);
@@ -432,7 +382,7 @@ test("plan mode refuses what can change things, before any device; the devices b
 test("a read-only agent and its workers are in plan mode in a full-mode chat, restart included", async () => {
   const mem: any = { mode: "full" };
   const tools = Tools.serve(mem, { change: () => {}, push: () => {} } as any);
-  const sub = (name: string, parent: string, plan?: boolean) => ({ name, parent, role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, ...(plan ? { plan } : {}) }) as any;
+  const sub = (name: string, parent: string, plan?: boolean) => ({ name, parent, role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, ...(plan ? { plan } : {}) }) as any;
   tools.agents.set("Rev", sub("Rev", "main", true));
   tools.agents.set("Kid", sub("Kid", "Rev"));
   tools.agents.set("Free", sub("Free", "main"));
@@ -441,7 +391,7 @@ test("a read-only agent and its workers are in plan mode in a full-mode chat, re
   expect((await call("Kid")).text).toContain("plan mode");
   expect((await call("Free")).text).not.toContain("plan mode");
   expect((await call("main")).text).not.toContain("plan mode");
-  const role = { $: "sub", tier: "worker", effort: null, model: null } as const;
+  const role = { $: "sub", effort: null, model: null } as const;
   expect(Tools.noted(Tools.note(role, "main", true))).toEqual({ role, parent: "main", plan: true });
   expect(Tools.noted(Tools.note(role, "main"))).toEqual({ role, parent: "main" });
 });
@@ -591,7 +541,7 @@ test("G3: the reviewer never counts a checker's or the goal check's nudge as the
 // newest first, none twice, at most FILES: the files pane lists them (K4)
 test("touched: an agent's files, newest first, once each, capped, in the crew", () => {
   const tools = Tools.serve({ dir: "/nowhere" } as any, { change: () => {}, pick: () => null } as any);
-  const a = { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
+  const a = { name: "Owl", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
   tools.agents.set(a.name, a);
   expect(Tools.crew(tools)[0].files).toBeUndefined();
   Tools.touched(a, "read", { device: "mac", path: "src/a.ts" });
@@ -611,7 +561,7 @@ test("touched: an agent's files, newest first, once each, capped, in the crew", 
 // a relative path refused, then made by its absolute one, listed both)
 test("touched: only by a call that succeeds", async () => {
   const tools = Tools.serve({ dir: "/nowhere" } as any, { change: () => {}, pick: () => null } as any);
-  const a = { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
+  const a = { name: "Owl", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
   tools.agents.set(a.name, a);
   const out = await Tools.call(tools, "Owl", "read", { device: "nowhere", path: "src/a.ts" }, new AbortController().signal, "1");
   expect(out.fail).toBe(true);
@@ -623,7 +573,7 @@ test("touched: only by a call that succeeds", async () => {
 // price adds nothing, never throws
 test("spent: an agent's requests' usage adds up to its estimated cost, in the crew", () => {
   const tools = Tools.serve({ dir: "/nowhere" } as any, { change: () => {}, pick: () => null } as any);
-  const a = { name: "Wkr", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
+  const a = { name: "Wkr", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any;
   tools.agents.set(a.name, a);
   expect(Tools.crew(tools)[0].spent).toBeUndefined();
   const use = { input: 1000, write: 0, read: 0, output: 1000, searches: 0, seconds: 0, speed: "slow" };
@@ -771,7 +721,7 @@ test("snap: a changing call carries its agent's turn; the device is kept; no und
   for (const mode of ["full", "plan"] as const) {
     const tools = Tools.serve({ dir: "/nowhere", mode } as any, { change: () => {}, pick: () => null } as any);
     Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.legion/work" });
-    const a = { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, since: 123 } as any;
+    const a = { name: "Owl", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, since: 123 } as any;
     tools.agents.set(a.name, a);
     const job = (who: string, name: string, args: any, id: string) => {
       void Tools.call(tools, who, name, { device: "mac", ...args }, go(), id);
@@ -852,7 +802,7 @@ test("risk: a low refusal runs; the floor can't be lowered; medium in auto and h
     set(refuse("medium"));
     expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).toBe("Refused by auto mode's reviewer: r");
     set(JSON.stringify({ allow: false, reason: "r" }));
-    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make y" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
     const s = risky("super");
     working(s.tools, "Wkr");
     set(refuse("high"));
@@ -893,12 +843,14 @@ test("risk: in super mode a sub-agent's medium refusal waits for its boss; only 
   });
 });
 
-test("risk: a manager boss hears its worker's appeal; a stop, a timeout or no way to wake main refuses", async () => {
+// an older manager (loaded back as a worker) is still its older worker's
+// boss for an appeal; Legion's workers appeal to Legion
+test("risk: an older manager hears its older worker's appeal; a stop, a timeout or no way to wake main refuses", async () => {
   await reviewer(async (_told, set) => {
     set(refuse("medium"));
     const { tools, seen } = risky("super");
-    working(tools, "Mgr", "manager");
-    working(tools, "Wkr", "worker", "Mgr");
+    working(tools, "Mgr");
+    working(tools, "Wkr", "Mgr");
     tools.agents.get("Mgr")!.call.send = () => {};
     const waiting = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
     await Bun.sleep(20);
@@ -926,6 +878,188 @@ test("risk: a manager boss hears its worker's appeal; a stop, a timeout or no wa
     const bare = risky("super", { boss: undefined });
     working(bare.tools, "Wkr");
     expect((await Tools.call(bare.tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+  });
+});
+
+// RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off):
+// the same call (agent, tool, args) the reviewer refused for good is
+// refused again from a cache, no reviewer call, and told not to resend it
+// unchanged; only refusals are kept (fail closed). A new user message or
+// REFUSED.ms gone by asks the reviewer again; a grant still runs it. A
+// sub-agent's first repeat tells its boss, once
+test("refusal cache: a repeat of a refused call is refused at once, with no reviewer call", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const first = await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    expect(first.text).toBe("Refused by auto mode's reviewer: r");
+    const n = told.length;
+    set('{"allow": true}');
+    const again = await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(n);
+    expect(again.fail).toBe(true);
+    expect(again.text).toStartWith("Refused by auto mode's reviewer: r");
+    expect(again.text).toContain("don't resend it unchanged");
+    // other args, or another agent: asked again
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make y" }, go(), "c");
+    expect(told.length).toBe(n + 1);
+    working(tools, "Two");
+    await Tools.call(tools, "Two", "shell", { device: "mac", command: "make x" }, go(), "d");
+    expect(told.length).toBe(n + 2);
+  });
+});
+
+// a refusal is the mode's: in super mode a medium one goes to the boss,
+// so one kept in auto is asked again once the user switches the mode
+test("refusal cache: a refusal kept in one mode is asked again in another", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(1);
+    tools.mem.mode = "super";
+    set('{"allow": true}');
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).not.toContain("Refused");
+    expect(told.length).toBe(2);
+  });
+});
+
+test("refusal cache: an allow, a low refusal or a reviewer with no answer is never kept", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set('{"allow": true}');
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(2);
+    set(refuse("low"));
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "bun run test" }, go(), "c");
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "bun run test" }, go(), "d")).text).not.toContain("Refused");
+    expect(told.length).toBe(4);
+    // no answer: the user's no is not the reviewer's, never kept
+    set("maybe?");
+    const waiting = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make z" }, go(), "e");
+    await Bun.sleep(20);
+    Tools.consent(tools, Tools.consents(tools)[0]!.id, false);
+    await waiting;
+    set('{"allow": true}');
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make z" }, go(), "f")).text).not.toContain("refused");
+    expect(told.length).toBe(6);
+  });
+});
+
+test("refusal cache: a new user message or REFUSED.ms gone by asks the reviewer again; a grant still runs it", async () => {
+  const { Memory } = await import("./Memory.ts");
+  const real = Memory.message;
+  const msgs: any[] = [{ kind: "user", text: "fix it" }];
+  (Memory as any).message = (_: any, i: number) => msgs[i] ?? null;
+  try {
+    await reviewer(async (told, set) => {
+      const { tools } = risky("auto");
+      tools.mem.count = msgs.length;
+      working(tools, "Wkr");
+      set(refuse("medium"));
+      const call = (id: string) => Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), id);
+      await call("a");
+      await call("b");
+      expect(told.length).toBe(1);
+      // an agent's or a checker's message is no user's: still cached
+      msgs.push({ kind: "agent", text: "trying" });
+      tools.mem.count = msgs.length;
+      await call("c");
+      expect(told.length).toBe(1);
+      // the user says more: asked again
+      msgs.push({ kind: "user", text: "yes, make x is fine" });
+      tools.mem.count = msgs.length;
+      await call("d");
+      expect(told.length).toBe(2);
+      // time gone by: asked again
+      const ms = Tools.REFUSED.ms;
+      Tools.REFUSED.ms = 10;
+      try {
+        await Bun.sleep(30);
+        await call("e");
+        expect(told.length).toBe(3);
+      } finally {
+        Tools.REFUSED.ms = ms;
+      }
+      // a grant (the user's yes to a re-shown call) beats the cache
+      (tools.grants ??= new Map()).set(Pending.fp("Wkr", "shell", { device: "mac", command: "make x" }), { who: "Wkr", until: Date.now() + 60_000 });
+      const n = told.length;
+      expect((await call("f")).text).not.toContain("Refused");
+      expect(told.length).toBe(n);
+    });
+  } finally {
+    (Memory as any).message = real;
+  }
+});
+
+test("refusal cache: a sub-agent's first repeat tells its boss once; main's tells no one", async () => {
+  await reviewer(async (_told, set) => {
+    const { tools, seen } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const call = (who: string, id: string) => Tools.call(tools, who, "shell", { device: "mac", command: "make x" }, go(), id);
+    await call("Wkr", "a");
+    expect(seen.boss).toEqual([]);
+    await call("Wkr", "b");
+    await call("Wkr", "c");
+    expect(seen.boss).toHaveLength(1);
+    expect(seen.boss[0]).toContain("Wkr");
+    expect(seen.boss[0]).toContain("make x");
+    expect(seen.boss[0]).toContain("r");
+    await call("main", "d");
+    await call("main", "e");
+    expect(seen.boss).toHaveLength(1);
+  });
+});
+
+test("refusal cache: a boss's no or a timeout is kept; a stopped appeal is not", async () => {
+  await reviewer(async (told, set) => {
+    set(refuse("medium"));
+    const { tools } = risky("super");
+    working(tools, "Wkr");
+    const call = (signal: AbortSignal, id: string) => Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, signal, id);
+    const ac = new AbortController();
+    const stopped = call(ac.signal, "a");
+    await Bun.sleep(20);
+    ac.abort();
+    await stopped;
+    const ms = Tools.APPEAL.ms;
+    Tools.APPEAL.ms = 30;
+    try {
+      expect((await call(go(), "b")).text).toBe("Refused by auto mode's reviewer: r");
+      expect(told.length).toBe(2);
+      expect((await call(go(), "c")).text).toContain("don't resend it unchanged");
+      expect(told.length).toBe(2);
+    } finally {
+      Tools.APPEAL.ms = ms;
+    }
+    expect(Tools.appeals(tools)).toEqual([]);
+  });
+});
+
+test("refusal cache: at most REFUSED.max calls kept, the oldest dropped", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const max = Tools.REFUSED.max;
+    Tools.REFUSED.max = 2;
+    try {
+      for (const c of ["make a", "make b", "make c"]) {
+        await Tools.call(tools, "Wkr", "shell", { device: "mac", command: c }, go(), c);
+      }
+      expect(tools.refused?.size).toBe(2);
+      const n = told.length;
+      await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make a" }, go(), "x");
+      expect(told.length).toBe(n + 1);
+    } finally {
+      Tools.REFUSED.max = max;
+    }
   });
 });
 
@@ -1338,28 +1472,21 @@ test("P3, dismiss: the dismiss act takes back the dismissed agent's grants (Tool
 // briefs and reports (the prompting guide): a spawn asks for what is
 // decided or ruled out; a worker's report is capped, each claim marked
 // observed (where checked) or inferred, ending on what it did not get
-// to; a manager verifies claims it acts on with a second, blind worker
-test("briefs say what is ruled out; reports cap, mark evidence and say what's left; a manager verifies blind", () => {
+// to; Legion verifies claims it acts on with a second, blind worker (no
+// managers: user's ask 2026-11-26)
+test("briefs say what is ruled out; reports cap, mark evidence and say what's left; Legion verifies blind", () => {
   const tools = Tools.serve({} as any, { change: () => {} } as any);
-  const sub = (name: string, tier: string) => ({ name, parent: "main", role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
-  tools.agents.set("Mgr", sub("Mgr", "manager") as any);
-  tools.agents.set("Wkr", sub("Wkr", "worker") as any);
+  tools.agents.set("Wkr", { name: "Wkr", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any);
   const seen = { view: [], log: { text: "", mark: false } } as any;
-  const system = (name: string) => Tools.ask(tools, tools.agents.get(name)!, seen).system;
-  for (const who of ["main", "Mgr"]) {
-    const spawn = Tools.list(tools, who).find((t) => t.name === "spawn")!.info;
-    expect(spawn).toContain("decided or ruled out");
-  }
-  for (const who of ["Mgr", "Wkr"]) {
-    expect(system(who)).toContain("at most 300 words");
-    expect(system(who)).toMatch(/observed \(where you checked/);
-    expect(system(who)).toMatch(/inferred/);
-    expect(system(who)).toContain("what you did not get to");
-  }
-  const mgr = system("Mgr");
-  expect(mgr.replace(/\s+/g, " ")).toContain("giving it the task, the claims as a list and where the work is, not its report or its evidence");
-  expect(mgr).toContain("CONFIRMED, WRONG or UNVERIFIABLE");
-  expect(system("Wkr")).not.toContain("CONFIRMED, WRONG or UNVERIFIABLE");
+  const system = Tools.ask(tools, tools.agents.get("Wkr")!, seen).system;
+  expect(Tools.list(tools, "main").find((t) => t.name === "spawn")!.info).toContain("decided or ruled out");
+  expect(system).toContain("at most 300 words");
+  expect(system).toMatch(/observed \(where you checked/);
+  expect(system).toMatch(/inferred/);
+  expect(system).toContain("what you did not get to");
+  expect(MASTER.replace(/\s+/g, " ")).toContain("giving it the task, the claims as a list and where the work is, not its report or its evidence");
+  expect(MASTER).toContain("CONFIRMED, WRONG or UNVERIFIABLE");
+  expect(system).not.toContain("CONFIRMED, WRONG or UNVERIFIABLE");
 });
 
 // RED ZONE (security review 4 N1, signed off by the user 2026-11-25): a
@@ -1451,7 +1578,7 @@ test("tidy: Legion asks once for the inbox's safe worktrees; a yes sends exactly
   expect(out.fail).toBe(true);
   expect(out.text).toContain("No device is up");
   // a worker: no tidy, and its call refused, nothing asked
-  tools.agents.set("Wkr", { name: "Wkr", role: { $: "sub", tier: "worker", effort: null, model: null } } as any);
+  tools.agents.set("Wkr", { name: "Wkr", role: { $: "sub", effort: null, model: null } } as any);
   expect(Tools.list(tools, "Wkr").some((s: any) => s.name === "tidy")).toBe(false);
   expect((await Tools.call(tools, "Wkr", "tidy", {}, go(), "5")).fail).toBe(true);
   expect(Tools.consents(tools)).toEqual([]);
@@ -1463,4 +1590,58 @@ test("tidy: Legion asks once for the inbox's safe worktrees; a yes sends exactly
 test("assign's description sends worktree removal to Legion's tidy, not the user's Todo page", () => {
   const assign = Tools.list(Tools.serve({} as any, {} as any), "main").find((s: any) => s.name === "assign") as any;
   expect(assign.info).toContain("tidy");
+});
+
+// RED ZONE (no managers, DRAFT awaiting the user's sign-off; user's ask
+// 2026-11-26): Legion works with workers directly. Its spawn starts a
+// worker by default and offers Claude Code workers; a worker starts,
+// tells and stops no one; an older "manager of X" note loads as a worker.
+// An older worker keeps its manager as parent: a read-only manager's
+// workers stay read-only through it (H4), not freed by a reparent
+test("no managers: Legion's spawn starts a worker by default and offers claude; no manager tier left", async () => {
+  const tools = Tools.serve({} as any, { change: () => {}, push: () => {} } as any);
+  const spawn = Tools.list(tools, "main").find((t) => t.name === "spawn")!.schema as any;
+  expect(spawn.properties.as.enum).toEqual(["worker", "claude"]);
+  expect(spawn.properties.as.description).not.toContain("manager");
+  expect(spawn.properties.device).toBeDefined();
+  expect(spawn.properties.dir).toBeDefined();
+  expect(MASTER).not.toContain("manager");
+  // as claude: put to the user before it runs, a Claude Code worker of Legion's
+  const out = await Tools.call(tools, "main", "spawn", { tasks: ["fix it"], as: "claude", device: "mac" }, go(), "1");
+  expect(out.text).not.toContain("tell a manager");
+  Tools.close(tools);
+});
+
+test("no managers: a worker gets no spawn, tell, stop or overrule, and a call to them is refused", async () => {
+  const tools = Tools.serve({} as any, {} as any);
+  const a = working(tools, "WkrA");
+  working(tools, "WkrB");
+  const names = Tools.list(tools, "WkrA").map((t) => t.name);
+  for (const tool of ["spawn", "tell", "stop", "overrule"]) {
+    expect(names).not.toContain(tool);
+  }
+  for (const tool of ["spawn", "tell", "stop"]) {
+    expect((await Tools.call(tools, "WkrB", tool, { tasks: ["x"], name: "WkrA", message: "hi", names: ["WkrA"] }, go(), "1")).fail).toBe(true);
+  }
+  expect(a.stops).toBe(0);
+  expect(Tools.boss(tools, "WkrA")).toBe(false);
+  expect(Tools.boss(tools, "main")).toBe(true);
+  Tools.close(tools);
+});
+
+test("no managers: an older manager's note loads as a worker; its workers keep it as parent, read-only kept", async () => {
+  const worker = (effort: string | null, model: string | null, parent = "main") => ({ role: { $: "sub", effort, model }, parent });
+  expect(Tools.noted("manager of Legion")).toEqual(worker(null, null));
+  expect(Tools.noted("manager of Unii on sonnet-5.5 at effort low")).toEqual(worker("low", "sonnet-5.5"));
+  expect(Tools.noted("manager of Legion read only")).toEqual({ ...worker(null, null), plan: true });
+  expect(Tools.noted("worker of FireAnt on haiku-5.5")).toEqual(worker(null, "haiku-5.5", "FireAnt"));
+  expect(Tools.noted("Claude Code of FireAnt on mac in /r")).toEqual({ role: { $: "cli", device: "mac", dir: "/r" }, parent: "FireAnt" });
+  expect(Tools.note({ $: "sub", effort: null, model: null } as any, "main")).toBe("worker of Legion");
+  // a read-only older manager loaded back: its worker is still in plan mode
+  const tools = Tools.serve({ mode: "full" } as any, { change: () => {} } as any);
+  tools.agents.set("Rev", { name: "Rev", ...Tools.noted("manager of Legion read only")!, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any);
+  tools.agents.set("Kid", { name: "Kid", ...Tools.noted("worker of Rev")!, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any);
+  expect(Tools.list(tools, "Rev").map((t) => t.name)).not.toContain("spawn");
+  expect(Tools.mode_of(tools, "Kid")).toBe("plan");
+  Tools.close(tools);
 });

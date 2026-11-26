@@ -164,7 +164,7 @@ test("the user's stop ends every shell command; an agent stopped takes its backg
   void call(tools, "Bob", "d", "j3");
   expect(Tools.halt_shells(tools, null, false)).toBe(2);
   expect(ids()).toEqual(["j1", "bang-1"]);
-  tools.agents.set("Ada", { name: "Ada", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: { stop: () => {} }, live: [], calls: {}, stop: false, replies: [], user: false });
+  tools.agents.set("Ada", { name: "Ada", parent: "main", role: { $: "sub", effort: null, model: null }, call: { stop: () => {} }, live: [], calls: {}, stop: false, replies: [], user: false });
   Tools.stop(tools, "Ada");
   expect(ids()).toEqual(["bang-1"]);
   void call(tools, "main", "e", "j4");

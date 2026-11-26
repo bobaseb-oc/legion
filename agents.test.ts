@@ -215,7 +215,7 @@ test("a subagent sees its own tree and a brief of the chat's latest lines, never
   const reports: string[] = [];
   const tools = served(mem, reports);
   calls.length = 0;
-  expect(await Tools.spawn(tools, "main", ["do the thing"], null, null, "worker")).toContain("Started ");
+  expect(await Tools.spawn(tools, "main", ["do the thing"], null, null)).toContain("Started ");
   await until(() => reports.length === 1);
   expect(calls.length).toBe(1);
   const text = said(calls[0]);
@@ -233,7 +233,7 @@ test("zoom from an agent: its own tree by id, its starter's chat by ^id; another
   Memory.push(mem, [{ kind: "user", text: "the chat's first message" }]);
   const reports: string[] = [];
   const tools = served(mem, reports);
-  await Tools.spawn(tools, "main", ["a task"], null, null, "worker");
+  await Tools.spawn(tools, "main", ["a task"], null, null);
   await until(() => reports.length === 1);
   const name = [...tools.agents.keys()][0];
   const zoom = (who: string, args: object) => Tools.call(tools, who, "zoom", args, new AbortController().signal, "1");
@@ -256,7 +256,7 @@ test("a call past ROLL tokens rolls over: asked again from its tree, its tool's 
   calls.length = 0;
   rolling = true;
   try {
-    await Tools.spawn(tools, "main", ["the rolling task"], null, null, "worker");
+    await Tools.spawn(tools, "main", ["the rolling task"], null, null);
     await until(() => reports.length === 1);
   } finally {
     rolling = false;
@@ -286,41 +286,6 @@ test("an agent's task stays word for word when its log since is too long to go r
   }
   expect(seen.log.text).toContain("0|user: the task to keep");
   expect(seen.log.text).not.toContain("1|echo: ");
-  Memory.stop(mem);
-}));
-
-test("a manager spawns workers; a worker's report wakes its manager, never Legion, and the manager's reaches Legion", () => faked(async () => {
-  const mem = Memory.load(DIR + "/tiers", () => SHARE);
-  const reports: string[] = [];
-  const tools = served(mem, reports);
-  calls.length = 0;
-  const manager = (body: any) => said({ system: body.system }).includes("You are a manager");
-  let managed = 0;
-  script = (body) => {
-    if (!manager(body)) {
-      return answer("worker done");
-    }
-    managed += 1;
-    return managed === 1 ? tooled("spawn", { tasks: ["the worker's part"] }, 1000) : managed === 2 ? answer("waiting on my worker") : answer("all managed");
-  };
-  try {
-    expect(await Tools.spawn(tools, "main", ["manage it"], null, null, "manager")).toContain("Started ");
-    await until(() => reports.length === 1);
-  } finally {
-    script = null;
-  }
-  const [mgr, wkr] = [...tools.agents.values()];
-  expect(mgr.role).toMatchObject({ $: "sub", tier: "manager" });
-  expect(wkr.role).toMatchObject({ $: "sub", tier: "worker" });
-  expect(wkr.parent).toBe(mgr.name);
-  expect(reports).toHaveLength(1);
-  expect(reports[0]).toContain("all managed");
-  const log = Memory.agent(mem, mgr.name)!.map((r) => r.kind + ": " + r.text);
-  expect(log.some((line) => line.startsWith("work: [" + wkr.name + "]") && line.includes("worker done"))).toBe(true);
-  // a worker's request runs on the worker tier's model; the manager's on its own
-  const model = (who: string) => calls.find((c) => said({ system: c.system }).includes(who))?.model;
-  expect(model("You are a manager")).toBe("claude-sonnet-5-5");
-  Tools.close(tools);
   Memory.stop(mem);
 }));
 
@@ -378,18 +343,6 @@ test("a payer's refusal holds the agents' trees with the chat's: asked once, bui
   Memory.stop(mem);
 }));
 
-// the manager Claude Code workers report to (only managers start them):
-// stopped, so a report waits in its chat and starts no call of its own
-// (one revived elsewhere runs on); the reports it was told
-function manager(tools: any): string {
-  const name = Memory.agent_new(tools.mem);
-  const role = { $: "sub", tier: "manager", effort: null, model: null } as const;
-  Memory.agent_push(tools.mem, name, "note", Tools.note(role, "main"));
-  tools.agents.set(name, { name, parent: "main", role, call: null, live: [], calls: {}, stop: true, replies: [], user: false });
-  return name;
-}
-const told = (mem: any, boss: string) => (Memory.agent(mem, boss) ?? []).filter((r: any) => r.kind === "work").map((r: any) => r.text);
-
 // a Claude Code worker (spawn as "claude") asks the person first: no job
 // on its device till approved; approved, its job runs there and its
 // transcript and result reach its tree and its starter; denied, it says so
@@ -397,15 +350,14 @@ test("a Claude Code worker asks first; approved it runs on its device and report
   const mem = Memory.load(DIR + "/claude", () => SHARE);
   const reports: string[] = [];
   const tools = served(mem, reports);
-  const boss = manager(tools);
   const sent: any[] = [];
   Tools.attach(tools, "t1", "mac", "u", { send: (m) => sent.push(m), live: () => true, computer: false, work: "~/w" });
   const go = new AbortController().signal;
-  const out = await Tools.call(tools, boss, "spawn", { tasks: ["fix the bug"], as: "claude", device: "mac", dir: "~/repos/x" }, go, "1");
+  const out = await Tools.call(tools, "main", "spawn", { tasks: ["fix the bug"], as: "claude", device: "mac", dir: "~/repos/x" }, go, "1");
   expect(out.fail).toBe(false);
-  const name = [...tools.agents.keys()][1];
+  const name = [...tools.agents.keys()][0];
   // labelled by its dir's folder, as no repos were given
-  expect(Tools.crew(tools)[1]).toMatchObject({ name, parent: boss, tier: "claude", status: "asking", repos: ["x"] });
+  expect(Tools.crew(tools)[0]).toMatchObject({ name, parent: "main", tier: "claude", status: "asking", repos: ["x"] });
   expect(sent.filter((m) => m.$ === "job")).toEqual([]);
 
   expect(Tools.approve(tools, name, true)).toContain("Approved");
@@ -413,21 +365,20 @@ test("a Claude Code worker asks first; approved it runs on its device and report
   const job = sent.find((m) => m.$ === "job");
   expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x", model: "claude-sonnet-5-5" } });
   expect(job.job.input.task).toContain("fix the bug");
-  expect(Tools.crew(tools)[1].status).toBe("working");
+  expect(Tools.crew(tools)[0].status).toBe("working");
   Tools.done(tools, "mac", job.id, { text: "legion: on it\n\nResult ($0.0100): fixed it", fail: false });
-  await until(() => told(mem, boss).length === 1);
-  expect(told(mem, boss)[0]).toContain("fixed it");
+  await until(() => reports.length === 1);
+  expect(reports[0]).toContain("fixed it");
   expect(Memory.agent(mem, name)!.some((r) => r.kind === "echo" && r.text.includes("legion: on it"))).toBe(true);
   expect(Tools.approve(tools, name, true)).toContain("No Claude Code worker");
 
-  await Tools.call(tools, boss, "spawn", { tasks: ["another"], as: "claude", device: "mac" }, go, "2");
-  const other = [...tools.agents.keys()][2];
+  await Tools.call(tools, "main", "spawn", { tasks: ["another"], as: "claude", device: "mac" }, go, "2");
+  const other = [...tools.agents.keys()][1];
   Tools.approve(tools, other, false);
-  await until(() => told(mem, boss).length === 2);
-  expect(told(mem, boss)[1]).toContain("denied");
+  await until(() => reports.length === 2);
+  expect(reports[1]).toContain("denied");
   expect(sent.filter((m) => m.$ === "job")).toHaveLength(1);
-  expect((await Tools.call(tools, boss, "spawn", { tasks: ["x"], as: "claude", device: "nowhere" }, go, "3")).fail).toBe(true);
-  expect(reports).toEqual([]);
+  expect((await Tools.call(tools, "main", "spawn", { tasks: ["x"], as: "claude", device: "nowhere" }, go, "3")).fail).toBe(true);
   Tools.close(tools);
   Memory.stop(mem);
 }));
@@ -441,9 +392,8 @@ test("a Claude Code worker running as its chat moves still reports, from the new
   const here = served(mem, reports);
   const sent: any[] = [];
   Tools.attach(here, "t1", "mac", "u", { send: (m) => sent.push(m), live: () => true, computer: false, work: "~/w" });
-  const boss = manager(here);
-  await Tools.call(here, boss, "spawn", { tasks: ["long work"], as: "claude", device: "mac" }, new AbortController().signal, "1");
-  const name = [...here.agents.keys()][1];
+  await Tools.call(here, "main", "spawn", { tasks: ["long work"], as: "claude", device: "mac" }, new AbortController().signal, "1");
+  const name = [...here.agents.keys()][0];
   Tools.approve(here, name, true);
   await until(() => sent.some((m) => m.$ === "job"));
   const id = sent.find((m) => m.$ === "job").id;
@@ -453,8 +403,8 @@ test("a Claude Code worker running as its chat moves still reports, from the new
   Tools.take(there, moved, (() => { throw new Error("no call moves"); }) as any);
   expect(Tools.crew(there).find((c) => c.name === name)?.status).toBe("working");
   Tools.done(there, "mac", id, { text: "Result ($0.0100): done there", fail: false });
-  await until(() => told(mem, boss).length === 1);
-  expect(told(mem, boss)[0]).toContain("done there");
+  await until(() => reports.length === 1);
+  expect(reports[0]).toContain("done there");
   Tools.close(there);
   Memory.stop(mem);
 }));
@@ -493,7 +443,7 @@ test("agents' trees past OPEN close, the idle one used longest ago first; one us
 
 // the orchestrator's questions for the user (ask): kept open with the chat
 // (view.json, so a reload keeps them), capped; close withdraws one; only
-// the orchestrator asks (managers ask it)
+// the orchestrator asks (its agents ask it)
 test("ask: the orchestrator files questions, kept across a reload; close withdraws one; agents can't ask", () => faked(async () => {
   const dir = DIR + "/ask";
   const mem = Memory.load(dir, () => SHARE);
@@ -510,7 +460,7 @@ test("ask: the orchestrator files questions, kept across a reload; close withdra
   expect(mem.questions.map((q) => q.id)).toEqual([2]);
   expect((await ask("main", { close: 9 })).fail).toBe(true);
   const name = Memory.agent_new(mem);
-  tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
+  tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
   expect(Tools.list(tools, name).map((t) => t.name)).not.toContain("ask");
   expect((await ask(name, { question: "mine?" })).fail).toBe(true);
   // at most 20 open: past them, refused (none is dropped unseen)
@@ -565,7 +515,7 @@ test("waiting: the orchestrator lists what waits on the user, read-only and capp
   stop.abort();
   await held;
   const name = Memory.agent_new(mem);
-  tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
+  tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
   expect(Tools.list(tools, name).map((t) => t.name)).not.toContain("waiting");
   expect((await wait(name)).fail).toBe(true);
   Tools.close(tools);
@@ -599,7 +549,7 @@ test("notify: the orchestrator's notes go to the pane beside questions, capped a
   expect((await call("main", "ask", { question: "one more" })).fail).toBe(true);
   expect((await call("main", "notify", { text: "still fine" })).fail).toBe(false);
   const name = Memory.agent_new(mem);
-  tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
+  tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
   expect(Tools.list(tools, name).map((t) => t.name)).not.toContain("notify");
   expect((await call(name, "notify", { text: "mine" })).fail).toBe(true);
   Tools.close(tools);
@@ -650,7 +600,7 @@ test("plan: the orchestrator files its plan in plan mode, kept across a reload; 
   expect(filed).toEqual({ text: "Filed your plan for the user's approval; their answer reaches you as a message. Until then, only reading.", fail: false });
   expect(mem.plan?.text).toBe("1. read the tests\n2. fix the race");
   const name = Memory.agent_new(mem);
-  tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "manager", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
+  tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: true, replies: [], user: false } as any);
   expect(Tools.list(tools, name).map((t) => t.name)).not.toContain("plan");
   expect((await plan(name, { plan: "mine" })).fail).toBe(true);
   Tools.close(tools);
@@ -703,7 +653,7 @@ test("agents found by part of a name or title, any case: working, done, archived
   const mem = Memory.load(dir, () => SHARE);
   const tools = served(mem, []);
   const at = (d: number) => "2026-11-" + String(d).padStart(2, "0") + "T10:00:00.000Z";
-  const agent = (name: string, more: object) => tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["ok"], user: false, ...more } as any);
+  const agent = (name: string, more: object) => tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["ok"], user: false, ...more } as any);
   logged(dir, "Live-Alpha", "Ship the thing", [at(1), at(1), at(9)]);
   agent("Live-Alpha", { call: { stop: () => {} }, title: "Ship the thing" });
   logged(dir, "Done-Alpha", "Done thing", [at(1), at(1), at(8)]);
@@ -735,7 +685,7 @@ test("agents found by part of a name or title, any case: working, done, archived
 }));
 
 // RED ZONE (user authority over agents' models, DRAFT awaiting the user's
-// sign-off): Legion may propose a model above a tier's (Opus) for one
+// sign-off): Legion may propose a model above the workers' (Opus) for one
 // spawn; it waits as a call put to the user (Tools.ask_user, answered by
 // the consent act behind SAYS: never a device's or an agent's key, as the
 // "consent" test in Server.test.ts shows), and only their yes starts it
@@ -754,7 +704,7 @@ test("Legion may propose Opus for one spawn: only the user's yes starts it, and 
     expect(Tools.consent(tools, c!.id, true)).toBe(true);
     expect((await asked).fail).toBe(false);
     const [hard] = [...tools.agents.values()];
-    expect(hard!.role).toMatchObject({ $: "sub", tier: "manager", model: "opus-5.5", above: true });
+    expect(hard!.role).toMatchObject({ $: "sub", model: "opus-5.5", above: true });
     await until(() => calls.length >= 1);
     expect(calls[0]!.model).toBe("claude-opus-5-5");
     // a second one is asked again: the yes was for that spawn only; a no starts nothing
@@ -763,14 +713,14 @@ test("Legion may propose Opus for one spawn: only the user's yes starts it, and 
     expect(Tools.consent(tools, Tools.consents(tools)[0]!.id, false)).toBe(true);
     expect((await again).fail).toBe(true);
     expect(tools.agents.size).toBe(1);
-    // the next spawn with no model runs on its tier's, not the one granted
-    expect(await Tools.spawn(tools, "main", ["an easy part"], null, null, "manager")).toContain("Started ");
+    // the next spawn with no model runs on the workers', not the one granted
+    expect(await Tools.spawn(tools, "main", ["an easy part"], null, null)).toContain("Started ");
     const easy = [...tools.agents.values()].find((a) => a !== hard)!;
     expect(easy.role).toMatchObject({ model: null });
     expect((easy.role as any).above).toBeUndefined();
-    // a manager can't propose a model above its workers': refused, nothing asked
-    const mgr = await Tools.call(tools, hard!.name, "spawn", { tasks: ["w"], model: "opus-5.5" }, ctl(), "o3");
-    expect(mgr.fail).toBe(true);
+    // a worker can't spawn, nor so propose a model: refused, nothing asked
+    const wkr = await Tools.call(tools, hard!.name, "spawn", { tasks: ["w"], model: "opus-5.5" }, ctl(), "o3");
+    expect(wkr.fail).toBe(true);
     expect(Tools.consents(tools)).toEqual([]);
   } finally {
     script = null;

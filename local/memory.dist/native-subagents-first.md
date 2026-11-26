@@ -5,8 +5,8 @@ metadata:
   type: feedback
 ---
 
-When a Legion feature starts agents (the cockpit's Review/Fix, routines, automations), start native Legion subagents (Tools.start, tier worker or manager). Offer Claude Code workers only as an explicit option, e.g. an "as Claude Code workers" tick that starts a manager told to spawn as "claude".
+When a Legion feature starts agents (the cockpit's Review/Fix, routines, automations), start native Legion workers (Tools.start). Offer Claude Code workers only as an explicit option, e.g. an "as Claude Code workers" tick that asks Legion to spawn as "claude" (each still waits for the user's yes).
 
-**Why:** Legion's own hierarchy (orchestrator, managers, workers) does the work; Claude Code is a fallback tool, not the default path.
+**Why:** Legion's own crew (the orchestrator and its workers; no managers since 2026-11-26) does the work; Claude Code is a fallback tool, not the default path.
 
-**How to apply:** default to tier worker for single-task agents (one PR, one routine run). Never make Claude Code the default path, and keep the orchestrator unable to spawn Claude Code directly (managers only). Related: [[check-a-change]]
+**How to apply:** start a worker for single-task agents (one PR, one routine run). Never make Claude Code the default path: the orchestrator spawns one only as "claude", one per coding task, saying why. Related: [[check-a-change]]

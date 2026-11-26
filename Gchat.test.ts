@@ -129,12 +129,12 @@ test("the items posted are scrubbed of secret-shaped strings", () => {
 });
 
 // RED ZONE (security review 4 G2, signed off by the user 2026-11-25): an
-// approval of a spawn above its tier's model says so first in the post too
-test("G2: a spawn's approval above its tier's model is posted model first, before a long task", async () => {
+// approval of a spawn above the workers' model says so first in the post too
+test("G2: a spawn's approval above the workers' model is posted model first, before a long task", async () => {
   const { Tools } = await import("./Tools.ts");
   const what = Tools.shown("spawn", { tasks: ["do the hard part ".repeat(200)], model: "opus-5.5" });
   const [item] = gchat_items({ questions: [], assigned: [], decided: [], calls: [{ id: 5, who: "main", tool: "spawn", what, fp: "f" }] }, Date.now());
-  expect(item!.text.slice(0, 120)).toContain("Start 1 manager on opus-5.5 instead of ");
+  expect(item!.text.slice(0, 120)).toContain("Start 1 worker on opus-5.5 instead of ");
 });
 
 // RED ZONE: who may answer

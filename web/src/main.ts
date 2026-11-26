@@ -546,6 +546,10 @@ function act(a: View.Act): void {
   if (a.$ === "Transcript") {
     C.reading.set(a.id, Date.now());
   }
+  // one model call, up to a minute: said, as the terminal's /themes says it
+  if (a.$ === "Themes") {
+    toast("Summarizing the digest by theme…");
+  }
   const refused = (out: View.Answer) => {
     if (a.$ === "Transcript" && out.error !== undefined) {
       C.reading.delete(a.id);
@@ -1836,8 +1840,7 @@ function routine_add(ev: SubmitEvent): void {
   const f = new FormData(form);
   const kind = String(f.get("kind"));
   const when = kind === "daily" ? { $: "daily" as const, at: String(f.get("at")) } : kind === "weekly" ? { $: "weekly" as const, day: Number(f.get("day")), at: String(f.get("at")) } : kind === "every" ? { $: "every" as const, hours: Number(f.get("hours")) } : { $: "review" as const };
-  const tier = f.get("tier") === "manager" ? "manager" : "worker";
-  act({ $: "Routine", op: "add", routine: { name: String(f.get("name")), task: String(f.get("task")), when, tier } });
+  act({ $: "Routine", op: "add", routine: { name: String(f.get("name")), task: String(f.get("task")), when } });
   form.reset();
 }
 

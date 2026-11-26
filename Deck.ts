@@ -241,7 +241,7 @@ function deck_inbox_key(v: View.View, d: Deck, key: string, now: number): Out | 
         : act_or_say(d, key === "r" ? "Nothing to review there: r takes review requests." : "Nothing to fix there: f takes your PRs failing, in conflict or with changes asked.");
     }
     case "c":
-      return go({ ...d, claude: !d.claude, say: "Picks go to " + (d.claude ? "Legion agents." : "Claude Code workers, under a manager.") });
+      return go({ ...d, claude: !d.claude, say: "Picks go to " + (d.claude ? "Legion agents." : "Claude Code workers, asked of Legion.") });
     case "/":
       return go({ ...d, typing: true });
     case "R":

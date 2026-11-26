@@ -270,7 +270,7 @@ await end(started[0], "1 2 3");
 const reported = await until(() => works.length === 1);
 await Bun.sleep(100);
 const mine = { reported, busy: chat.busy, working: Chat.state(chat).agents.length };
-const ai = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "count to 2");
+const ai = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, "count to 2");
 await end(ai, "1 2");
 const ais = { reported: await until(() => works.length === 2), busy: await until(() => chat.busy) };
 console.log(JSON.stringify({ acted, started, mine, ais }));
@@ -359,7 +359,7 @@ const until = async (f) => {
   for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10);
   return f();
 };
-const name = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "a task");
+const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, "a task");
 await until(() => asks.length === 1);
 Chat.ask(chat, a, { $: "agent", name });
 got.a.length = 0;
@@ -732,7 +732,7 @@ Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
 const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 const links = [];
-const agent = (name, more) => ({ name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["done it"], user: false, ...more });
+const agent = (name, more) => ({ name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: ["done it"], user: false, ...more });
 chat.tools.agents.set("Owl", agent("Owl", { device: "box", title: "Fix $(it)" }));
 chat.tools.agents.set("Busy", agent("Busy", { device: "box", runs: true }));
 chat.tools.agents.set("Far", agent("Far", { device: "gone" }));
@@ -821,8 +821,9 @@ test("timesheet: Submit sends the user's drafts to one device; its answer marks 
 
 // PRs of the inbox reviewed or fixed (the cockpit's Review / Fix): a native
 // Legion worker each, labelled by its PR and repo, started by the user (its
-// report takes no turn); with claude, a manager told to run a Claude Code
-// worker; only PRs the inbox holds, at most Chat.REVIEWS at once
+// report takes no turn); with claude, one work message asks Legion to run
+// a Claude Code worker each (no managers: user's ask 2026-11-26), the PRs'
+// words fenced; only PRs the inbox holds, at most Chat.REVIEWS at once
 const REVIEW = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
 const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
@@ -833,6 +834,9 @@ Chat.chats.set("u1", chat);
 const { Tools } = await import(${JSON.stringify(import.meta.dir + "/Tools.ts")});
 AskAI.ask = (ask, on) => AskAI.tie(on, ask.bill, () => {}, () => {})[0];
 const asked = [];
+// a work message to Legion, as asked (it logs once any post's logging ends: Chat.hold)
+const works = [];
+Chat.work = (c, text, take) => void works.push(take ? text : "(no turn) " + text);
 const start = Tools.start;
 Tools.start = (...args) => { asked.push(args[3] + " | user: " + args[4]); return start(...args); };
 const pr = (n, state) => ({ repo: "o/r", number: n, title: "T" + n, url: "https://github.com/o/r/pull/" + n, author: "ann", bot: false, updated: "", add: 1, del: 0, files: 1, branch: "b" + n, state, failing: state === "failing" ? ["ruff"] : [], body: "", you: true });
@@ -843,11 +847,11 @@ const many = await Chat.act(chat, "r2", { $: "review", prs: Array.from({ length:
 const review = await Chat.act(chat, "r3", { $: "review", prs: ["https://github.com/o/r/pull/5"], how: "review", claude: false }, "");
 const fix = await Chat.act(chat, "r4", { $: "review", prs: ["https://github.com/o/r/pull/6"], how: "fix", claude: true }, "");
 const crew = Chat.state(chat).crew.map((c) => ({ tier: c.tier, parent: c.parent, title: c.title, repos: c.repos }));
-console.log(JSON.stringify({ unknown: "error" in unknown, odd: "error" in odd, many: "error" in many, review, fix, crew, asked }));
+console.log(JSON.stringify({ unknown: "error" in unknown, odd: "error" in odd, many: "error" in many, review, fix, crew, asked, works }));
 process.exit(0);
 `;
 
-test("inbox PRs reviewed or fixed: a native worker each (a manager with a Claude Code worker if asked); only the inbox's", async () => {
+test("inbox PRs reviewed or fixed: a native worker each (Legion asked for a Claude Code worker each if asked); only the inbox's", async () => {
   const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/review.ts", REVIEW);
   const proc = Bun.spawn([process.execPath, dir + "/review.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
@@ -855,15 +859,19 @@ test("inbox PRs reviewed or fixed: a native worker each (a manager with a Claude
   expect(out).toMatchObject({ unknown: true, odd: true, many: true, review: {}, fix: {} });
   expect(out.crew).toEqual([
     { tier: "worker", parent: "main", title: "review o/r#5", repos: ["r"] },
-    { tier: "manager", parent: "main", title: "fix o/r#6", repos: ["r"] },
   ]);
-  expect(out.asked.length).toBe(2);
+  expect(out.asked.length).toBe(1);
   expect(out.asked[0]).toContain("Review o/r#5 \"T5\" (https://github.com/o/r/pull/5)");
   expect(out.asked[0]).toContain("Post nothing to GitHub");
   expect(out.asked[0]).toContain("run its tests"); // the user started it, watching
-  expect(out.asked[1]).toContain("failing checks: ruff");
-  expect(out.asked[1]).toContain("spawn as: \"claude\"");
-  expect(out.asked[1]).toContain("Don't push");
+  // claude: no agent started by the server; Legion is asked, the PRs fenced
+  expect(out.works).toHaveLength(1);
+  expect(out.works[0]).toStartWith("[Inbox] The user asks for a Claude Code worker per PR");
+  expect(out.works[0]).toContain("spawn as: \"claude\"");
+  expect(out.works[0]).toContain('<untrusted source="inbox">');
+  expect(out.works[0]).toContain("fix o/r#6: Fix o/r#6 \"T6\"");
+  expect(out.works[0]).toContain("failing checks: ruff");
+  expect(out.works[0]).toContain("Don't push");
   expect(out.asked.every((t: string) => t.endsWith(" | user: true"))).toBe(true); // the user's: its report takes no turn
 });
 
@@ -882,9 +890,9 @@ Chat.chats.set("u1", chat);
 AskAI.ask = (ask, on) => AskAI.tie(on, ask.bill, () => {}, () => {})[0];
 const started = [];
 const start = Tools.start;
-Tools.start = (...args) => { started.push({ tier: args[2].tier, task: args[3], user: args[4], title: args[5]?.title, plan: args[6] === true }); return start(...args); };
+Tools.start = (...args) => { started.push({ role: args[2].$, task: args[3], user: args[4], title: args[5]?.title, plan: args[6] === true }); return start(...args); };
 const add = (r) => Chat.act(chat, "a" + Math.random(), { $: "routine", op: "add", routine: r }, "");
-const ok = await add({ name: "Sweep", task: "clean the worktrees", when: { $: "every", hours: 1 }, tier: "worker" });
+const ok = await add({ name: "Sweep", task: "clean the worktrees", when: { $: "every", hours: 1 } });
 const bad = await add({ name: "", task: "x", when: { $: "every", hours: 1 } });
 const listed = Chat.state(chat).routines.map((r) => ({ id: r.id, name: r.name, on: r.on }));
 const run = await Chat.act(chat, "r1", { $: "routine", op: "run", n: 1 }, "");
@@ -918,9 +926,9 @@ test("routines: added and checked, run now, run by the tick once when due, off, 
   const proc = Bun.spawn([process.execPath, dir + "/routine.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toMatchObject({ ok: {}, bad: true, listed: [{ id: 1, name: "Sweep", on: true }], run: {}, ran: 1, early: 0, due: 1, again: 0, off: {}, offdue: 0, unknown: true, seeded: 0, drop: {}, full: true });
-  expect(out.first).toEqual({ tier: "worker", task: "clean the worktrees", user: true, title: "routine: Sweep", plan: false });
+  expect(out.first).toEqual({ role: "sub", task: "clean the worktrees", user: true, title: "routine: Sweep", plan: false });
   expect(out.reviewed.length).toBe(1);
-  expect(out.reviewed[0]).toMatchObject({ tier: "worker", user: true, title: "review o/r#2", plan: true });
+  expect(out.reviewed[0]).toMatchObject({ role: "sub", user: true, title: "review o/r#2", plan: true });
   expect(out.reviewed[0].task).toContain("Review o/r#2");
   // started unattended, on a stranger's code: it reads, never runs it
   expect(out.reviewed[0].task).not.toContain("run its tests");
@@ -1009,7 +1017,13 @@ const cached = await Chat.act(chat, "t2", { $: "themes" }, "");
 reply = "no json here";
 await Chat.act(chat, "i2", { $: "inbox", inbox: inbox([pr(1), pr(2), pr(3)]) }, "mac");
 const bad = await Chat.act(chat, "t3", { $: "themes" }, "");
-console.log(JSON.stringify({ none: "error" in none, ok, cached, bad: "error" in bad, asks, themes: sent.filter((m) => m.$ === "themes").map((m) => m.themes.by) }));
+reply = JSON.stringify({ "@ANN": ["Login, as @ named (#1)"] });
+await Chat.act(chat, "i3", { $: "inbox", inbox: inbox([pr(1)]) }, "mac");
+const at = await Chat.act(chat, "t4", { $: "themes" }, "");
+reply = JSON.stringify({ mallory: ["not in the digest"] });
+await Chat.act(chat, "i4", { $: "inbox", inbox: inbox([pr(2)]) }, "mac");
+const nobody = await Chat.act(chat, "t5", { $: "themes" }, "");
+console.log(JSON.stringify({ none: "error" in none, ok, cached, bad: "error" in bad, at, nobody: nobody.error ?? null, asks, themes: sent.filter((m) => m.$ === "themes").map((m) => m.themes.by) }));
 process.exit(0);
 `;
 
@@ -1018,10 +1032,14 @@ test("the digest's themes: one compactor call, its JSON checked, asked again onl
   fs.writeFileSync(dir + "/themes.ts", THEMES);
   const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
-  expect(out).toMatchObject({ none: true, ok: {}, cached: {}, bad: true });
-  expect(out.asks.length).toBe(2);
+  expect(out).toMatchObject({ none: true, ok: {}, cached: {}, bad: true, at: {} });
+  // an author named as "@ANN" is ann's (case and a leading @ aside); a
+  // reply naming none of the digest's authors is an error, never silence
+  expect(out.themes.at(-1)).toEqual({ ann: ["Login, as @ named (#1)"] });
+  expect(out.nobody).toMatch(/none of/);
+  expect(out.asks.length).toBe(4);
   expect(out.asks[0]).toContain("ann: #1 T1 (o/r)");
-  expect(out.themes.length).toBe(1);
+  expect(out.themes.length).toBe(2);
   expect(Object.keys(out.themes[0])).toEqual(["ann"]);
   expect(out.themes[0].ann[0]).toBe("Login fixes (#1, #2)");
   expect(out.themes[0].ann[1].length).toBe(200);
@@ -1480,7 +1498,7 @@ const until = async (f) => {
   for (let k = 0; k < 200 && !f(); k++) await Bun.sleep(10);
   return f();
 };
-const name = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "Find the flaky test");
+const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, "Find the flaky test");
 await until(() => asks.length === 1);
 asks[0].sink.end({ ok: true, text: "done", left: [] });
 await until(() => !chat.tools.agents.get(name).runs);
@@ -1544,7 +1562,7 @@ const until = async (f) => {
   for (let k = 0; k < 300 && !f(); k++) await Bun.sleep(10);
   return f();
 };
-const name = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "a task");
+const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, "a task");
 await until(() => asks.length === 1);
 Chat.ask(chat, a, { $: "watch", names: [name, "Nobody", ...Array.from({ length: 40 }, (_, k) => name)] });
 const watched = [...a.data.watch];

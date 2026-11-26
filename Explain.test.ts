@@ -92,7 +92,7 @@ const until = async (f) => {
   return f();
 };
 const T0 = ${T0};
-const top = (c, name) => c.tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+const top = (c, name) => c.tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
 const card = { track: "Owl", title: "Explain tab", what: "A page that says what the team builds", why: "Managers", status: "Started", watch: "nothing" };
 Memory.push(chat.mem, [{ kind: "user", text: "Make the page plainer" }]);
 const count = chat.mem.count;
@@ -328,7 +328,7 @@ AskAI.ask = (ask, on) => {
   queueMicrotask(() => sink.end({ ok: true, text: JSON.stringify({ cards: [] }), left: [] }));
   return call;
 };
-chat.tools.agents.set("Owl", { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+chat.tools.agents.set("Owl", { name: "Owl", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
 chat.mem.goal = "Ship";
 const before = [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }];
 chat.mem.explain.cards = before;
@@ -368,6 +368,27 @@ test("themes: fixed once made; a new agent joins an existing theme (any case), e
   expect(capped.M).toBe("T1");
   expect(new Set(Object.values(capped)).size).toBe(Explain.THEMES);
   expect(Explain.THEMES).toBe(Explain.CARDS);
+});
+
+// the live page's bug (2026-11-26): 156 agents kept with a theme, most
+// long gone, filled the THEMES cap, so every new agent went to the first
+// theme while the observer wrote cards for themes of its own, and no card
+// matched: the page failed on every try
+test("themes: only the crew's themes count to THEMES, so agents gone never crowd a new one out", () => {
+  const gone: Record<string, string> = {};
+  for (let k = 1; k <= Explain.THEMES; k++) gone["old" + k] = "T" + k;
+  const made = Explain.explain_assign(themed([{ theme: "Billing page", tracks: ["N"] }]), gone, ["N"]);
+  expect(made.N).toBe("Billing page");
+  expect(made.old1).toBe("T1");
+  const cards = Explain.explain_cards(JSON.stringify({ cards: [{ track: "Billing page", title: "t", what: "w", why: "y", status: "s", watch: "n" }] }), Explain.theme_names(made, ["N"]));
+  expect(Array.isArray(cards)).toBe(true);
+});
+
+test("cards: a card's track is matched as its theme name is made (cut to THEME_WORDS), so a long new theme still gets its card", () => {
+  const made = Explain.explain_assign(themed([{ theme: "one two three four five six", tracks: ["Owl"] }]), {}, ["Owl"]);
+  expect(made.Owl).toBe("one two three four five");
+  const cards = Explain.explain_cards(JSON.stringify({ cards: [{ track: "one two three four five six", title: "t", what: "w", why: "y", status: "s", watch: "n" }] }), Explain.theme_names(made, ["Owl"]));
+  expect(cards).toEqual([{ track: "one two three four five", title: "t", what: "w", why: "y", status: "s", watch: "n" }]);
 });
 
 test("themes: their names in crew order, an agent with none its own; the brief the observer reads lists each theme's agents and those not in one yet", () => {

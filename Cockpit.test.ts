@@ -265,7 +265,7 @@ test("away: agents failed first (why: its last line), then done; capped with a c
 test("away: routines run since, questions and notes counted only (never their text), the inbox's changes", () => {
   const v = View.view_new();
   const at = NOW - 3 * 3600e3;
-  const routine = (id: number, last: number | null) => ({ id, name: "r<" + id + ">", task: "t", when: { $: "review" as const }, tier: "worker" as const, on: true, last, made: 0 });
+  const routine = (id: number, last: number | null) => ({ id, name: "r<" + id + ">", task: "t", when: { $: "review" as const }, on: true, last, made: 0 });
   v.routines = [routine(1, NOW - 3600e3), routine(2, at - 60e3), routine(3, null)];
   const q = (id: number, date: number, fyi?: true) => ({ id, text: "secret question " + id, at: 0, date: new Date(date).toISOString(), ...(fyi ? { fyi } : {}) });
   v.questions = [q(1, at - 60e3), q(2, NOW - 60e3), q(3, NOW - 120e3), q(4, NOW - 60e3, true)];
@@ -357,7 +357,7 @@ test("the terminal's timesheet: drafts by day, newest first; /timesheet submit s
   expect(Cockpit.timesheet_cmd(v, "drop 2")).toEqual({ $: "Timesheet", op: "drop", ns: [2] });
   expect(Cockpit.timesheet_cmd(v, "drop 1")).toBe("Draft 1 is sent: only open drafts drop.");
   expect(Cockpit.timesheet_cmd(v, "weekly")).toEqual({ $: "Routine", op: "add", routine: Cockpit.TIMESHEET_ROUTINE });
-  v.routines = [{ id: 1, name: Cockpit.TIMESHEET_ROUTINE.name, task: "", when: { $: "review" }, tier: "worker", on: true, last: null, made: 0 }];
+  v.routines = [{ id: 1, name: Cockpit.TIMESHEET_ROUTINE.name, task: "", when: { $: "review" }, on: true, last: null, made: 0 }];
   expect(Cockpit.timesheet_cmd(v, "weekly")).toBe("The weekly drafting routine is on already: /routines.");
 });
 

@@ -53,7 +53,7 @@ const w2 = await call("main", "wait", { seconds: 600 }, "w2", cut.signal);
 const cutms = Date.now() - t;
 
 // timers: set, refused, closed; a chat with one stays open
-const worker = Tools.start(chat.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "a task");
+const worker = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, "a task");
 const tools = { main: names("main"), sub: names(worker) };
 const m1 = await call("main", "timer", { minutes: 5, note: "check CI" }, "t1");
 const s1 = await call(worker, "timer", { minutes: 1, note: "poll the job" }, "t2");
@@ -129,7 +129,7 @@ await Bun.sleep(50);
 const dev = { send: () => {}, data: { ...view.data, who: "dev", host: "mac", device: "mac", seen: new Set(), watch: new Set() } };
 c3.socks.add(dev);
 const chained = await t3("main", { minutes: 5, note: "check CI again" }, "z3");
-const w3 = Tools.start(c3.tools, "main", { $: "sub", tier: "worker", effort: null, model: null }, "t");
+const w3 = Tools.start(c3.tools, "main", { $: "sub", effort: null, model: null }, "t");
 const chainedsub = await t3(w3, { minutes: 5, note: "and again" }, "z4");
 c3.socks.delete(dev);
 c3.socks.add(view);

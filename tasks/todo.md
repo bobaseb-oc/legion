@@ -1385,3 +1385,67 @@ Not renamed: tasks/todo.md and tasks/lessons.md history (records of what was don
 - [x] Found on the way: old agent notes ("manager of Unii", 1985 history files) read as children of main (Tools.mained); the launcher starts nothing while ~/.unii is a dir (stop uses ~/.unii and unii-searxng); `legion rename` subcommand; README origin (user, 2026-11-26).
 - [ ] 8. Rebuild `web/app.js`; full `bun run test`; pre-ship polish; PR via `gh stack`.
 - [ ] After merge (user): stop server and device; run the migration; `~/.zshrc`: `UNII_HOME_REPO`→`LEGION_HOME_REPO`, drop `alias unii`; `legion device --install` and `legion server --install` again (plists hold the old env and path); sign in again with `legion web`; rename GitHub repo and local checkout (asked separately).
+
+## No managers (user's ask 2026-11-26): Legion works with workers directly
+
+Intent: cut one handoff. Legion (main) starts, tells and stops every agent;
+the manager tier is gone. RED ZONE: who may start/tell/stop agents is access
+control; the PR stays a draft until the user signs off.
+
+Constraints: stored data is not rewritten. A "manager of X" note loads as a
+worker; an older worker keeps its manager as parent (see review). A routine stored with
+tier "manager" runs as a worker. Every gate on Claude Code workers stays
+(the user's yes before one runs).
+
+- [x] Red tests: Legion's spawn defaults to worker and offers claude; a worker has no spawn/tell/stop and a call is refused; "manager of X" loads as a worker of Legion; a routine with tier manager loads and starts a worker
+- [x] Tools.ts: no Tier, MGR prompt, MANAGES; Tools.boss is main only; Legion starts Claude Code workers; older notes keep their parent
+- [x] Config.ts: no MANAGER (`agents` still sets WORKER)
+- [x] Routines.ts and Server.ts: no tier; inbox "as Claude Code workers" goes to Legion as a request
+- [x] UI (View, Cockpit, Explain, Deck, Demo, Paint, web/src) and web/app.js rebuilt
+- [x] prompt.txt and README describe the flat crew
+- [x] Mutation check: manages-main-only, worker-has-no-spawn-tools, legacy "manager of" parse
+- [x] Targeted tests, then the full suite
+
+Review (2026-11-26):
+- Red: 3 of 4 new tests failed at 67caaff (the fourth, a worker has no
+  spawn/tell/stop/overrule, already held: kept as a guard).
+- Changed my plan once: reparenting older agents to Legion would have freed a
+  read-only manager's workers from plan mode (Tools.planned walks parents;
+  H4), so older workers keep their manager as parent and Tools.under keeps
+  its walk (Tools.below, status and stop cascade for older logs).
+- Tests deleted, manager behaviour only: 4 (a manager's spawn and reports,
+  agents.test.ts; a manager tells/stops only its own workers; a worker with a
+  manager has no spawn/tell/stop, superseded; Legion refuses claude). The
+  rest were rewritten for Legion or drop the tier field.
+- Mutants (Tools, agents tests): boss not main-only, workers given
+  spawn/tell/stop, "manager of" not parsed, older parent reparented: 4 of 4
+  killed.
+- Full suite: 1098 pass, 1 skip, 0 fail (253 s). tsc not run: this checkout
+  has no node_modules or tsconfig (earlier sessions found the same).
+- Left: the Crew tree's folding and the tiles' dots only show nested agents
+  of an older log now; Tools.up and finish's branch for a non-Legion parent
+  serve older logs only. Remove them once no older agent is kept.
+
+## Reviewer refusal cache (RED ZONE DRAFT, 2026-11-26)
+
+Why: 1,271 reviewer refusals in 3 days; the same call was refused up to
+12 times, each a reviewer call plus an agent turn.
+
+- [x] Red tests in Tools.test.ts: a repeat of a refused call is refused from the cache, with no reviewer call, and says not to resend it
+- [x] Negative tests: an allow is never cached; a new user message re-reviews; TTL expiry re-reviews; a grant beats the cache; other args miss; the boss note is sent once only; a stopped appeal is not cached
+- [x] Tools.review: cache final refusals (decide "refuse", appeal no or timeout) by Pending.fp, with the latest user message's index; TTL 30 min; at most 200 entries
+- [x] First hit by a sub-agent: one note to its boss
+- [x] Mutation check of the guards
+- [x] Targeted and full suite green
+
+Review: 6 new tests; Tools+Modes+Machine 139/0; full suite 1103 pass, 1 skip, 0 fail. Mutation 9/10 killed; the survivor (`who !== "main"` before the boss note) is an equivalent mutant, kept as an explicit guard. Awaiting the user's RED ZONE sign-off.
+
+## Tracks and Digest fixes (2026-11-26)
+
+User: Tracks shows no agent todo lists and no summaries; Digest's title is a bold list of repos and "Summarize by theme" seems to do nothing.
+
+- [x] Todo lists: Tracks shows only Legion's direct agents; every checklist was a manager's worker's. Fixed by "No managers" above (new workers are Legion's).
+- [x] Summaries: 156 stored themes (124 of agents gone) filled the THEMES cap, so new agents were forced into the first theme and no card matched; a failure saved nothing, so every retry failed. Explain.explain_assign counts only the crew's themes; explain_cards matches a card's track as theme_name makes it. Red tests 02d03d7, fix 984ffca.
+- [x] Digest: title "Digest: last 7 days", repos as a plain line; Chat.themes matches authors in any case and without "@", a reply naming none is an error; the web toasts while it summarizes. Red tests cac8bba, fix 15675ef.
+
+Review: Explain, Cockpit, Pages, Tracks, Server, Html suites green (215 pass). Not checked in a browser (Chrome remote debugging off). Older agents under old managers stay off Tracks until they finish (they keep their old parent, see "No managers").

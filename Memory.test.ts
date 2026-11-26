@@ -13,7 +13,7 @@ import { CHECKLISTS, Memory } from "./Memory.ts";
 import { TODO_TEXT, TODOS } from "./View.ts";
 
 const DAY = { $: "daily", at: "09:30" };
-const good = { id: 1, name: "Morning", task: "Triage", when: DAY, tier: "worker", on: true, last: null, made: 1 };
+const good = { id: 1, name: "Morning", task: "Triage", when: DAY, on: true, last: null, made: 1 };
 const timer = { id: 1, who: "main", at: 5, note: "poll the job", made: 1 };
 
 function loaded(saved: object) {

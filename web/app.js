@@ -16,14 +16,14 @@ function demo_crew(now) {
   const crew = [];
   for (let m = 0;m < 8; m++) {
     const [title, repos] = GOALS[m];
-    crew.push({ name: "Mgr" + m, parent: "main", tier: "manager", model: "opus-5.5", status: m % 3 === 2 ? "done" : "waiting", since: now - (m + 1) * 60000, title, repos, spent: 0.35 + m * 1.7 });
+    crew.push({ name: "Mgr" + m, parent: "main", tier: "worker", model: "opus-5.5", status: m % 3 === 2 ? "done" : "waiting", since: now - (m + 1) * 60000, title, repos, spent: 0.35 + m * 1.7 });
     for (let w = 0;w < 5; w++) {
       const part = w < PARTS.length ? { title: PARTS[w], repos: [repos[w % repos.length]] } : {};
       const todo = w === 0 ? { todo: STEPS.map((text, k) => ({ text, status: k < m % STEPS.length ? "done" : k === m % STEPS.length ? "doing" : "pending" })) } : {};
       crew.push({ name: "W" + m + "-" + w, parent: "Mgr" + m, tier: "worker", model: "sonnet-5.5", status: STATUSES[(m + w) % STATUSES.length], since: now - (w + 1) * 9000, ...part, ...todo });
     }
   }
-  crew.push({ name: "Sub3", parent: "Mgr3", tier: "manager", model: "opus-5.5", status: "waiting", since: now - 30000 });
+  crew.push({ name: "Sub3", parent: "Mgr3", tier: "worker", model: "opus-5.5", status: "waiting", since: now - 30000 });
   crew.push({ name: "W3-sub", parent: "Sub3", tier: "worker", model: "haiku-5.5", status: "working", since: now - 5000 });
   crew.push({ name: "Claude1", parent: "main", tier: "claude", model: "claude-code", status: "asking", since: now, title: "Refactor the device jobs", repos: ["legion"] });
   return crew;
@@ -3694,8 +3694,7 @@ function picks_acts(sections, picks, claude) {
 var TIMESHEET_ROUTINE = {
   name: "Timesheet drafts",
   task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
-  when: { $: "weekly", day: 5, at: "09:00" },
-  tier: "worker"
+  when: { $: "weekly", day: 5, at: "09:00" }
 };
 function todo_who(a) {
   return a.by === "main" ? MAIN : a.by;
@@ -3997,7 +3996,7 @@ function routines_html(v, now) {
   const time = (ms) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const rows = (v.routines ?? []).map((r) => {
     const next = routine_next(r, now);
-    const when = `<span class="meta">${esc2(when_text(r.when))} · ${r.tier}${!r.on ? " · off" : next === null ? "" : " · next " + esc2(time(next))}${r.last === null ? "" : " · last " + esc2(age(now - r.last)) + " ago"}</span>`;
+    const when = `<span class="meta">${esc2(when_text(r.when))}${!r.on ? " · off" : next === null ? "" : " · next " + esc2(time(next))}${r.last === null ? "" : " · last " + esc2(age(now - r.last)) + " ago"}</span>`;
     const run = r.when.$ === "review" ? "" : `<button class="pbtn"${act_html2({ $: "Routine", op: "run", n: r.id })}>Run now</button>`;
     const flip = `<button class="pbtn"${act_html2({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html2({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
@@ -4010,7 +4009,7 @@ function routines_html(v, now) {
     return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc2(r.name)}”</b>${when}</div>` + `<blockquote class="rwhy">${who}'s words: “${esc2(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
   const head = `<div class="phead"><h2>Routines</h2><p class="meta">Each starts a Legion agent on its task; they run while Legion's server runs and a view or a device is connected.</p></div>`;
-  const form = `<form class="radd"><b>New routine</b><input name="name" placeholder="Name" maxlength="${NAME3}" required>` + `<div class="rwhen"><select name="kind"><option value="daily">daily at</option><option value="weekly">weekly on</option><option value="every">every</option><option value="review">on each new review request</option></select>` + `<select name="day" aria-label="day">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}"${i === 5 ? " selected" : ""}>${d}</option>`).join("")}</select>` + `<input name="at" type="time" value="09:00"><input name="hours" type="number" min="1" max="${HOURS}" value="4" aria-label="hours"><span class="meta">hours</span>` + `<select name="tier"><option value="worker">a worker</option><option value="manager">a manager</option></select></div>` + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${TASK}"></textarea><button class="pbtn">Add</button></form>`;
+  const form = `<form class="radd"><b>New routine</b><input name="name" placeholder="Name" maxlength="${NAME3}" required>` + `<div class="rwhen"><select name="kind"><option value="daily">daily at</option><option value="weekly">weekly on</option><option value="every">every</option><option value="review">on each new review request</option></select>` + `<select name="day" aria-label="day">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}"${i === 5 ? " selected" : ""}>${d}</option>`).join("")}</select>` + `<input name="at" type="time" value="09:00"><input name="hours" type="number" min="1" max="${HOURS}" value="4" aria-label="hours"><span class="meta">hours</span>` + `</div>` + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${TASK}"></textarea><button class="pbtn">Add</button></form>`;
   return [head, ...rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows, form];
 }
 function timers_html(v) {
@@ -4032,7 +4031,8 @@ function digest_html(v) {
   if (d === null) {
     return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo).</p>${refresh}</div>`];
   }
-  const head = `<div class="phead"><h2>${esc2(d.repos.join(", "))}: last 7 days</h2><p class="meta">${d.merged.length} merged · ${d.open.length} open</p>` + `<button class="pbtn"${act_html2({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
+  const repos = `<p class="meta">${d.repos.length} repo${d.repos.length === 1 ? "" : "s"}: ${esc2(d.repos.join(", "))}</p>`;
+  const head = `<div class="phead"><h2>Digest: last 7 days</h2>${repos}<p class="meta">${d.merged.length} merged · ${d.open.length} open</p>` + `<button class="pbtn"${act_html2({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
   const pr = (p) => `<li><a href="${esc2(p.url)}" target="_blank" rel="noopener noreferrer">${esc2(p.title)}</a> <span class="meta">#${p.number}</span></li>`;
   const merged = digest_groups(d.merged).map((g) => {
     const themes = v.themes?.[g.author];
@@ -4713,6 +4713,9 @@ function act(a) {
   P.rows = true;
   if (a.$ === "Transcript") {
     C.reading.set(a.id, Date.now());
+  }
+  if (a.$ === "Themes") {
+    toast("Summarizing the digest by theme…");
   }
   const refused = (out) => {
     if (a.$ === "Transcript" && out.error !== undefined) {
@@ -5756,8 +5759,7 @@ function routine_add(ev) {
   const f = new FormData(form);
   const kind = String(f.get("kind"));
   const when = kind === "daily" ? { $: "daily", at: String(f.get("at")) } : kind === "weekly" ? { $: "weekly", day: Number(f.get("day")), at: String(f.get("at")) } : kind === "every" ? { $: "every", hours: Number(f.get("hours")) } : { $: "review" };
-  const tier = f.get("tier") === "manager" ? "manager" : "worker";
-  act({ $: "Routine", op: "add", routine: { name: String(f.get("name")), task: String(f.get("task")), when, tier } });
+  act({ $: "Routine", op: "add", routine: { name: String(f.get("name")), task: String(f.get("task")), when } });
   form.reset();
 }
 function inbox_bars() {
