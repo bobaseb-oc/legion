@@ -202,7 +202,13 @@ export type Tools = {
   grants? : Map<string, Pending.Grant>; // RED ZONE (R4, DRAFT awaiting the user's sign-off): the user's live yes to a re-shown call, by its fp (Tools.regrant)
   ending? : boolean; // the chat ends (Chat.end): a wait cut stays open on disk
   reviewing?: number; // the reviewer's checks running (Tools.review): the chat is not idle (Chat.idle), billed or not
+  refused?: Map<string, Refused>; // RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off): calls refused for good, by their fp (Tools.review)
 };
+
+// RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off): a
+// call the reviewer refused for good: the refusal, the user's latest
+// message's index then (Tools.said_at), when, whether its boss was told
+type Refused = { text: string; said: number; at: number; told: boolean };
 
 // a call auto mode's reviewer couldn't check, waiting for the user: its
 // number, who calls, its tool, what it does (shown), its fp (Pending.fp),
@@ -686,6 +692,12 @@ export namespace Tools {
     if (Pending.take((tools.grants ??= new Map()), who, name, args, Date.now())) {
       return null;
     }
+    const fp = Pending.fp(who, name, args);
+    const said = Tools.said_at(tools.mem);
+    const again = Tools.refused_again(tools, who, name, args, fp, said);
+    if (again !== null) {
+      return again;
+    }
     tools.reviewing = (tools.reviewing ?? 0) + 1;
     let verdict: Awaited<ReturnType<typeof Tools.reviewed>>;
     try {
@@ -700,13 +712,72 @@ export namespace Tools {
         case "run":
           return null;
         case "appeal":
-          return (await Tools.appeal(tools, who, name, args, verdict.allow ? "" : verdict.reason, signal)) ? null : refused;
+          if (await Tools.appeal(tools, who, name, args, verdict.allow ? "" : verdict.reason, signal)) {
+            return null;
+          }
+          // a stop is no answer: not kept
+          if (!signal.aborted) {
+            Tools.refuse(tools, fp, refused!, said);
+          }
+          return refused;
         default:
+          Tools.refuse(tools, fp, refused!, said);
           return refused;
       }
     }
     const yes = await Tools.ask_user(tools, who, name, args, signal);
     return yes ? null : "The user refused this call (auto mode's reviewer couldn't check it).";
+  }
+
+  // RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off):
+  // how long a refusal is kept, and how many at most (oldest dropped)
+  export const REFUSED = { ms: 30 * 60_000, max: 200 };
+
+  // the index of the user's latest message (a check's nudge is none: G3);
+  // -1: none. A refusal kept before it is asked again
+  export function said_at(mem: Memory | undefined): number {
+    for (let i = (mem?.count ?? 0) - 1; i >= 0; i--) {
+      const m = Memory.message(mem, i);
+      if (m?.kind === "user" && m.text.trim() !== "" && !Directives.checked(m.text)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // a refusal kept, as the reviewer's last word on the call (fp)
+  export function refuse(tools: Tools, fp: string, text: string, said: number): void {
+    const kept = (tools.refused ??= new Map());
+    kept.delete(fp);
+    kept.set(fp, { text, said, at: Date.now(), told: false });
+    while (kept.size > Tools.REFUSED.max) {
+      kept.delete(kept.keys().next().value!);
+    }
+  }
+
+  // the same call refused for good before, since the user last spoke and
+  // within REFUSED.ms: refused again, no reviewer call, and told not to
+  // resend it; a sub-agent's boss told once. null: the reviewer is asked
+  export function refused_again(tools: Tools, who: string, name: string, args: any, fp: string, said: number): string | null {
+    const kept = tools.refused?.get(fp);
+    if (kept === undefined) {
+      return null;
+    }
+    if (kept.said !== said || Date.now() - kept.at >= Tools.REFUSED.ms) {
+      tools.refused!.delete(fp);
+      return null;
+    }
+    if (who !== "main" && !kept.told) {
+      kept.told = true;
+      const agent = Tools.agent(tools, who);
+      const text = who + " sent again a call auto mode's reviewer refused (" + kept.text + "). It was refused again at once; tell " + who + " another way, or stop it.\n" + Google.fence("call of " + who, Tools.shown(name, args), "The refused call, as the agent wrote it");
+      if (agent?.parent === "main") {
+        tools.hooks.boss?.(text);
+      } else if (agent !== null) {
+        Tools.up(tools, agent, text);
+      }
+    }
+    return kept.text + "\nThis same call was refused already: don't resend it unchanged. Change the approach, or tell whoever gave you the task why it's needed.";
   }
 
   // the reviewer's verdict on a call, given the user's latest message and

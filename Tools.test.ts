@@ -853,7 +853,7 @@ test("risk: a low refusal runs; the floor can't be lowered; medium in auto and h
     set(refuse("medium"));
     expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).toBe("Refused by auto mode's reviewer: r");
     set(JSON.stringify({ allow: false, reason: "r" }));
-    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make y" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
     const s = risky("super");
     working(s.tools, "Wkr");
     set(refuse("high"));
