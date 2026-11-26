@@ -1,0 +1,40 @@
+agents.test.ts
+  s_b93fbddfb43bf8::t_6c86b30bb8aa5e 218,236,259,356,358,360,368,370-371,375-376,378-379,381,395-396,406-407,463,518,552,603,656,707,716-717,721-723
+  s_b93fbddfb43bf8::t_db04ed79bd3b97 446,688
+prompt.txt
+  s_b93fbddfb43bf8::t_13e2cd4bc2ad73 41-54
+Config.test.ts
+  s_b93fbddfb43bf8::t_8d5f763a69a15a 163,171,175-176,182-189
+Config.ts
+  s_b93fbddfb43bf8::t_ba4d48d96317db 55-56
+Explain.test.ts
+  s_b93fbddfb43bf8::t_54a45575f32979 95,331
+Gchat.test.ts
+  s_b93fbddfb43bf8::t_e3c675269c9ac5 132-133,137
+Shells.test.ts
+  s_b93fbddfb43bf8::t_679b08fc7964ff 167
+Timer.test.ts
+  s_b93fbddfb43bf8::t_4aeac0ba8ad800 56,132
+Tools.test.ts
+  s_b93fbddfb43bf8::t_43b754354d4bca 63,66,99-104,106,121,124,126,128,132-135,139-143,145,149-150,154,156-159,162,229,247-249,252-253,288-289,320,353-354,366,384,393,543,563,575,723,845-847,851-852,1292-1294,1296,1298-1306,1398,1415-1417,1449-1450,1453-1455,1457-1463
+Tools.ts
+  s_b93fbddfb43bf8::t_78756f2d4a0868 95,118-119,122,244,312-315,340,374-375,390-394,399-400,403-405,409,457,463,472,629,748,755-756,760,1107,1114,1119-1122,1127,1129,1133,1139,1499-1500,1514-1517,1530,1533,1587,1590-1591,1593,1595-1596,1604,1606,1619,1627-1632,1640,1645,1661-1664,1672,1686,1710,1732,1736,1774,2448-2449,2458-2460
+Tracks.test.ts
+  s_b93fbddfb43bf8::t_5819852af2990a 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65d37cf3c16915a0ae292d7f5c05e7c8d3f609b3",
+  "prompts": {},
+  "sessions": {
+    "s_b93fbddfb43bf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d159ed-4380-4638-af14-a50e2cfc8437",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
