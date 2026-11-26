@@ -1391,9 +1391,11 @@ Not renamed: tasks/todo.md and tasks/lessons.md history (records of what was don
 Why: 1,271 reviewer refusals in 3 days; the same call was refused up to
 12 times, each a reviewer call plus an agent turn.
 
-- [ ] Red tests in Tools.test.ts: a repeat of a refused call is refused from the cache, with no reviewer call, and says not to resend it
-- [ ] Negative tests: an allow is never cached; a new user message re-reviews; TTL expiry re-reviews; a grant beats the cache; other args miss; the boss note is sent once only; a stopped appeal is not cached
-- [ ] Tools.review: cache final refusals (decide "refuse", appeal no or timeout) by Pending.fp, with the latest user message's index; TTL 30 min; at most 200 entries
-- [ ] First hit by a sub-agent: one note to its boss
-- [ ] Mutation check of the guards
-- [ ] Targeted and full suite green
+- [x] Red tests in Tools.test.ts: a repeat of a refused call is refused from the cache, with no reviewer call, and says not to resend it
+- [x] Negative tests: an allow is never cached; a new user message re-reviews; TTL expiry re-reviews; a grant beats the cache; other args miss; the boss note is sent once only; a stopped appeal is not cached
+- [x] Tools.review: cache final refusals (decide "refuse", appeal no or timeout) by Pending.fp, with the latest user message's index; TTL 30 min; at most 200 entries
+- [x] First hit by a sub-agent: one note to its boss
+- [x] Mutation check of the guards
+- [x] Targeted and full suite green
+
+Review: 6 new tests; Tools+Modes+Machine 139/0; full suite 1103 pass, 1 skip, 0 fail. Mutation 9/10 killed; the survivor (`who !== "main"` before the boss note) is an equivalent mutant, kept as an explicit guard. Awaiting the user's RED ZONE sign-off.
