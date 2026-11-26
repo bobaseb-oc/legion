@@ -190,6 +190,10 @@ test("the digest: merged by author, themes or PRs, open ones, its acts", async (
   v.inbox = inbox({ digest: { repos: ["o/r"], merged: [d(1, "bo"), d(2, "ann"), d(3, "ann")], open: [d(4, "cy")] } });
   expect(Cockpit.digest_groups(v.inbox.digest!.merged).map((g) => [g.author, g.prs.length])).toEqual([["ann", 2], ["bo", 1]]);
   const html = Pages.digest_html(v).join("");
+  // the title is the page's, the repos a plain line under it (a long list
+  // of repos as the bold title was the page's top, 2026-11-26)
+  expect(html).toContain("<h2>Digest: last 7 days</h2>");
+  expect(html).toContain('<p class="meta">1 repo: o/r</p>');
   expect(html.indexOf(">ann<")).toBeLessThan(html.indexOf(">bo<"));
   expect(html).toContain("T2 &lt;x&gt;");
   expect(html).toContain('href="https://github.com/o/r/pull/4"');

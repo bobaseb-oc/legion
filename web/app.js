@@ -4031,7 +4031,8 @@ function digest_html(v) {
   if (d === null) {
     return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo).</p>${refresh}</div>`];
   }
-  const head = `<div class="phead"><h2>${esc2(d.repos.join(", "))}: last 7 days</h2><p class="meta">${d.merged.length} merged · ${d.open.length} open</p>` + `<button class="pbtn"${act_html2({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
+  const repos = `<p class="meta">${d.repos.length} repo${d.repos.length === 1 ? "" : "s"}: ${esc2(d.repos.join(", "))}</p>`;
+  const head = `<div class="phead"><h2>Digest: last 7 days</h2>${repos}<p class="meta">${d.merged.length} merged · ${d.open.length} open</p>` + `<button class="pbtn"${act_html2({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
   const pr = (p) => `<li><a href="${esc2(p.url)}" target="_blank" rel="noopener noreferrer">${esc2(p.title)}</a> <span class="meta">#${p.number}</span></li>`;
   const merged = digest_groups(d.merged).map((g) => {
     const themes = v.themes?.[g.author];
@@ -4712,6 +4713,9 @@ function act(a) {
   P.rows = true;
   if (a.$ === "Transcript") {
     C.reading.set(a.id, Date.now());
+  }
+  if (a.$ === "Themes") {
+    toast("Summarizing the digest by theme…");
   }
   const refused = (out) => {
     if (a.$ === "Transcript" && out.error !== undefined) {

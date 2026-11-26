@@ -2559,17 +2559,23 @@ export namespace Chat {
     } catch {
       end = null;
     }
-    const authors = new Set(merged.map((p) => p.author));
+    // an author as the model may name them: any case, a leading @ aside
+    const key_of = (who: string) => who.trim().replace(/^@/, "").toLowerCase();
+    const authors = new Map(merged.map((p) => [key_of(p.author), p.author]));
     const by: Record<string, string[]> = {};
     try {
       const json = JSON.parse(/\{[\s\S]*\}/.exec(end?.ok ? end.text : "")?.[0] ?? "");
-      for (const [who, lines] of Object.entries(json ?? {})) {
-        if (authors.has(who) && Array.isArray(lines)) {
+      for (const [named, lines] of Object.entries(json ?? {})) {
+        const who = authors.get(key_of(named));
+        if (who !== undefined && Array.isArray(lines)) {
           by[who] = lines.filter((l): l is string => typeof l === "string").slice(0, THEME_LINES).map((l) => l.trim().slice(0, THEME_TEXT));
         }
       }
     } catch {
       return { error: "The summary didn't come back right" + (end?.ok === false ? ": " + end.text.slice(0, 200) : "") + "." };
+    }
+    if (Object.keys(by).length === 0) {
+      return { error: "The summary named none of this week's authors." };
     }
     chat.themes = { key, by };
     Chat.all(chat, { $: "themes", themes: chat.themes });

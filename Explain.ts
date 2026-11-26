@@ -164,7 +164,9 @@ export function explain_cards(text: string, names: string[]): Card[] | string {
   const own = new Map(names.map((n) => [n.toLowerCase(), n]));
   const by = new Map<string, Card>();
   for (const c of json.cards) {
-    const track = own.get(typeof c?.track === "string" ? c.track.toLowerCase() : "");
+    // its track as a theme's name is made (theme_name), else as given
+    const given = typeof c?.track === "string" ? c.track.toLowerCase() : "";
+    const track = own.get(given) ?? own.get(theme_name(c?.track).toLowerCase());
     if (track !== undefined && !by.has(track)) {
       by.set(track, { track, title: field(c?.title, TITLE), what: field(c?.what), why: field(c?.why), status: field(c?.status), watch: field(c?.watch) });
     }
@@ -202,8 +204,10 @@ export function explain_assign(text: string, themes: Record<string, string>, nam
       }
     }
   }
+  // only the crew's themes count to THEMES: an agent gone keeps its theme
+  // (fixed once made) but never crowds a new one out
   for (const name of names.filter((n) => out[n] === undefined)) {
-    const made = [...new Set(Object.values(out))];
+    const made = [...new Set(names.flatMap((n) => out[n] === undefined ? [] : [out[n]]))];
     const want = picked.get(name) ?? name;
     const same = made.find((m) => m.toLowerCase() === want.toLowerCase());
     out[name] = same ?? (made.length < THEMES ? want : made[0]!);
