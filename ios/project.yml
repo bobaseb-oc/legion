@@ -32,7 +32,7 @@ targets:
         CFBundleDisplayName: Legion
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LegionSite: https://uniichat.com
+        LegionSite: $(LEGION_SITE)
         UILaunchScreen: {}
         UIUserInterfaceStyle: Light
         ITSAppUsesNonExemptEncryption: false
@@ -51,7 +51,8 @@ targets:
       path: App/App.entitlements
       properties:
         aps-environment: development
-        com.apple.developer.associated-domains: [applinks:uniichat.com]
+        # no associated domain: Legion has none of its own (upstream's was
+        # uniichat.com), so sign-in links open in the browser, not the app
         com.apple.security.application-groups: [group.com.oncorps.legion]
         # the sign-in's Keychain item, shared with the extension (Site.swift)
         # RED ZONE (security review SE, DRAFT awaiting the user's sign-off)
@@ -69,7 +70,7 @@ targets:
         CFBundleDisplayName: Legion
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LegionSite: https://uniichat.com
+        LegionSite: $(LEGION_SITE)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).Share

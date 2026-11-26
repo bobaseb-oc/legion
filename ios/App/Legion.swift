@@ -5,7 +5,8 @@
 // - Notifications: once signed in, the app asks to notify, and gives the
 //   server its phone's push token (/api/push); the server pushes each
 //   turn's last message (Cloud.ts). iOS shows none while the app is open.
-// - Sign-in links open the app (universal links: the server's
+// - Sign-in links would open the app with an associated domain (none is
+//   set: Legion has no domain of its own; universal links: the server's
 //   apple-app-site-association names /auth), signing in its web view.
 // - The mic dictates (the site's own recorder; iOS asks once).
 // - Export Memory's download goes to the share sheet; the site's prompt()
