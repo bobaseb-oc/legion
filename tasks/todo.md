@@ -1393,15 +1393,35 @@ the manager tier is gone. RED ZONE: who may start/tell/stop agents is access
 control; the PR stays a draft until the user signs off.
 
 Constraints: stored data is not rewritten. A "manager of X" note loads as a
-worker, and any stored agent's parent loads as Legion. A routine stored with
+worker; an older worker keeps its manager as parent (see review). A routine stored with
 tier "manager" runs as a worker. Every gate on Claude Code workers stays
 (the user's yes before one runs).
 
-- [ ] Red tests: Legion's spawn defaults to worker and offers claude; a worker has no spawn/tell/stop and a call is refused; "manager of X" loads as a worker of Legion; a routine with tier manager loads and starts a worker
-- [ ] Tools.ts: no Tier, MGR prompt, MANAGES; Tools.boss is main only; Legion starts Claude Code workers; noted reparents to main
-- [ ] Config.ts: no MANAGER (`agents` still sets WORKER)
-- [ ] Routines.ts and Server.ts: no tier; inbox "as Claude Code workers" goes to Legion as a request
-- [ ] UI (View, Cockpit, Explain, Deck, Demo, Paint, web/src) and web/app.js rebuilt
-- [ ] prompt.txt and README describe the flat crew
-- [ ] Mutation check: manages-main-only, worker-has-no-spawn-tools, legacy "manager of" parse
-- [ ] Targeted tests, then the full suite
+- [x] Red tests: Legion's spawn defaults to worker and offers claude; a worker has no spawn/tell/stop and a call is refused; "manager of X" loads as a worker of Legion; a routine with tier manager loads and starts a worker
+- [x] Tools.ts: no Tier, MGR prompt, MANAGES; Tools.boss is main only; Legion starts Claude Code workers; older notes keep their parent
+- [x] Config.ts: no MANAGER (`agents` still sets WORKER)
+- [x] Routines.ts and Server.ts: no tier; inbox "as Claude Code workers" goes to Legion as a request
+- [x] UI (View, Cockpit, Explain, Deck, Demo, Paint, web/src) and web/app.js rebuilt
+- [x] prompt.txt and README describe the flat crew
+- [x] Mutation check: manages-main-only, worker-has-no-spawn-tools, legacy "manager of" parse
+- [x] Targeted tests, then the full suite
+
+Review (2026-11-26):
+- Red: 3 of 4 new tests failed at 67caaff (the fourth, a worker has no
+  spawn/tell/stop/overrule, already held: kept as a guard).
+- Changed my plan once: reparenting older agents to Legion would have freed a
+  read-only manager's workers from plan mode (Tools.planned walks parents;
+  H4), so older workers keep their manager as parent and Tools.under keeps
+  its walk (Tools.below, status and stop cascade for older logs).
+- Tests deleted, manager behaviour only: 4 (a manager's spawn and reports,
+  agents.test.ts; a manager tells/stops only its own workers; a worker with a
+  manager has no spawn/tell/stop, superseded; Legion refuses claude). The
+  rest were rewritten for Legion or drop the tier field.
+- Mutants (Tools, agents tests): boss not main-only, workers given
+  spawn/tell/stop, "manager of" not parsed, older parent reparented: 4 of 4
+  killed.
+- Full suite: 1098 pass, 1 skip, 0 fail (253 s). tsc not run: this checkout
+  has no node_modules or tsconfig (earlier sessions found the same).
+- Left: the Crew tree's folding and the tiles' dots only show nested agents
+  of an older log now; Tools.up and finish's branch for a non-Legion parent
+  serve older logs only. Remove them once no older agent is kept.
