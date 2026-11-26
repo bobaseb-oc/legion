@@ -1,0 +1,29 @@
+Tools.test.ts
+  s_b93fbddfb43bf8::t_4be19672966893 856
+Tools.ts
+  s_edbae9625cc84b::t_40ebb693d86adb 205,208-212,695-700,715-722,724,732-782
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e036b57640ff201d7576bf8fc85cf513303f741",
+  "prompts": {},
+  "sessions": {
+    "s_b93fbddfb43bf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d159ed-4380-4638-af14-a50e2cfc8437",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    },
+    "s_edbae9625cc84b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ThickDolphin",
+        "model": "unknown"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
