@@ -34,6 +34,7 @@ export type Clean = {
   gone?: boolean; unpushed?: number; stashes?: number; bytes?: number; at?: number; live?: boolean; safe?: boolean;
   squashed?: boolean; // its HEAD is exactly a merged PR's head (Device.device_squashes)
   envs?: string[]; // the .env files in it git can't give back (untracked, ignored too)
+  why?: string; // not safe: why it is kept (inbox_why), the server's, never a device's
 };
 
 // RED ZONE (DRAFT awaiting the user's sign-off): a worktree may be removed
@@ -66,7 +67,25 @@ function clean_row(c: any): Clean {
   if (c?.envs !== undefined) {
     row.envs = list(c.envs, (e) => str(e, 200)).slice(0, 10);
   }
-  return { ...row, safe: inbox_safe(row) };
+  const safe = inbox_safe(row);
+  return safe ? { ...row, safe } : { ...row, safe, why: inbox_why(row) };
+}
+
+// why a worktree is kept, not removed (the inbox's Kept rows, and the
+// device's re-check before a remove: Device.device_tidy_one)
+export function inbox_why(c: Clean | undefined): string {
+  if (c === undefined) {
+    return "not a worktree to clean up now";
+  }
+  const why = [
+    c.merged || c.gone === true || c.squashed === true ? "" : "its branch is neither merged nor gone",
+    c.changes === 0 ? "" : "it has changes",
+    c.unpushed === 0 || c.squashed === true ? "" : "it has commits on no remote (and its HEAD is no merged PR's head)",
+    c.stashes === 0 ? "" : "its branch has stashes",
+    c.envs === undefined ? "its .env files are not known" : c.envs.length === 0 ? "" : "it holds .env files git can't give back (" + c.envs.join(", ") + ")",
+    c.live === false ? "" : "a process works in it",
+  ].filter((w) => w !== "");
+  return why.join(", ") || "not safe";
 }
 
 // a GitHub notification (activity; ci and security ones are alerts)

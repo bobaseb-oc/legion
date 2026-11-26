@@ -609,22 +609,6 @@ function tidy_spaces(now: number, have: Space[], listing = false): Space[] {
   return device_discover([...roots, ...listed], now).filter((s) => !seen.has(s.path) && fs.existsSync(s.path + "/.git/worktrees"));
 }
 
-// why a worktree is kept, not removed
-function tidy_why(c: Inbox.Clean | undefined): string {
-  if (c === undefined) {
-    return "not a worktree to clean up now";
-  }
-  const why = [
-    c.merged || c.gone === true || c.squashed === true ? "" : "its branch is neither merged nor gone",
-    c.changes === 0 ? "" : "it has changes",
-    c.unpushed === 0 || c.squashed === true ? "" : "it has commits on no remote (and its HEAD is no merged PR's head)",
-    c.stashes === 0 ? "" : "its branch has stashes",
-    c.envs === undefined ? "its .env files are not known" : c.envs.length === 0 ? "" : "it holds .env files git can't give back (" + c.envs.join(", ") + ")",
-    c.live === false ? "" : "a process works in it",
-  ].filter((w) => w !== "");
-  return why.join(", ") || "not safe";
-}
-
 // RED ZONE (DRAFT awaiting the user's sign-off): one worktree of the
 // user's Remove. Its row is worked out again here (device_clean of its
 // own repo) and must still be safe (Inbox.inbox_safe); only a linked
@@ -642,7 +626,7 @@ async function device_tidy_one(p: string, cwds: string[] | null, run: Exec): Pro
   }
   const row = (await device_clean(main, run, cwds)).find((r) => r.path === p);
   if (row === undefined || !Inbox.inbox_safe(row)) {
-    return tidy_why(row);
+    return Inbox.inbox_why(row);
   }
   const rm = await run(device_git(main, "worktree", "remove", p));
   if (rm.code !== 0) {

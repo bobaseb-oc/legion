@@ -3549,7 +3549,7 @@ function inbox_sections(inbox, crew, filter, now) {
   const clean = inbox.clean.map((c) => {
     const where = c.repo + " " + (c.branch ?? "(detached)");
     const title = c.changes > 0 ? plural(c.changes, "uncommitted change") + " in " + (c.merged ? "merged " : "") + where : "worktree of merged " + where + ": nothing left in it";
-    return { key: "clean:" + c.path, kind: "clean", title, sub: c.path, url: "", tag: c.merged ? "Merged" : "Uncommitted", tone: c.changes > 0 ? "warn" : "", age: "", stamp: String(c.changes), clean: c };
+    return { key: "clean:" + c.path, kind: "clean", title, sub: c.path, url: "", tag: c.safe === false ? "Kept" : c.merged ? "Merged" : "Uncommitted", tone: c.changes > 0 || c.safe === false ? "warn" : "", age: "", stamp: String(c.changes), clean: c };
   });
   const section = (id, title, rows, sub = "", note) => {
     const kept = rows.filter((r) => holds(r, filter));
@@ -3854,7 +3854,8 @@ function detail_html(r) {
       return "";
     }
     const envs = (r.clean.envs ?? []).length === 0 ? "" : `<p class="fail">${esc2("kept: .env files git can't give back: " + (r.clean.envs ?? []).join(", "))}</p>`;
-    return `<div class="ibd"><code>${esc2(r.clean.path)}</code>${envs}</div>`;
+    const why = r.clean.why === undefined ? "" : `<p class="fail">${esc2("kept: " + r.clean.why)}</p>`;
+    return `<div class="ibd"><code>${esc2(r.clean.path)}</code>${why}${envs}</div>`;
   }
   const checks = p.failing.length === 0 ? "" : `<p class="fail">${p.failing.map(esc2).join(" · ")}</p>`;
   const body = p.body.trim() === "" ? "" : `<div class="body">${esc2(p.body)}</div>`;
@@ -3868,6 +3869,10 @@ function row_html2(s, r, ui) {
   const goto = r.agent === undefined ? "" : `<a class="go" href="#crew/${esc2(encodeURIComponent(r.agent))}" title="go to agent">→</a>`;
   return `<div class="ibr ${r.kind}${here}" data-row="${esc2(r.key)}">${pick}<span class="sub">${esc2(r.sub)}</span><span class="t">${esc2(r.title)}</span>${tag}<span class="age">${esc2(r.age)}</span>${row_acts(s, r)}${link_html(r.url)}${goto}</div>${open2}`;
 }
+function tidy_all(rows) {
+  const paths = rows.flatMap((r) => r.clean?.safe === true ? [r.clean.path] : []);
+  return paths.length === 0 ? "" : `<p class="ibnote"><button class="ra"${act_html2({ $: "Tidy", paths })} title="every worktree shown as safe: remove them (git worktree remove)">Remove all ${paths.length} safe</button></p>`;
+}
 function inbox_html(sections, ui) {
   return sections.map((s) => {
     const shut = ui.shut.has(s.id);
@@ -3875,7 +3880,7 @@ function inbox_html(sections, ui) {
     const fresh = s.rows.filter((r) => !r.old).map((r) => row_html2(s.id, r, ui)).join("");
     const old = s.rows.filter((r) => r.old);
     const folded = old.length === 0 ? "" : `<details class="old"><summary>${old.length} older than 60 days</summary>${old.map((r) => row_html2(s.id, r, ui)).join("")}</details>`;
-    const note = s.note === undefined ? "" : `<p class="ibnote">${esc2(s.note)}</p>`;
+    const note = (s.note === undefined ? "" : `<p class="ibnote">${esc2(s.note)}</p>`) + (s.id === "clean" ? tidy_all(s.rows) : "");
     return `<section class="ibs${shut ? " shut" : ""}" data-sec="${s.id}">${head}<div class="ibrows">${note}${fresh}${folded}</div></section>`;
   });
 }
