@@ -11,17 +11,16 @@ import * as Routines from "./Routines.ts";
 
 const at = (h: number, m = 0, day = 12) => new Date(2026, 10, day, h, m).getTime();
 const routine = (when: Routines.When, over: Partial<Routines.Routine> = {}): Routines.Routine =>
-  ({ id: 1, name: "R", task: "do it", when, tier: "worker", on: true, last: null, made: at(8), ...over });
+  ({ id: 1, name: "R", task: "do it", when, on: true, last: null, made: at(8), ...over });
 
-test("a routine's check: a name, a task, a when, a tier; text cut; bad ones refused", () => {
-  expect(Routines.routine_check({ name: " Morning ", task: "Triage", when: { $: "daily", at: "09:30" }, tier: "manager" })).toEqual({ name: "Morning", task: "Triage", when: { $: "daily", at: "09:30" }, tier: "manager" });
-  expect(Routines.routine_check({ name: "n", task: "t", when: { $: "every", hours: 4 } })).toMatchObject({ tier: "worker" });
+test("a routine's check: a name, a task, a when; text cut; bad ones refused", () => {
+  expect(Routines.routine_check({ name: " Morning ", task: "Triage", when: { $: "daily", at: "09:30" } })).toEqual({ name: "Morning", task: "Triage", when: { $: "daily", at: "09:30" } });
   expect(Routines.routine_check({ name: "n", task: "", when: { $: "review" } })).toMatchObject({ task: "" }); // a review routine's task is the review
   expect((Routines.routine_check({ name: "n".repeat(500), task: "t".repeat(9000), when: { $: "every", hours: 1 } }) as any).name.length).toBe(Routines.NAME);
   for (const bad of [
     { name: "", task: "t", when: { $: "every", hours: 1 } }, { name: "n", task: "", when: { $: "every", hours: 1 } },
     { name: "n", task: "t", when: { $: "daily", at: "25:00" } }, { name: "n", task: "t", when: { $: "every", hours: 0 } },
-    { name: "n", task: "t", when: { $: "every", hours: 1000 } }, { name: "n", task: "t", when: { $: "cron" } }, { name: "n", task: "t", when: { $: "every", hours: 1 }, tier: "god" }, null,
+    { name: "n", task: "t", when: { $: "every", hours: 1000 } }, { name: "n", task: "t", when: { $: "cron" } }, null,
   ]) {
     expect(typeof Routines.routine_check(bad)).toBe("string");
   }
@@ -57,10 +56,9 @@ test("how a when reads", () => {
 });
 
 test("the terminal's /routine add: daily HH:MM, every Nh, on review; then the name, a colon, the task", () => {
-  expect(Routines.routine_parse("daily 09:00 Morning triage: look at the inbox")).toEqual({ name: "Morning triage", task: "look at the inbox", when: { $: "daily", at: "09:00" }, tier: "worker" });
+  expect(Routines.routine_parse("daily 09:00 Morning triage: look at the inbox")).toEqual({ name: "Morning triage", task: "look at the inbox", when: { $: "daily", at: "09:00" } });
   expect(Routines.routine_parse("every 4h Sweep: clean the worktrees")).toMatchObject({ when: { $: "every", hours: 4 } });
   expect(Routines.routine_parse("on review Reviews")).toMatchObject({ name: "Reviews", task: "", when: { $: "review" } });
-  expect(Routines.routine_parse("manager daily 08:00 Plan: plan the day")).toMatchObject({ tier: "manager" });
   expect(typeof Routines.routine_parse("weekly Mon x: y")).toBe("string");
   expect(typeof Routines.routine_parse("daily 09:00 no colon here")).toBe("string");
 });
@@ -72,13 +70,13 @@ test("views: the act sent, the terminal's commands and list, the web's page and 
   const Pages = await import("./web/src/Pages.ts");
   const Cockpit = await import("./Cockpit.ts");
   const v = View.view_new();
-  const given = { name: "Sweep", task: "clean", when: { $: "every", hours: 4 } as Routines.When, tier: "worker" as const };
+  const given = { name: "Sweep", task: "clean", when: { $: "every", hours: 4 } as Routines.When };
   expect(View.view_act(v, { $: "Routine", op: "add", routine: given })).toEqual([{ $: "routine", op: "add", routine: given }]);
   expect(View.view_act(v, { $: "Routine", op: "toggle", n: 2, on: false })).toEqual([{ $: "routine", op: "toggle", n: 2, on: false }]);
   expect(View.view_routines_note(v)).toBe("No routines. Add one: /routine add daily 09:00 Name: task (or every 4h, or on review).");
   v.routines = [routine({ $: "every", hours: 4 }, { id: 3, name: "Sweep <x>", last: at(8) }), routine({ $: "review" }, { id: 4, name: "Reviews", on: false })];
-  expect(View.view_routines_note(v)).toContain("3. Sweep <x> · every 4 hours · worker · on");
-  expect(View.view_routines_note(v)).toContain("4. Reviews · on each new review request · worker · off");
+  expect(View.view_routines_note(v)).toContain("3. Sweep <x> · every 4 hours · on");
+  expect(View.view_routines_note(v)).toContain("4. Reviews · on each new review request · off");
   expect(View.view_routine_cmd(v, "add every 4h Sweep: clean")).toEqual({ $: "Routine", op: "add", routine: given });
   expect(View.view_routine_cmd(v, "run 3")).toEqual({ $: "Routine", op: "run", n: 3 });
   expect(View.view_routine_cmd(v, "off 3")).toEqual({ $: "Routine", op: "toggle", n: 3, on: false });
@@ -112,7 +110,7 @@ test("weekly on a day at a time: due on that day once its time passed, then a we
   expect(Routines.routine_due({ ...r, last: at(9, 1, 13) }, at(9, 0, 17))).toBe(false); // Tuesday after
   expect(Routines.routine_due({ ...r, made: at(10, 0, 13) }, at(11, 0, 13))).toBe(false); // made after Friday's: next week
   expect(Routines.when_text({ $: "weekly", day: 5, at: "09:00" })).toBe("Fridays at 09:00");
-  expect(Routines.routine_parse("weekly fri 09:00 Timesheet: draft the week")).toEqual({ name: "Timesheet", task: "draft the week", when: { $: "weekly", day: 5, at: "09:00" }, tier: "worker" });
+  expect(Routines.routine_parse("weekly fri 09:00 Timesheet: draft the week")).toEqual({ name: "Timesheet", task: "draft the week", when: { $: "weekly", day: 5, at: "09:00" } });
   expect(Routines.routine_parse("weekly Mon 08:30 Plan: plan the week")).toMatchObject({ when: { $: "weekly", day: 1, at: "08:30" } });
   expect(typeof Routines.routine_parse("weekly funday 09:00 X: y")).toBe("string");
 });
@@ -171,7 +169,7 @@ test("timed: a pending timer keeps its chat open, with no routine on", () => {
 // a routine an agent proposes (the routine tool, RED ZONE): added off,
 // marked whose, so only the user's own Turn on starts it
 test("a proposal: by the clock only, its why trimmed and cut", () => {
-  expect(Routines.proposal_check({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, why: "  you asked  daily " })).toEqual({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, tier: "worker", why: "you asked daily" });
+  expect(Routines.proposal_check({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, why: "  you asked  daily " })).toEqual({ name: "Standup", task: "Summarize PRs", when: { $: "daily", at: "09:00" }, why: "you asked daily" });
   expect((Routines.proposal_check({ name: "n", task: "t", when: { $: "every", hours: 2 }, why: "w".repeat(5000) }) as any).why.length).toBe(Routines.WHY);
   expect(typeof Routines.proposal_check({ name: "n", task: "t", when: { $: "review" }, why: "w" })).toBe("string");
   expect(typeof Routines.proposal_check({ name: "n", task: "t", when: { $: "daily", at: "09:00" }, why: " " })).toBe("string");
@@ -195,13 +193,13 @@ test("views: a proposal reads as proposed, its why shown (escaped), till the use
   // whole task (each of its lines) over what turning it on approves
   expect(View.view_routines_note(v)).toBe([
     "Your routines:",
-    "5. [proposed by Legion] “Standup” · daily at 09:00 · worker · off",
+    "5. [proposed by Legion] “Standup” · daily at 09:00 · off",
     "   Legion's words: “you <asked>”",
     "   The task:",
     "     post the <standup>",
     "     then push to main",
     "   /routine on 5 approves this task",
-    "6. Mine · daily at 09:00 · worker · off",
+    "6. Mine · daily at 09:00 · off",
     "/routine run|on|off|drop <n>; /routine add daily 09:00 | every 4h | on review, then name: task.",
   ].join("\n"));
   // as the terminal draws it (the routines page's lines): one row each

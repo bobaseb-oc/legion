@@ -3133,7 +3133,7 @@ const LIKES = 30;
 
   // a routine run: its agent started, a note, when it ran kept
   export function run_routine(chat: Chat, r: Routines.Routine, now: number): void {
-    const name = Tools.start(chat.tools, "main", { $: "sub", tier: r.tier, effort: null, model: null }, r.task, true, { title: "routine: " + r.name });
+    const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, r.task, true, { title: "routine: " + r.name });
     r.last = now;
     Chat.note(chat, "Routine " + JSON.stringify(r.name) + " started " + name + ".");
   }
@@ -3329,8 +3329,8 @@ const LIKES = 30;
       }
       for (const p of mine.filter((x) => !seen.includes(x.url)).slice(0, Chat.AUTOS)) {
         const label = Chat.pr_label(p, "review");
-        const task = Chat.review_task(p, "review", false, true) + (r.task === "" ? "" : "\n\nAlso: " + r.task);
-        const name = Tools.start(chat.tools, "main", { $: "sub", tier: r.tier, effort: null, model: null }, task, true, label, true);
+        const task = Chat.review_task(p, "review", true) + (r.task === "" ? "" : "\n\nAlso: " + r.task);
+        const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, task, true, label, true);
         Chat.note(chat, "Routine " + JSON.stringify(r.name) + " started " + name + ": " + label.title + ".");
         r.last = Date.now();
       }
@@ -3413,19 +3413,17 @@ const LIKES = 30;
   // the most inbox PRs one Review starts agents for
   export const REVIEWS = 10;
 
-  // what an agent is told for a PR it reviews or fixes (claude: it's a
-  // manager, to run a Claude Code worker for it); nothing goes to GitHub.
+  // what an agent is told for a PR it reviews or fixes; nothing goes to GitHub.
   // unattended (a routine started it, on anyone's PR, no one watching):
   // it only reads, as a PR's code may be an attacker's (security review
   // H4; forcing it plan mode waits on an agent's own mode in Tools.ts)
-  export function review_task(p: Inbox.Pr, how: "review" | "fix", claude: boolean, unattended = false): string {
+  export function review_task(p: Inbox.Pr, how: "review" | "fix", unattended = false): string {
     const it = p.repo + "#" + p.number + " " + JSON.stringify(p.title) + " (" + p.url + "), branch " + p.branch;
     const why = p.state === "failing" ? "failing checks: " + p.failing.join(", ") : p.state === "conflicts" ? "conflicts with its base" : "changes requested in review";
     const run = unattended ? ". Run nothing from it (no tests, builds or scripts): only read" : ", and run its tests if you can";
-    const task = how === "review"
+    return how === "review"
       ? "Review " + it + ". Read it with `gh pr view` and `gh pr diff` in a checkout of " + p.repo + run + ". Report: approve, or the blocking findings, each with file:line and why. Post nothing to GitHub: the user posts."
       : "Fix " + it + ": " + why + ". Work in its own worktree of " + p.repo + " on that branch; make the checks pass, or resolve the conflicts, or answer the review, with tests. Commit there. Don't push or comment on GitHub: report what you changed and the command to push.";
-    return claude ? "Start one Claude Code worker (spawn as: \"claude\") on the user's device to do this, in a checkout of " + p.repo + ", and report what it did: " + task : task;
   }
 
   // a PR agent's label: "review o/r#5", its repo
@@ -3433,9 +3431,11 @@ const LIKES = 30;
     return { title: how + " " + p.repo + "#" + p.number, repos: [p.repo.split("/").pop()!] };
   }
 
-  // the cockpit's Review / Fix: each PR the inbox holds to its own agent
-  // (a native worker; a manager running a Claude Code worker if asked),
-  // started by the user; any PR not in the inbox refuses them all
+  // the cockpit's Review / Fix: each PR the inbox holds to its own agent,
+  // started by the user: a native worker each; or, if asked for Claude
+  // Code workers, one work message to Legion asking it to start one per PR
+  // (each still waits for the user's yes: Tools.approve). Any PR not in
+  // the inbox refuses them all
   export async function review(chat: Chat, id: string, msg: any): Promise<Answer> {
     const prs: unknown = msg.prs;
     if (msg.how !== "review" && msg.how !== "fix") {
@@ -3455,13 +3455,19 @@ const LIKES = 30;
       return refused;
     }
     Chat.mark(chat, id, {});
-    const claude = msg.claude === true;
+    // RED ZONE (no managers, DRAFT awaiting the user's sign-off): Claude
+    // Code workers are Legion's to start, by the user's ask here; the PRs'
+    // words (an author's) are fenced as data
+    if (msg.claude === true) {
+      const tasks = (found as Inbox.Pr[]).map((p) => "- " + Chat.pr_label(p, msg.how).title + ": " + Chat.review_task(p, msg.how));
+      Chat.work(chat, "[Inbox] The user asks for a Claude Code worker per PR (spawn as: \"claude\", one each, on their device in a checkout of its repo), to " + msg.how + " it, then each one's report:\n" + Google.fence("inbox", tasks.join("\n"), "The PRs' tasks, from the inbox"), true);
+      return {};
+    }
     // a PR's task stands alone: no brief of the chat (whose view would
     // wait on its latest lines' summaries), so none waits
-    const tier = claude ? "manager" : "worker";
     for (const p of found as Inbox.Pr[]) {
       const label = Chat.pr_label(p, msg.how);
-      const name = Tools.start(chat.tools, "main", { $: "sub", tier, effort: null, model: null }, Chat.review_task(p, msg.how, claude), true, label);
+      const name = Tools.start(chat.tools, "main", { $: "sub", effort: null, model: null }, Chat.review_task(p, msg.how), true, label);
       Chat.note(chat, "Started " + name + " (by the user): " + label.title);
     }
     return {};

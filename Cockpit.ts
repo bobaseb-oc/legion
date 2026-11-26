@@ -455,7 +455,6 @@ export const TIMESHEET_ROUTINE: Given = {
   name: "Timesheet drafts",
   task: "Draft this week's Harvest timesheet, Monday to Friday, for the user's review. Read harvest projects and this week's harvest entries (don't draft time already logged); read this week's calendar (google calendar), their merged and open PRs and this week's commits in their spaces, and their Jira tickets in progress. Map each piece of work to one of their Harvest projects and tasks by id, in hundredths of an hour, a day at most 8 hours unless the calendar shows more; for today, draft only what the evidence shows so far. File them with timesheet (each with its date, notes as the user would write them and why: the evidence). Skip days with no evidence. Then say in a line what you drafted, by day.",
   when: { $: "weekly", day: 5, at: "09:00" },
-  tier: "worker",
 };
 
 const draft_open = (d: Draft) => d.state === "draft" || d.state === "failed";

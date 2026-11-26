@@ -12,17 +12,17 @@
 // weekly: day 0 Sunday … 6 Saturday (Date.getDay)
 export type When = { $: "daily"; at: string } | { $: "weekly"; day: number; at: string } | { $: "every"; hours: number } | { $: "review" };
 
-// a routine: its number, name, task, when, the agent's tier, whether on,
+// a routine: its number, name, task, when (it starts a worker), whether on,
 // when it last ran and was made (ms), the review requests it has seen
 // by, why: the agent that proposed it (the routine tool) and its reason;
 // none, the user's own
 export type Routine = {
-  id: number; name: string; task: string; when: When; tier: "manager" | "worker"; on: boolean;
+  id: number; name: string; task: string; when: When; on: boolean;
   last: number | null; made: number; seen?: string[]; by?: string; why?: string;
 };
 
 // what the user gives for one
-export type Given = { name: string; task: string; when: When; tier: "manager" | "worker" };
+export type Given = { name: string; task: string; when: When };
 
 // the most routines a chat keeps; a name's and a task's most characters;
 // the most hours between runs (a week)
@@ -33,14 +33,14 @@ export const HOURS = 168;
 
 const DAY = 86400e3;
 
-// a routine as given, checked: kept trimmed and cut, or why not
+// a routine as given, checked: kept trimmed and cut, or why not (a tier
+// given, as one kept from before managers went has, is dropped)
 export function routine_check(x: any): Given | string {
   if (typeof x !== "object" || x === null) {
     return "A routine needs a name, a task and a when.";
   }
   const name = typeof x.name === "string" ? x.name.trim().replace(/\s+/g, " ").slice(0, NAME) : "";
   const task = typeof x.task === "string" ? x.task.trim().slice(0, TASK) : "";
-  const tier = x.tier === undefined ? "worker" : x.tier;
   const w = x.when;
   const hhmm = typeof w?.at === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(w.at);
   const when: When | null =
@@ -58,10 +58,7 @@ export function routine_check(x: any): Given | string {
   if (task === "" && when.$ !== "review") {
     return "A routine needs a task.";
   }
-  if (tier !== "manager" && tier !== "worker") {
-    return "A routine's agent is a manager or a worker.";
-  }
-  return { name, task, when, tier };
+  return { name, task, when };
 }
 
 // when a routine is next due by the clock (ms; null: never, a review
@@ -173,22 +170,22 @@ export function when_text(w: When): string {
   return w.$ === "daily" ? "daily at " + w.at : w.$ === "weekly" ? DAYS[w.day] + "s at " + w.at : w.$ === "every" ? (w.hours === 1 ? "every hour" : "every " + w.hours + " hours") : "on each new review request";
 }
 
-// the terminal's `/routine add [manager] daily HH:MM | weekly DAY HH:MM | every Nh | on review
+// the terminal's `/routine add daily HH:MM | weekly DAY HH:MM | every Nh | on review
 // <name>: <task>` (a review routine: a name, no task needed)
 export function routine_parse(arg: string): Given | string {
-  const m = /^(?:(manager|worker)\s+)?(?:daily\s+(\d\d:\d\d)|weekly\s+([a-z]+)\s+(\d\d:\d\d)|every\s+(\d+)\s*h|on\s+review)\s+(.+)$/si.exec(arg.trim());
-  const usage = "Use /routine add [manager] daily HH:MM | weekly DAY HH:MM | every Nh | on review, then name: task.";
+  const m = /^(?:daily\s+(\d\d:\d\d)|weekly\s+([a-z]+)\s+(\d\d:\d\d)|every\s+(\d+)\s*h|on\s+review)\s+(.+)$/si.exec(arg.trim());
+  const usage = "Use /routine add daily HH:MM | weekly DAY HH:MM | every Nh | on review, then name: task.";
   // a day: its name or a start of it, 3 letters at least (fri, Friday)
-  const day = m?.[3] === undefined ? -1 : DAYS.findIndex((d) => m[3].length >= 3 && d.toLowerCase().startsWith(m[3].toLowerCase()));
-  if (m === null || (m[3] !== undefined && day < 0)) {
+  const day = m?.[2] === undefined ? -1 : DAYS.findIndex((d) => m[2].length >= 3 && d.toLowerCase().startsWith(m[2].toLowerCase()));
+  if (m === null || (m[2] !== undefined && day < 0)) {
     return usage;
   }
-  const when: When = m[2] !== undefined ? { $: "daily", at: m[2] } : m[4] !== undefined ? { $: "weekly", day, at: m[4] } : m[5] !== undefined ? { $: "every", hours: Number(m[5]) } : { $: "review" };
-  const rest = m[6];
+  const when: When = m[1] !== undefined ? { $: "daily", at: m[1] } : m[3] !== undefined ? { $: "weekly", day, at: m[3] } : m[4] !== undefined ? { $: "every", hours: Number(m[4]) } : { $: "review" };
+  const rest = m[5];
   const colon = rest.indexOf(":");
   if (colon < 0 && when.$ !== "review") {
     return usage;
   }
-  const given = { name: colon < 0 ? rest : rest.slice(0, colon), task: colon < 0 ? "" : rest.slice(colon + 1), when, tier: (m[1] ?? "worker") as Given["tier"] };
+  const given = { name: colon < 0 ? rest : rest.slice(0, colon), task: colon < 0 ? "" : rest.slice(colon + 1), when };
   return routine_check(given);
 }
