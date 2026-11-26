@@ -196,3 +196,20 @@ test("a worktree row is safe only when merged or gone, clean, pushed, unstashed 
   expect(Inbox.inbox_check(report({ clean: [row({ unpushed: -1 })] }))).toBeString();
   expect(Inbox.inbox_check(report({ clean: [row({ live: "no" })] }))).toBeString();
 });
+
+// one-click tidy (2026-11-26): a row not safe says why it is kept, worked
+// out on the server (Inbox.inbox_why, the device's re-check says the same),
+// never a device's own; a safe row has no why
+test("a worktree row not safe says why it is kept; a device's own why is ignored; a safe row has none", () => {
+  const row = (over: Record<string, any> = {}) => ({ repo: "r", path: "/r-worktrees/a", branch: "a", changes: 0, merged: true, gone: false, unpushed: 0, stashes: 0, bytes: 4096, at: 1, live: false, envs: [], ...over });
+  const why = (over: Record<string, any> = {}) => ((Inbox.inbox_check(report({ clean: [row(over)] })) as Inbox.Inbox).clean[0] as any).why;
+  expect(why()).toBeUndefined();
+  expect(why({ why: "planted" })).toBeUndefined();
+  expect(why({ changes: 2, why: "fine to remove" })).toBe("it has changes");
+  expect(why({ unpushed: 1 })).toContain("commits on no remote");
+  expect(why({ stashes: 1 })).toBe("its branch has stashes");
+  expect(why({ live: true })).toBe("a process works in it");
+  expect(why({ envs: [".env"] })).toContain(".env");
+  expect(why({ merged: false, gone: false, changes: 1 })).toBe("its branch is neither merged nor gone, it has changes");
+  expect(Inbox.inbox_why(undefined)).toBe("not a worktree to clean up now");
+});

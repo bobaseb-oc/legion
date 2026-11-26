@@ -705,3 +705,21 @@ test("the details card of a worktree names its .env files, escaped (security rev
   const html = Pages.inbox_html(s, ui({ detail: "clean:/w" })).join("");
   expect(html).toContain("kept: .env files git can't give back: .env, .env.&lt;x&gt;");
 });
+
+// one-click tidy (user's ask 2026-11-26): the section's own Remove all of
+// every safe row, one confirm (View.tidy_ask lists them); a row kept says
+// so on its tag and, in its details, why (Inbox.inbox_why, escaped)
+test("To clean up: one Remove all of the safe rows only; a kept row is tagged Kept and its details say why", () => {
+  const row = (path: string, safe: boolean, why?: string) => ({ repo: "r", path, branch: "b", changes: safe ? 0 : 1, merged: true, safe, ...(why === undefined ? {} : { why }) });
+  const rows = [row("/w/one", true), row("/w/dirty", false, "it has <changes>"), row("/w/two", true)];
+  const s = Cockpit.inbox_sections(inbox({ clean: rows }), [], "", NOW);
+  const html = Pages.inbox_html(s, ui({ detail: "clean:/w/dirty" })).join("");
+  expect(html).toContain(act({ $: "Tidy", paths: ["/w/one", "/w/two"] }));
+  expect(html).toContain("Remove all 2 safe");
+  const dirty = html.slice(html.indexOf(`data-row="clean:/w/dirty"`));
+  expect(dirty.slice(0, dirty.indexOf("</div>"))).toContain(">Kept<");
+  expect(dirty).toContain("kept: it has &lt;changes&gt;");
+  // none safe: no Remove all
+  const kept = Pages.inbox_html(Cockpit.inbox_sections(inbox({ clean: [rows[1]!] }), [], "", NOW), ui()).join("");
+  expect(kept).not.toContain("Remove all");
+});

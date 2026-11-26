@@ -1398,3 +1398,65 @@ test("risk: a write through a link into Legion's dir is floored where it lands",
     expect((await Tools.call(tools, "Wkr", "write", args, go(), "n1")).text).toBe("Refused by auto mode's reviewer: r");
   });
 });
+
+// RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off; user's ask
+// 2026-11-26): Unii's tidy puts the inbox's safe worktrees to the user as
+// one consent naming each path; only a yes sends them (hooks.tidy, the
+// server's gate: Server.ts Chat.tidy, then the device's re-check); a row
+// not safe is never asked about or sent, only said with why it is kept;
+// a worker has no tidy
+test("tidy: Unii asks once for the inbox's safe worktrees; a yes sends exactly those, a no or an unsafe path nothing", async () => {
+  const rows = [
+    { repo: "r", path: "/w/a", branch: "a", changes: 0, merged: true, safe: true },
+    { repo: "r", path: "/w/b", branch: "b", changes: 2, merged: true, safe: false, why: "it has changes" },
+    { repo: "r", path: "/w/c", branch: "c", changes: 0, merged: true, safe: true },
+  ];
+  const sent: string[][] = [];
+  let gate: string | null = null;
+  const tools = Tools.serve({} as any, { change: () => {}, tidy_rows: () => rows, tidy: (p: string[]) => { sent.push(p); return gate; } } as any);
+  expect(Tools.list(tools, "main").some((s: any) => s.name === "tidy")).toBe(true);
+  // all safe: one consent, model-free text naming each path, not the kept one
+  const asked = Tools.call(tools, "main", "tidy", {}, go(), "1");
+  const [c] = Tools.consents(tools);
+  expect(c!.what).toStartWith("Remove 2 worktrees");
+  expect(c!.what).toContain("/w/a");
+  expect(c!.what).toContain("/w/c");
+  expect(c!.what).not.toContain("/w/b");
+  expect(sent).toEqual([]);
+  Tools.consent(tools, c!.id, true);
+  const yes = await asked;
+  expect(yes.fail).toBe(false);
+  expect(sent).toEqual([["/w/a", "/w/c"]]);
+  expect(yes.text).toContain("/w/b: it has changes");
+  // a no: nothing sent
+  const again = Tools.call(tools, "main", "tidy", { paths: ["/w/a"] }, go(), "2");
+  Tools.consent(tools, Tools.consents(tools)[0]!.id, false);
+  expect((await again).fail).toBe(true);
+  expect(sent).toHaveLength(1);
+  // only unsafe or unknown paths: nothing asked, nothing sent, why said
+  const none = await Tools.call(tools, "main", "tidy", { paths: ["/w/b", "/elsewhere"] }, go(), "3");
+  expect(none.fail).toBe(true);
+  expect(none.text).toContain("/w/b: it has changes");
+  expect(Tools.consents(tools)).toEqual([]);
+  expect(sent).toHaveLength(1);
+  // the server's gate refuses at the yes: the call fails, saying so
+  gate = "No device is up to remove them: run legion device.";
+  const refused = Tools.call(tools, "main", "tidy", { paths: ["/w/c"] }, go(), "4");
+  Tools.consent(tools, Tools.consents(tools)[0]!.id, true);
+  const out = await refused;
+  expect(out.fail).toBe(true);
+  expect(out.text).toContain("No device is up");
+  // a worker: no tidy, and its call refused, nothing asked
+  tools.agents.set("Wkr", { name: "Wkr", role: { $: "sub", tier: "worker", effort: null, model: null } } as any);
+  expect(Tools.list(tools, "Wkr").some((s: any) => s.name === "tidy")).toBe(false);
+  expect((await Tools.call(tools, "Wkr", "tidy", {}, go(), "5")).fail).toBe(true);
+  expect(Tools.consents(tools)).toEqual([]);
+  expect(sent).toHaveLength(2);
+  Tools.close(tools);
+});
+
+// the assign tool tells agents a tidy is not a todo (user's ask 2026-11-26)
+test("assign's description sends worktree removal to Unii's tidy, not the user's Todo page", () => {
+  const assign = Tools.list(Tools.serve({} as any, {} as any), "main").find((s: any) => s.name === "assign") as any;
+  expect(assign.info).toContain("tidy");
+});
