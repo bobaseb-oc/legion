@@ -312,7 +312,8 @@ export function digest_html(v: View.View): string[] {
   if (d === null) {
     return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo).</p>${refresh}</div>`];
   }
-  const head = `<div class="phead"><h2>${esc(d.repos.join(", "))}: last 7 days</h2><p class="meta">${d.merged.length} merged · ${d.open.length} open</p>`
+  const repos = `<p class="meta">${d.repos.length} repo${d.repos.length === 1 ? "" : "s"}: ${esc(d.repos.join(", "))}</p>`;
+  const head = `<div class="phead"><h2>Digest: last 7 days</h2>${repos}<p class="meta">${d.merged.length} merged · ${d.open.length} open</p>`
     + `<button class="pbtn"${act_html({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
   const pr = (p: { title: string; url: string; number: number; repo: string }) => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.title)}</a> <span class="meta">#${p.number}</span></li>`;
   const merged = Cockpit.digest_groups(d.merged).map((g) => {

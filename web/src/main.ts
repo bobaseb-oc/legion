@@ -546,6 +546,10 @@ function act(a: View.Act): void {
   if (a.$ === "Transcript") {
     C.reading.set(a.id, Date.now());
   }
+  // one model call, up to a minute: said, as the terminal's /themes says it
+  if (a.$ === "Themes") {
+    toast("Summarizing the digest by theme…");
+  }
   const refused = (out: View.Answer) => {
     if (a.$ === "Transcript" && out.error !== undefined) {
       C.reading.delete(a.id);
