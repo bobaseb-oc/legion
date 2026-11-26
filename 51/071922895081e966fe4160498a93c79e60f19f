@@ -1,0 +1,29 @@
+Cockpit.test.ts
+  s_b93fbddfb43bf8::t_886c8f01d084c6 268,360
+Memory.test.ts
+  s_b93fbddfb43bf8::t_ff5db45ff1cafe 16
+Routines.test.ts
+  s_b93fbddfb43bf8::t_028ac59f50a25b 14,16-17,23,59,73,78-79,113,172,196,202
+Routines.ts
+  s_b93fbddfb43bf8::t_6e97929c66118c 15,20,25,36-37,61,173,176-177,179-180,183-184,189
+Server.test.ts
+  s_b93fbddfb43bf8::t_d40301bff45f67 273,362,735,824-826,837-839,850,854,863,867-874,893,895,929,931,1491,1555
+Server.ts
+  s_b93fbddfb43bf8::t_03a116edbb744b 3136,3332-3333,3416,3420,3424,3434-3438,3458-3465,3470
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51071922895081e966fe4160498a93c79e60f19f",
+  "prompts": {},
+  "sessions": {
+    "s_b93fbddfb43bf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d159ed-4380-4638-af14-a50e2cfc8437",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
