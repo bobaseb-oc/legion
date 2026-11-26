@@ -168,8 +168,8 @@ export function agents_find_html(v: View.View): string[] {
   return [form, `<div class="ahits">${hits.join("")}</div>`];
 }
 
-// the Crew tree (View.view_tree): per agent a caret (managers: fold or
-// open), its link (mark, name, tier, model; its roll-up or how long
+// the Crew tree (View.view_tree): per agent a caret (one with agents
+// under it, from an older log: fold or open), its link (mark, name, tier, model; its roll-up or how long
 // ago), its actions
 export function tree_html(v: View.View, now: number): string[] {
   return View.view_tree(v, now).map((r) => {

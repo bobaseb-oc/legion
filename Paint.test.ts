@@ -10,7 +10,7 @@ import * as Theme from "./Theme.ts";
 import * as View from "./View.ts";
 
 const text = (l: Paint.Line) => l.map((r) => r.x).join("");
-const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: parent === "main" ? "manager" : "worker", model: "sonnet-5.5", status, since: 0 });
+const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: "worker", model: "sonnet-5.5", status, since: 0 });
 
 test("the crew panel: Legion, its agents under their starters, the page shown bold, a failed one red", () => {
   const v = View.view_new();
@@ -19,7 +19,7 @@ test("the crew panel: Legion, its agents under their starters, the page shown bo
   const lines = Paint.crew_lines(v, 60, 120000, 8);
   expect(lines.map(text)).toEqual([
     expect.stringMatching(/^ {2}◆ Legion · orchestrator · opus-5\.5 · working/),
-    expect.stringMatching(/^▸   ◐ Mgr · manager · sonnet-5\.5/),
+    expect.stringMatching(/^▸   ◐ Mgr · worker · sonnet-5\.5/),
     expect.stringMatching(/^ {6}✗ Wkr · worker · sonnet-5\.5/),
   ]);
   expect(lines[1].find((r) => r.x.includes("Mgr"))!.s.b).toBe(true);
@@ -195,7 +195,7 @@ test("the shell status block: head, last lines, keys; a command's escapes never 
 test("AC25: the terminal's Tracks page draws an item's text with its escapes cleaned", async () => {
   const Deck = await import("./Deck.ts");
   const v = View.view_new();
-  View.view_hear(v, { $: "state", ...v, crew: [crew("Alpha", "main", "working")], tracks: [{ name: "Alpha", tier: "manager", editable: true, orphaned: false, queued: false,
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Alpha", "main", "working")], tracks: [{ name: "Alpha", tier: "worker", editable: true, orphaned: false, queued: false,
     items: [{ text: "Fix \x1b[2Jit", status: "doing" }], pins: [{ n: 1, text: "Pin \x1b[2Jme", status: "pending", at: 0 }] }] } as any);
   const OWNS = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b\x07]*\x1b\\/g;
   const lines = Deck.deck_lines(v, Deck.deck_new("tracks" as any), 100, 40, 0);

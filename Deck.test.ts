@@ -12,7 +12,7 @@ import * as Paint from "./Paint.ts";
 import * as View from "./View.ts";
 
 const text = (l: Paint.Line) => l.map((r) => r.x).join("");
-const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: parent === "main" ? "manager" : "worker", model: "sonnet-5.5", status, since: 0 });
+const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: "worker", model: "sonnet-5.5", status, since: 0 });
 const W = 100;
 const H = 20;
 
@@ -393,7 +393,7 @@ test("the mouse in the deck: a click on the nav goes to that page (Chat: back), 
   const picked = key(v, home, "Click:5:" + row);
   expect(picked.deck.sel).toBe("Ask");
   expect(key(v, picked.deck, "Click:5:" + row)).toMatchObject({ done: true, focus: "Ask" });
-  View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });
+  View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, on: true, last: null, made: 0 })) });
   const r = Deck.deck_new("routines");
   expect(key(v, r, "WheelDown").deck.top).toBe(3);
   expect(key(v, r, "WheelDown", "WheelUp", "WheelUp").deck.top).toBe(0);
@@ -418,7 +418,7 @@ test("the Todo page, as the web's: each todo to pick, who and when; d ticks it d
 
 test("a text page (the digest, transcripts, timesheet, routines) scrolls: j/k, Space and PageDown, Home and End, kept in its length", () => {
   const v = team();
-  View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, tier: "worker", on: true, last: null, made: 0 })) });
+  View.view_hear(v, { $: "state", ...v, routines: Array.from({ length: 40 }, (_, k) => ({ id: k + 1, name: "r" + k, task: "t", when: { $: "daily", at: "09:00" }, on: true, last: null, made: 0 })) });
   const d = Deck.deck_new("routines");
   const body = (x: Deck.Deck) => Deck.deck_lines(v, x, W, H, 0).slice(1).map(text).join("\n");
   expect(body(d)).toContain("r0");
@@ -456,7 +456,7 @@ test("a PR body, an event title, a routine's why: drawn without their escapes", 
     google: { events: [{ id: "e", title: "Sync " + EVIL + "up", start: new Date(NOW + 3600e3).toISOString(), end: new Date(NOW + 7200e3).toISOString(), meet: "", people: 2 }], docs: [] } };
   View.view_hear(v, { $: "inbox", inbox: evil });
   View.view_hear(v, { $: "state", ...v, crew: [...v.crew, crew("A", "main", "working"), crew("B", "main", "working"), crew("C", "main", "working")] });
-  View.view_hear(v, { $: "state", ...v, routines: [{ id: 5, name: "Standup " + EVIL, task: "t" + EVIL, when: { $: "daily", at: "09:00" }, tier: "worker", on: false, last: null, made: 0, by: "main", why: "you " + EVIL + "asked" }] });
+  View.view_hear(v, { $: "state", ...v, routines: [{ id: 5, name: "Standup " + EVIL, task: "t" + EVIL, when: { $: "daily", at: "09:00" }, on: false, last: null, made: 0, by: "main", why: "you " + EVIL + "asked" }] });
   const detail = ikey(v, Deck.deck_new("inbox"), "j", "j", "Tab").deck;
   const pages = [Deck.deck_lines(v, detail, W, 40, NOW), Deck.deck_lines(v, Deck.deck_new("routines"), W, 40, NOW), Deck.crew_foot(v, 140, NOW, 8, true), Deck.crew_foot(v, 140, NOW, 8, false)];
   const all = pages.map((ls) => drawn(ls, 140)).join("\r\n");

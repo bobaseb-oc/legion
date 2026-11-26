@@ -1,8 +1,9 @@
 // Demo
 // ====
-// A demo crew for layout and tests: 8 managers of 5 workers each, in
-// every status, a sub-manager, and a Claude Code worker asking to start;
-// labelled (a title and repos) but one worker each and the sub-manager.
+// A demo crew for layout and tests: 8 agents of 5 workers each, nested
+// as an older log's managers were (to show the tree's folding), in every
+// status, a nested one, and a Claude Code worker asking to start;
+// labelled (a title and repos) but one worker each and the nested one.
 // The site draws it on its own at /?demo=1#crew (main.ts: nothing goes
 // to the server); and a demo inbox (/?demo=1#inbox).
 
@@ -11,7 +12,7 @@ import type { Crew, Pulse, Status, Todo } from "./View.ts";
 
 const STATUSES: Status[] = ["working", "working", "done", "failed", "waiting", "working", "stopped"];
 
-// what each manager is on and its repos; its workers' parts
+// what each top agent is on and its repos; its workers' parts
 const GOALS: Array<[string, string[]]> = [
   ["Fix flaky login tests", ["auth-api", "web"]],
   ["Ship the export to CSV", ["reports"]],
@@ -31,15 +32,15 @@ export function demo_crew(now: number): Crew[] {
   const crew: Crew[] = [];
   for (let m = 0; m < 8; m++) {
     const [title, repos] = GOALS[m];
-    crew.push({ name: "Mgr" + m, parent: "main", tier: "manager", model: "opus-5.5", status: m % 3 === 2 ? "done" : "waiting", since: now - (m + 1) * 60000, title, repos, spent: 0.35 + m * 1.7 });
+    crew.push({ name: "Mgr" + m, parent: "main", tier: "worker", model: "opus-5.5", status: m % 3 === 2 ? "done" : "waiting", since: now - (m + 1) * 60000, title, repos, spent: 0.35 + m * 1.7 });
     for (let w = 0; w < 5; w++) {
       const part = w < PARTS.length ? { title: PARTS[w], repos: [repos[w % repos.length]] } : {};
-      // the first worker of each manager keeps a checklist, m steps done
+      // the first worker of each top agent keeps a checklist, m steps done
       const todo = w === 0 ? { todo: STEPS.map((text, k): Todo => ({ text, status: k < m % STEPS.length ? "done" : k === m % STEPS.length ? "doing" : "pending" })) } : {};
       crew.push({ name: "W" + m + "-" + w, parent: "Mgr" + m, tier: "worker", model: "sonnet-5.5", status: STATUSES[(m + w) % STATUSES.length], since: now - (w + 1) * 9000, ...part, ...todo });
     }
   }
-  crew.push({ name: "Sub3", parent: "Mgr3", tier: "manager", model: "opus-5.5", status: "waiting", since: now - 30000 });
+  crew.push({ name: "Sub3", parent: "Mgr3", tier: "worker", model: "opus-5.5", status: "waiting", since: now - 30000 });
   crew.push({ name: "W3-sub", parent: "Sub3", tier: "worker", model: "haiku-5.5", status: "working", since: now - 5000 });
   crew.push({ name: "Claude1", parent: "main", tier: "claude", model: "claude-code", status: "asking", since: now, title: "Refactor the device jobs", repos: ["legion"] });
   return crew;

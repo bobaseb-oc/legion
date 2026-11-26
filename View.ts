@@ -135,7 +135,7 @@ export type Lookup = { q: string; hits: AgentHit[] | null };
 // an agent of the chat, at work or done (till dismissed): who started it
 // ("main": Legion), what it is, its model, how it is, since when its run
 // began (ms since 1970)
-export type Crew = { name: string; parent: string; tier: "manager" | "worker" | "computer" | "claude"; model: string; status: Status; since: number; title?: string; repos?: string[]; todo?: Todo[]; spent?: number; files?: string[] }; // spent: est. USD (Tools.spent); files: touched, newest first (Tools.touched)
+export type Crew = { name: string; parent: string; tier: "worker" | "computer" | "claude"; model: string; status: Status; since: number; title?: string; repos?: string[]; todo?: Todo[]; spent?: number; files?: string[] }; // spent: est. USD (Tools.spent); files: touched, newest first (Tools.touched)
 // a shell command running (B2), an agent's call or the user's !command (who
 // "user"; Legion's "main"; an agent's name): its job, its background
 // number (null: in the foreground, its caller waiting), its device and
@@ -409,7 +409,7 @@ export type Act =
   | { $: "Stop"; name: string }                 // that agent's work stopped (the Crew view)
   | { $: "Undo"; name: string }                 // that agent's last turn undone (the Crew view, confirmed)
   | { $: "Handoff"; name: string }              // that agent's work opened in Claude Code (the Crew view)
-  | { $: "Expand"; name: string }               // a manager's workers shown, or folded again
+  | { $: "Expand"; name: string }               // an agent's children shown, or folded again
   | { $: "Tell"; name: string; text: string }   // a message to that agent (a tile's box)
   | { $: "Answer"; q: number; text: string }    // an open question answered (the backlog pane)
   | { $: "Drop"; q: number }                    // an open question dismissed
@@ -418,7 +418,7 @@ export type Act =
   | { $: "Pace"; pace: Pace }                   // how GChat posts are paced (the palette)
   | { $: "Verdict"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved into a mode, or sent back
   | { $: "Consent"; n: number; yes: boolean }   // a waiting call: run it, or not
-  | { $: "Review"; prs: string[]; how: "review" | "fix"; claude?: boolean } // PRs of the inbox, each to a Legion agent (claude: a Claude Code worker under a manager)
+  | { $: "Review"; prs: string[]; how: "review" | "fix"; claude?: boolean } // PRs of the inbox, each to a Legion agent (claude: Legion asked for a Claude Code worker each)
   | { $: "Fetch" }                              // the inbox read anew (its Refresh)
   | { $: "Tidy"; paths: string[] }               // safe worktrees removed (a Remove, confirmed: tidy_ask)
   | { $: "Archive"; names: string[] }           // agents out of the crew (Home's Archive, Archive all)
@@ -1370,7 +1370,7 @@ export function view_alerts(v: View, now: number): Alert[] {
   }).concat(once);
 }
 
-// the Crew tree: the crew's rows (view_crew), a manager's children shown
+// the Crew tree: the crew's rows (view_crew), an agent's children shown
 // once opened, or while the agent in focus is under it; each row with
 // what's under it, by status
 export function view_tree(v: View, now: number): TreeRow[] {
@@ -1669,7 +1669,7 @@ function view_open_note(v: View): string {
   return ["Your questions:", ...qs.map(item), ...(notes.length === 0 ? [] : ["Notes:", ...notes]), "Answer one: /answer <n> <text> (or the answer's number); dismiss: /drop <n>."].join("\n");
 }
 
-// the terminal's /routines: each with its number, when, tier, on or off;
+// the terminal's /routines: each with its number, when, on or off;
 // one an agent proposed marked so, its name and why quoted as the agent's
 // words, then its whole task, which turning it on approves
 const PROPOSER = (by: string) => (by === "main" ? "Legion" : by);
@@ -1679,7 +1679,7 @@ export function view_routines_note(v: View): string {
     return "No routines. Add one: /routine add daily 09:00 Name: task (or every 4h, or on review).";
   }
   const line = (r: Routine) => {
-    const head = (name: string) => r.id + ". " + name + " · " + when_text(r.when) + " · " + r.tier + " · " + (r.on ? "on" : "off");
+    const head = (name: string) => r.id + ". " + name + " · " + when_text(r.when) + " · " + (r.on ? "on" : "off");
     if (!pending(r)) {
       return head(r.name);
     }

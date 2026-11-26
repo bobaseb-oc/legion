@@ -107,7 +107,7 @@ test("view_code: a text block of nudges is the one /copy copies", () => {
   expect(View.view_code(v)).toBe("- https://github.com/a/b/pull/1 - Fix - ask @ana");
 });
 
-const crew = (name: string, parent: string, tier: View.Crew["tier"], status: View.Crew["status"], since = 0): View.Crew => ({ name, parent, tier, model: tier === "manager" ? "sonnet-5.5" : "haiku-5.5", status, since });
+const crew = (name: string, parent: string, tier: View.Crew["tier"], status: View.Crew["status"], since = 0): View.Crew => ({ name, parent, tier, model: /^(Mgr|Sub)/.test(name) ? "sonnet-5.5" : "haiku-5.5", status, since });
 
 // the crew: each agent under who started it, the ones failed first, then
 // those at work, waiting, stopped, done; each row its depth and status
@@ -115,7 +115,7 @@ test("the crew lists each agent under its starter, failed first, then at work, w
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [
     crew("Done", "main", "worker", "done", 1),
-    crew("Mgr", "main", "manager", "waiting", 2),
+    crew("Mgr", "main", "worker", "waiting", 2),
     crew("WkrA", "Mgr", "worker", "working", 3),
     crew("WkrB", "Mgr", "worker", "failed", 4),
     crew("Solo", "main", "worker", "working", 5),
@@ -147,7 +147,7 @@ test("typing on an agent's page tells that agent", () => {
 // them, done ones too
 test("tabs follow the crew: Legion, then its agents in crew order", () => {
   const v = View.view_new();
-  View.view_hear(v, { $: "state", ...v, agents: ["Wkr"], crew: [crew("Done", "main", "worker", "done", 1), crew("Mgr", "main", "manager", "waiting", 2), crew("Wkr", "Mgr", "worker", "working", 3)] });
+  View.view_hear(v, { $: "state", ...v, agents: ["Wkr"], crew: [crew("Done", "main", "worker", "done", 1), crew("Mgr", "main", "worker", "waiting", 2), crew("Wkr", "Mgr", "worker", "working", 3)] });
   expect(View.view_tabs(v).map((t) => t.name)).toEqual([null, "Mgr", "Wkr", "Done"]);
   expect(View.view_named(v, "wk")).toBe("Wkr");
   expect(View.view_named(v, "do")).toBe("Done");
@@ -159,12 +159,12 @@ test("tabs follow the crew: Legion, then its agents in crew order", () => {
 test("alerts: an agent that fails, a turn that ends; not on connect, not twice", () => {
   const v = View.view_new();
   const hear = (busy: boolean, list: View.Crew[]) => View.view_hear(v, { $: "state", ...v, busy, crew: list });
-  hear(true, [crew("Mgr", "main", "manager", "working"), crew("Old", "main", "worker", "failed")]);
+  hear(true, [crew("Mgr", "main", "worker", "working"), crew("Old", "main", "worker", "failed")]);
   expect(View.view_alerts(v, 0)).toEqual([]);
-  hear(true, [crew("Mgr", "main", "manager", "failed"), crew("Old", "main", "worker", "failed")]);
-  expect(View.view_alerts(v, 1000)).toEqual([{ key: "Mgr failed", title: "Mgr failed", body: "manager · sonnet-5.5: open it to see why.", name: "Mgr" }]);
+  hear(true, [crew("Mgr", "main", "worker", "failed"), crew("Old", "main", "worker", "failed")]);
+  expect(View.view_alerts(v, 1000)).toEqual([{ key: "Mgr failed", title: "Mgr failed", body: "worker · sonnet-5.5: open it to see why.", name: "Mgr" }]);
   expect(View.view_alerts(v, 2000)).toEqual([]);
-  hear(false, [crew("Mgr", "main", "manager", "failed")]);
+  hear(false, [crew("Mgr", "main", "worker", "failed")]);
   expect(View.view_alerts(v, 3000)).toEqual([{ key: "turn", title: "Legion answered", body: "Its turn ended: your move.", name: null }]);
   hear(true, []);
   View.view_alerts(v, 4000);
@@ -209,12 +209,12 @@ test("routes: #chat, #crew, #crew/<name>", () => {
 const team = () => {
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [
-    crew("Mgr", "main", "manager", "waiting", 2),
+    crew("Mgr", "main", "worker", "waiting", 2),
     crew("A", "Mgr", "worker", "working", 3),
     crew("B", "Mgr", "worker", "working", 4),
     crew("C", "Mgr", "worker", "done", 5),
     crew("D", "Mgr", "worker", "failed", 6),
-    crew("Sub", "Mgr", "manager", "waiting", 7),
+    crew("Sub", "Mgr", "worker", "waiting", 7),
     crew("E", "Sub", "worker", "working", 8),
     crew("Ask", "main", "claude", "asking", 9),
     crew("Solo", "main", "worker", "done", 1),
@@ -222,9 +222,10 @@ const team = () => {
   return v;
 };
 
-// managers start folded: a row rolls up all under it, by status; opened,
-// its children show (a folded sub-manager rolls up its own)
-test("the tree folds managers and rolls up their workers", () => {
+// an agent with agents under it (an older log's manager) starts folded: a
+// row rolls up all under it, by status; opened, its children show (a
+// folded nested one rolls up its own)
+test("the tree folds an agent with agents under it and rolls them up", () => {
   const v = team();
   const names = () => View.view_tree(v, 0).map((r) => r.name);
   expect(names()).toEqual(["Ask", "Mgr", "Solo"]);
@@ -240,8 +241,8 @@ test("the tree folds managers and rolls up their workers", () => {
   expect(names()).toEqual(["Ask", "Mgr", "Solo"]);
 });
 
-// the agent in focus shows even under folded managers: its ancestors open
-test("the focused agent's managers open for it", () => {
+// the agent in focus shows even under folded agents: its ancestors open
+test("the focused agent's ancestors open for it", () => {
   const v = team();
   View.view_act(v, { $: "Goto", name: "E" });
   expect(View.view_tree(v, 0).map((r) => r.name)).toContain("E");
@@ -283,10 +284,10 @@ test("a pulse is kept per agent; the view watches what it shows", () => {
 // a dot per agent under it (any depth), its roll-up and its pulse
 const { demo_crew, demo_pulses } = await import("./Demo.ts");
 
-test("the demo crew: 8 managers, 40 workers, a sub-manager, one asking", () => {
+test("the demo crew: 8 top agents of 5 workers, a nested one, one asking", () => {
   const crew = demo_crew(1e12);
-  expect(crew.filter((c) => c.tier === "manager" && c.parent === "main")).toHaveLength(8);
-  expect(crew.filter((c) => c.tier === "worker")).toHaveLength(41);
+  expect(crew.filter((c) => c.tier === "worker" && c.parent === "main")).toHaveLength(8);
+  expect(crew.filter((c) => c.tier === "worker")).toHaveLength(50);
   expect(crew.filter((c) => c.status === "asking")).toHaveLength(1);
   expect(new Set(crew.map((c) => c.status)).size).toBe(6);
 });
@@ -329,7 +330,7 @@ test("Tell tells the agent named; empty, nothing", () => {
 test("the lane: marks by time, spawns, stalls", () => {
   const v = View.view_new();
   const t = (s: number) => new Date(1e12 + s * 1000).toISOString();
-  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Kid", "Mgr", "worker", "done", 1e12 + 50000)] });
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "worker", "done"), crew("Kid", "Mgr", "worker", "done", 1e12 + 50000)] });
   View.view_act(v, { $: "Goto", name: "Mgr" });
   View.view_hear(v, { $: "agent", name: "Mgr", found: true });
   for (const [kind, text, s] of [["user", "the task", 0], ["tool", "shell: ls", 10], ["mind", "hmm", 20], ["legion", "Done.\nAll good", 400]] as const) {
@@ -346,7 +347,7 @@ test("the lane: marks by time, spawns, stalls", () => {
   expect(lane[3].label).toBe("quiet 5m");
   expect(lane[4].label).toBe("All good");
   // at work: the lane runs to now, a quiet end a stall too
-  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "working")] });
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "worker", "working")] });
   const live = View.view_lane(v, 1e12 + 1000e3);
   expect(live.at(-1)).toMatchObject({ kind: "stall", at: 1 });
   expect(live.find((m) => m.kind === "words")!.at).toBeCloseTo(0.4, 2);
@@ -354,7 +355,7 @@ test("the lane: marks by time, spawns, stalls", () => {
 
 
 // The terminal's full-screen Crew (/crew full): keys move a selection on
-// the tree, open and fold managers, act on the one selected; Enter
+// the tree, open and fold agents, act on the one selected; Enter
 // shows its page and leaves, Esc or q leaves
 test("full-screen Crew keys", () => {
   const v = team();
@@ -578,7 +579,7 @@ test("agents searched: an empty search asks nothing, an older answer is dropped,
 
 test("/undo and /handoff in the terminal: a crew member, idle for an undo, confirmed by yes; the page's agent by default", () => {
   const v = View.view_new();
-  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "manager", "done"), crew("Wkr", "Mgr", "worker", "working")] });
+  View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "worker", "done"), crew("Wkr", "Mgr", "worker", "working")] });
   expect(View.view_crew_op(v, "undo", "Mgr")).toBe(View.undo_ask("Mgr") + " Sure? /undo Mgr yes");
   expect(View.view_crew_op(v, "undo", "Mgr yes")).toEqual({ $: "Undo", name: "Mgr" });
   expect(View.view_crew_op(v, "undo", "Wkr yes")).toBe("Wkr is at work: its last turn can be undone once it stops.");

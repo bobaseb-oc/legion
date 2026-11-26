@@ -113,8 +113,8 @@ export function inbox_head(inbox: Inbox | null, changed: number): string {
 }
 
 // the picked rows' panel: how many, each, what they can have done (each
-// one's own: a review request reviewed, a PR fixed; Claude Code workers,
-// if ticked, run them under a manager), opened, the picks dropped
+// one's own: a review request reviewed, a PR fixed; if ticked, Legion is
+// asked for a Claude Code worker each), opened, the picks dropped
 export function picks_html(sections: Cockpit.Section[], picks: Set<string>, claude: boolean): string {
   if (picks.size === 0) {
     return "";
@@ -252,13 +252,13 @@ export function palette_html(items: Cockpit.Item[], sel: number): string[] {
 // ========
 
 // the routines: each its name, when, the next run (or "on review
-// requests"), the last, its tier; Run now, On/Off, Delete; then the form
+// requests"), the last; Run now, On/Off, Delete; then the form
 // to add one (main.ts reads it: form.radd)
 export function routines_html(v: View.View, now: number): string[] {
   const time = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const rows = (v.routines ?? []).map((r) => {
     const next = Routines.routine_next(r, now);
-    const when = `<span class="meta">${esc(Routines.when_text(r.when))} · ${r.tier}${!r.on ? " · off" : next === null ? "" : " · next " + esc(time(next))}${r.last === null ? "" : " · last " + esc(Cockpit.age(now - r.last)) + " ago"}</span>`;
+    const when = `<span class="meta">${esc(Routines.when_text(r.when))}${!r.on ? " · off" : next === null ? "" : " · next " + esc(time(next))}${r.last === null ? "" : " · last " + esc(Cockpit.age(now - r.last)) + " ago"}</span>`;
     const run = r.when.$ === "review" ? "" : `<button class="pbtn"${act_html({ $: "Routine", op: "run", n: r.id })}>Run now</button>`;
     const flip = `<button class="pbtn"${act_html({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
@@ -278,7 +278,7 @@ export function routines_html(v: View.View, now: number): string[] {
     + `<div class="rwhen"><select name="kind"><option value="daily">daily at</option><option value="weekly">weekly on</option><option value="every">every</option><option value="review">on each new review request</option></select>`
     + `<select name="day" aria-label="day">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}"${i === 5 ? " selected" : ""}>${d}</option>`).join("")}</select>`
     + `<input name="at" type="time" value="09:00"><input name="hours" type="number" min="1" max="${Routines.HOURS}" value="4" aria-label="hours"><span class="meta">hours</span>`
-    + `<select name="tier"><option value="worker">a worker</option><option value="manager">a manager</option></select></div>`
+    + `</div>`
     + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${Routines.TASK}"></textarea><button class="pbtn">Add</button></form>`;
   return [head, ...(rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows), form];
 }

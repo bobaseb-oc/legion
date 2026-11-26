@@ -8,14 +8,14 @@ import { expect, test } from "bun:test";
 import * as Html from "./web/src/Html.ts";
 import * as View from "./View.ts";
 
-const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: parent === "main" ? "manager" : "worker", model: "sonnet-5.5", status, since: 0 });
+const crew = (name: string, parent: string, status: View.Status): View.Crew => ({ name, parent, tier: "worker", model: "sonnet-5.5", status, since: 0 });
 
 // The Crew view (Html.tree_html, needs_html, mode_html)
 // ------------------------------------------------------
 
 const act = (a: object) => JSON.stringify(a).replace(/"/g, "&quot;");
 
-test("the tree: a folded manager with its roll-up and a caret; rows link to their focus", () => {
+test("the tree: a folded agent with its roll-up and a caret; rows link to their focus", () => {
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [crew("Mgr", "main", "waiting"), crew("W1", "Mgr", "working"), crew("W2", "Mgr", "done")] });
   const html = Html.tree_html(v, 0);
@@ -238,7 +238,7 @@ test("labels: title first, repo chips, the name under it", () => {
   const [plain, fire] = Html.tree_html(v, 0);
   expect(fire).toContain("<b>Fix &lt;flaky&gt; login tests</b>");
   // the tree is narrow: the name and repos in the row's tooltip
-  expect(fire).toMatch(/title="FireAnt · manager · .* · auth-api, w&amp;b"/);
+  expect(fire).toMatch(/title="FireAnt · worker · .* · auth-api, w&amp;b"/);
   expect(plain).toContain("<b>PlainOwl</b>");
   expect(plain).not.toContain('class="repo"');
   const tile = Html.grid_html(v, 0).find((t) => t.includes("FireAnt"))!;
