@@ -52,9 +52,8 @@ export const COMPACTOR  = config_run("compactor", config_get("compactor", "claud
 export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku:high:slow"));
 // what checks each reply against Legion's standing directives (Directives.ts)
 export const CHECKER    = config_run("checker", config_get("checker", "claude-api:haiku:high:slow"));
-// what agents run on by tier, below the chat's pick (Tools.ts): a
-// manager splits its task among workers; `agents` sets both (older)
-export const MANAGER    = config_run("manager", config_get("manager", config_get("agents", "claude-api:sonnet:medium:slow")));
+// what Legion's workers run on, below the chat's pick (Tools.ts); `agents`
+// is its older name. A `manager` set from before managers went is ignored
 export const WORKER     = config_run("worker", config_get("worker", config_get("agents", "claude-api:sonnet:medium:slow")))
 // what a Claude Code worker runs (Machine.claude): a full model id, sonnet
 // or haiku, never opus; never an alias, which gateway discovery re-resolves

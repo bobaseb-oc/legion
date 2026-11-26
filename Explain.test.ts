@@ -92,7 +92,7 @@ const until = async (f) => {
   return f();
 };
 const T0 = ${T0};
-const top = (c, name) => c.tools.agents.set(name, { name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+const top = (c, name) => c.tools.agents.set(name, { name, parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
 const card = { track: "Owl", title: "Explain tab", what: "A page that says what the team builds", why: "Managers", status: "Started", watch: "nothing" };
 Memory.push(chat.mem, [{ kind: "user", text: "Make the page plainer" }]);
 const count = chat.mem.count;
@@ -328,7 +328,7 @@ AskAI.ask = (ask, on) => {
   queueMicrotask(() => sink.end({ ok: true, text: JSON.stringify({ cards: [] }), left: [] }));
   return call;
 };
-chat.tools.agents.set("Owl", { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
+chat.tools.agents.set("Owl", { name: "Owl", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false });
 chat.mem.goal = "Ship";
 const before = [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }];
 chat.mem.explain.cards = before;

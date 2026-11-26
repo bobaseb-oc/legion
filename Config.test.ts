@@ -160,7 +160,7 @@ test("gateway key: read from fd 3 when told (the launcher's), never from or into
 // Claude Code worker runs a full id, sonnet or haiku, never opus; a role
 // naming no model of the catalog refuses to start
 function roles(env: Record<string, string>, dir = DIR): { code: number; text: string } {
-  const code = 'import * as c from "./Config.ts"; console.log(JSON.stringify({ pick: c.PICK.model, manager: c.MANAGER.model, worker: c.WORKER.model, observer: c.OBSERVER.model, claude: c.CLAUDE_WORKER }))';
+  const code = 'import * as c from "./Config.ts"; console.log(JSON.stringify({ pick: c.PICK.model, worker: c.WORKER.model, observer: c.OBSERVER.model, claude: c.CLAUDE_WORKER }))';
   const out = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...process.env, LEGION_DIR: dir, ...env } });
   return { code: out.exitCode, text: (out.stdout.toString() + out.stderr.toString()).trim() };
 }
@@ -168,15 +168,23 @@ function roles(env: Record<string, string>, dir = DIR): { code: number; text: st
 test("roles: only the orchestrator defaults to opus; a Claude Code worker to sonnet's full id", () => {
   const out = roles({});
   expect(out.code).toBe(0);
-  expect(JSON.parse(out.text)).toEqual({ pick: "opus-5.5", manager: "sonnet-5.5", worker: "sonnet-5.5", observer: "haiku-5.5", claude: "claude-sonnet-5-5" });
+  expect(JSON.parse(out.text)).toEqual({ pick: "opus-5.5", worker: "sonnet-5.5", observer: "haiku-5.5", claude: "claude-sonnet-5-5" });
 });
 
 test("roles: a tier and a versioned label name the same pick; claude_worker may be haiku", () => {
-  const tier = roles({ LEGION_MANAGER: "claude-api:haiku:high:slow", LEGION_CLAUDE_WORKER: "haiku" });
-  const label = roles({ LEGION_MANAGER: "claude-api:haiku-5.5:high:slow", LEGION_CLAUDE_WORKER: "haiku-5.5" });
+  const tier = roles({ LEGION_WORKER: "claude-api:haiku:high:slow", LEGION_CLAUDE_WORKER: "haiku" });
+  const label = roles({ LEGION_WORKER: "claude-api:haiku-5.5:high:slow", LEGION_CLAUDE_WORKER: "haiku-5.5" });
   expect(tier.code).toBe(0);
   expect(JSON.parse(tier.text)).toEqual(JSON.parse(label.text));
   expect(JSON.parse(tier.text).claude).toBe("claude-haiku-5-5");
+});
+
+// no managers (user's ask 2026-11-26): a manager set from before is
+// ignored, never a refusal to start
+test("roles: a manager set from before managers went is ignored", () => {
+  const out = roles({ LEGION_MANAGER: "claude-api:gpt-9:medium:slow" });
+  expect(out.code).toBe(0);
+  expect(JSON.parse(out.text)).toMatchObject({ worker: "sonnet-5.5" });
 });
 
 test("roles: claude_worker opus, or a role naming no model of the catalog, refuses to start", () => {

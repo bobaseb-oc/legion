@@ -60,7 +60,7 @@ const tell = Tools.tell;
 Tools.tell = (...a) => { spy.tells += 1; return tell(...a); };
 const remind = Tools.remind;
 Tools.remind = (...a) => { spy.reminds.push([a[1], a[2]]); return remind(...a); };
-const SUB = { $: "sub", tier: "worker", effort: null, model: null };
+const SUB = { $: "sub", effort: null, model: null };
 const of = (name) => asks.filter((a) => String(a.ask.server).endsWith("/" + name));
 // a top agent at work (its call open) or idle (its first turn ended)
 const start = async (task, idle, parent = "main") => {
