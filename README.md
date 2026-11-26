@@ -310,6 +310,35 @@ or a Touch ID request comes and you didn't just start Legion, Deny it.
 Your chat lives in ~/.legion/users/<id>, one JSON line per message
 (main/) and per summary (tree/). That is the memory: back it up.
 
+### Renamed from Unii
+
+Legion was UniiChat, its AI Unii, its data in ~/.unii and its settings
+`UNII_*`. If you ran it before the rename, move the data once. Until
+then the launcher starts nothing (only the commands below run):
+
+    local/legion stop                 # the old server and SearXNG
+    local/legion device --uninstall   # if you installed them
+    local/legion server --uninstall
+    local/legion rename --dry         # what would change; writes nothing
+    local/legion rename               # the move
+    docker rm unii-searxng            # the old SearXNG's container
+
+`legion rename` (local/rename.ts) refuses while a server or a launchd
+job runs. It copies users/ to ~/.unii/users.bak-rename, marks the old
+replies as Legion's, drops the history indexes (rebuilt at the next
+start) and the browsers' sessions, then moves ~/.unii to ~/.legion and
+~/.unii-prime to ~/.legion-prime. Each old name stays as a link, and
+Legion guards its trust state under both names. A second run changes
+nothing. Then:
+
+- rename `UNII_*` settings in your shell to `LEGION_*` (for example
+  `UNII_HOME_REPO`), and drop any `unii` alias;
+- run `local/legion device --install` and `local/legion server
+  --install` again, if you use them (the old plists name the old
+  launcher);
+- sign in the browser again with `local/legion web` (the cookie's name
+  changed).
+
 Config
 ------
 
@@ -455,10 +484,9 @@ What is known not to work, or not checked yet:
 - **Three tests fail** (`link_ask` and two `logs` tests) and have done
   so since before the OnCorps work. `tsc` reports only missing Bun type
   definitions.
-- **Data from before the rename** (~/.unii, its `"unii"` replies) moves
-  once with `bun local/rename.ts`, server and device stopped (see
-  "Renamed from Unii" above). ~/.unii stays a link to ~/.legion, and
-  Legion still guards its trust state under that name.
+- **~/.unii stays as a link** to ~/.legion after `legion rename` (see
+  "Renamed from Unii"). Legion guards its trust state under both names;
+  delete the link only when nothing names the old path any more.
 - **ios/ isn't built or used.** Phones are off by default and the app
   still points at upstream's hosted service.
 - Upstream's hosted-service parts are still in the code but not used
@@ -468,9 +496,14 @@ What is known not to work, or not checked yet:
 Origin
 ------
 
-Legion is a fork of [uniichat](https://github.com/VictorTaelin/uniichat)
-by Higher Order Company, used under the Apache License 2.0. The OnCorps
-changes, on top of upstream's main:
+Legion started as a fork of
+[uniichat](https://github.com/VictorTaelin/uniichat) by Higher Order
+Company (Victor Taelin), used under the Apache License 2.0. It no longer
+follows upstream. Many of its later features were reimplemented
+clean-room (from how the tools behave and from their public docs, with
+no code copied) after Claude Code and Herdr. Its ideas also came from
+Sebastian Bobadilla Suarez and Ryan Fortin, and from Anthropic's posts
+on always-on agents. The OnCorps changes:
 
 - runs on the LiteLLM gateway, loopback-only, with no telemetry,
   installer or self-update;
