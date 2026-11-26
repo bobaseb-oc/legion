@@ -1,0 +1,31 @@
+local/rename.test.ts
+  s_e4ffe0b634c605::t_b129887d1400f3 136
+  s_e4ffe0b634c605::t_5c346127960304 18,81-92,94
+  s_e4ffe0b634c605::t_e2c65ca7cab5af 1-15,17,19-25,27-52,54-80,93,95-115
+  s_e4ffe0b634c605::t_db2e7918c519d7 116-135,137-140
+  s_e4ffe0b634c605::t_5345a43e9bf0f4 16,26,53
+local/rename.ts
+  s_e4ffe0b634c605::t_3e17381fa1aa43 9-10,36-39,46,89-94
+  s_e4ffe0b634c605::t_dc0d192c5438b0 1-8,11-30,32-35,40-45,47-88,95-183,198,200-202
+  s_e4ffe0b634c605::t_5e117fbda6c4ba 31,184-197,199
+local/legion
+  s_e4ffe0b634c605::t_23f78ab17da859 388
+  s_e4ffe0b634c605::t_a4a37f7058c7d8 24-25
+  s_e4ffe0b634c605::t_f5904b4185ae6e 55-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d2a6571328404ffda926bf6b99d7aff4471bd0d",
+  "prompts": {},
+  "sessions": {
+    "s_e4ffe0b634c605": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "98b7820b-fa00-4dc4-a54e-b61be282fdd0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sebastian Bobadilla Suarez <sebastian.suarez@oncorps.io>"
+    }
+  }
+}
