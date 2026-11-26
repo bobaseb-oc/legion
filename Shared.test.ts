@@ -57,6 +57,16 @@ test("the config names the OnCorps repo, the 0.x branch, and an allowlist with t
   expect(c.plugins).toContain("oc-coding-assistant");
 });
 
+// the user's pick (2026-11-26): local Databricks notebook testing, and the
+// docs and diagrams skills; not databricks-query
+test("the allowlist names databricks-local and the docs and diagrams skills, not databricks-query", () => {
+  const c = Shared.conf();
+  for (const p of ["databricks-local", "oncorps-pptx", "pr-explainer", "uml-viewer"]) {
+    expect(c.plugins).toContain(p);
+  }
+  expect(c.plugins).not.toContain("databricks-query");
+});
+
 test("sync clones the ref, then follows its tip, wiping edits and stray files", () => {
   const { origin, work } = market();
   const dir = DIR + "/c1/shared-skills";
