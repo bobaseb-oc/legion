@@ -1009,7 +1009,13 @@ const cached = await Chat.act(chat, "t2", { $: "themes" }, "");
 reply = "no json here";
 await Chat.act(chat, "i2", { $: "inbox", inbox: inbox([pr(1), pr(2), pr(3)]) }, "mac");
 const bad = await Chat.act(chat, "t3", { $: "themes" }, "");
-console.log(JSON.stringify({ none: "error" in none, ok, cached, bad: "error" in bad, asks, themes: sent.filter((m) => m.$ === "themes").map((m) => m.themes.by) }));
+reply = JSON.stringify({ "@ANN": ["Login, as @ named (#1)"] });
+await Chat.act(chat, "i3", { $: "inbox", inbox: inbox([pr(1)]) }, "mac");
+const at = await Chat.act(chat, "t4", { $: "themes" }, "");
+reply = JSON.stringify({ mallory: ["not in the digest"] });
+await Chat.act(chat, "i4", { $: "inbox", inbox: inbox([pr(2)]) }, "mac");
+const nobody = await Chat.act(chat, "t5", { $: "themes" }, "");
+console.log(JSON.stringify({ none: "error" in none, ok, cached, bad: "error" in bad, at, nobody: nobody.error ?? null, asks, themes: sent.filter((m) => m.$ === "themes").map((m) => m.themes.by) }));
 process.exit(0);
 `;
 
@@ -1018,10 +1024,14 @@ test("the digest's themes: one compactor call, its JSON checked, asked again onl
   fs.writeFileSync(dir + "/themes.ts", THEMES);
   const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
-  expect(out).toMatchObject({ none: true, ok: {}, cached: {}, bad: true });
-  expect(out.asks.length).toBe(2);
+  expect(out).toMatchObject({ none: true, ok: {}, cached: {}, bad: true, at: {} });
+  // an author named as "@ANN" is ann's (case and a leading @ aside); a
+  // reply naming none of the digest's authors is an error, never silence
+  expect(out.themes.at(-1)).toEqual({ ann: ["Login, as @ named (#1)"] });
+  expect(out.nobody).toMatch(/none of/);
+  expect(out.asks.length).toBe(4);
   expect(out.asks[0]).toContain("ann: #1 T1 (o/r)");
-  expect(out.themes.length).toBe(1);
+  expect(out.themes.length).toBe(2);
   expect(Object.keys(out.themes[0])).toEqual(["ann"]);
   expect(out.themes[0].ann[0]).toBe("Login fixes (#1, #2)");
   expect(out.themes[0].ann[1].length).toBe(200);
