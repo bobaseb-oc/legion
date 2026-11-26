@@ -228,12 +228,12 @@ var NODE = 512;
 var LINE = 480;
 var PRICE = { base: 187, byte: 735, depth: 628 };
 var PART = 2 ** 20;
-var OLD = "Nothing new: these chats are in Unii's memory already.";
+var OLD = "Nothing new: these chats are in Legion's memory already.";
 var NOT_EXPORT = "Not a Claude or ChatGPT export.";
 var ZIP_CAP = 256 * 1024 * 1024;
 var THREAD = 1e5;
 var MIDWAY = "Meanwhile, Legion can answer with a partial tree.";
-var DONE = "Your past chats are in Unii's memory: ask about them any time.";
+var DONE = "Your past chats are in Legion's memory: ask about them any time.";
 var DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" });
 var COUNT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 0 });
 var EXPORTS = { Claude: "Settings › Privacy › Export data", ChatGPT: "Settings › Data controls › Export data" };
@@ -275,7 +275,7 @@ function line_msgs(s, line, last) {
 }
 function import_pick(sessions, want, done) {
   const old = [...sessions].sort((a, b) => a.start.localeCompare(b.start));
-  const keep = (m, last) => (want.tools || m.kind === "user" || m.kind === "unii") && m.date >= want.since && import_new(m, last);
+  const keep = (m, last) => (want.tools || m.kind === "user" || m.kind === "legion") && m.date >= want.since && import_new(m, last);
   const kept = (s, last) => s.heads.filter((m) => keep(m, last));
   return old.map((s) => ({ ...s, heads: kept(s, done[import_id(s)]) })).filter((s) => s.heads.length > 0);
 }
@@ -404,7 +404,7 @@ function chat_openai(chat) {
   return nodes.flatMap((m) => {
     const role = m?.author?.role;
     const type = String(m?.content?.content_type);
-    const kind = role === "user" ? "user" : role === "assistant" ? m.recipient === "all" ? "unii" : "tool" : role === "tool" ? "echo" : null;
+    const kind = role === "user" ? "user" : role === "assistant" ? m.recipient === "all" ? "legion" : "tool" : role === "tool" ? "echo" : null;
     const skip = kind === null || m.metadata?.is_visually_hidden_from_conversation === true || type === "thoughts" || type === "reasoning_recap";
     date = import_date(m?.create_time, date);
     return skip ? [] : msgs_of(kind, (kind === "tool" ? m.recipient + " " : "") + parts_text(m.content.parts ?? [m.content.text]), date);
@@ -414,7 +414,7 @@ function chat_claude(chat) {
   let date = import_date(chat.created_at, "");
   return (chat.chat_messages ?? []).flatMap((m) => {
     date = import_date(m.created_at, date);
-    const kind = m.sender === "human" ? "user" : "unii";
+    const kind = m.sender === "human" ? "user" : "legion";
     const blocks = Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.text ?? "") }];
     const files = [...m.attachments ?? [], ...m.files ?? []].map((f) => ({ type: "text", text: "[file " + f.file_name + "]" }));
     return blocks_msgs(kind, [...blocks, ...files], date);
@@ -482,7 +482,7 @@ function line_claude(s, j, last) {
   if (j.type === "attachment" && j.attachment?.type === "queued_command") {
     return msgs_of("user", String(j.attachment.prompt ?? ""), date);
   }
-  return blocks_msgs(j.type === "user" ? "user" : "unii", blocks, date);
+  return blocks_msgs(j.type === "user" ? "user" : "legion", blocks, date);
 }
 function blocks_msgs(kind, blocks, date) {
   const say = blocks.filter((b) => b.type === "image" || b.type === "text" && !SKIP.test(b.text));
@@ -500,7 +500,7 @@ function line_codex(s, j, last) {
 function item_codex(p, date) {
   switch (p.type) {
     case "message": {
-      const kind = p.role === "user" ? "user" : p.role === "assistant" ? "unii" : null;
+      const kind = p.role === "user" ? "user" : p.role === "assistant" ? "legion" : null;
       const parts = (p.content ?? []).filter((c) => !INJECTED.test(c.text ?? ""));
       return kind === null ? [] : msgs_of(kind, parts_text(parts), date);
     }
@@ -814,7 +814,7 @@ var WHO = { work: "Report", note: "Note" };
 var KIND = {
   user: { dim: false, it: false },
   work: { dim: false, it: false },
-  unii: { dim: false, it: false },
+  legion: { dim: false, it: false },
   tool: { dim: true, it: false },
   echo: { dim: true, it: false },
   note: { dim: true, it: true },
@@ -865,7 +865,7 @@ var LETTER = /(?:^|[\s(\[])([A-F])[).:]/g;
 var REDZONE = /\bred[- ]?zone|\bmigrat(e|es|ed|ing|ion|ions)\b|\bschema change|\bprod(uction)?\b[^.?!]{0,30}\b(db|database|data|table)s?\b|\b(db|database)\b[^.?!]{0,30}\bprod(uction)?\b|\bpermission|\b(delet|drop|truncat|wip|purg|eras)\w*\b[^.?!]{0,40}\b(data|table|tables|database|db|rows|records|bucket|backups?)\b/i;
 var MONEY = /\bpay(s|ing|ment|ments)?\b|\bpaid\b|\binvoic|\bpurchas|\bcharg(e|es|ed|ing)\b|\brefund|\bbilling\b|\bsubscri(be|ption)|\bbudget|\bspend(s|ing)?\b|[$€£]\s?\d|\d\s?(usd|eur|gbp|dollars?|euros?)\b/i;
 var OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpublish|\btweet|\bannounce|\bmessage\s+(him|her|them|someone|the (client|customer|team|channel))|\bDM\b|\bslack\b|\bshare\s+(it\s+|the\s+\w+\s+)?with|\bexternal|\breply to (the )?(client|customer|thread|email)/i;
-var AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
+var AFTER = "Say what you would change instead: in your report, or, for Legion, in the plan it files (plan).";
 var READS = ["read", "glob", "grep", "google", "harvest"];
 var REVIEWED = ["shell", "write", "edit", "computer", "fetch"];
 var RISKS = ["low", "medium", "high"];
@@ -897,7 +897,7 @@ var DOTS = String.raw`\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.clau
 var DIRS = String.raw`\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config\/(gh|gcloud)|Library\/Keychains`;
 var SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keychain)|id_[a-z0-9]+|${DOTS}|credentials.*|\.credentials.*|secrets?(\..*)?|tokens?|.*(credential|service[-_]?account|secret|token).*\.json|(.*[-_.])?keys?([-_.].*)?\.json)$`, "i");
 var SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/config$`, "i");
-var TRUST_WORDS = String.raw`\.unii\b|\bUNII_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
+var TRUST_WORDS = String.raw`\.(legion|unii)\b|\bLEGION_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
 var SECRETS = new RegExp(String.raw`printenv|environ|\benv\b|\.env|(${DIRS})\b|${DOTS}|\.git\/config|secret|credential|token|passw|keychain|\.pem\b|\bid_[a-z0-9]+|${TRUST_WORDS}`, "i");
 var PLAIN = new Set(["ls", "cat", "head", "tail", "wc", "pwd", "echo", "stat", "du", "df", "which", "diff", "cut", "jq", "basename", "dirname", "realpath", "true", "grep", "egrep", "fgrep", "nl", "whoami", "printenv", "tr", "column", "comm"]);
 var GIT = new Set(["status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "grep", "describe", "shortlog", "ls-tree", "cat-file", "reflog", "tag"]);
@@ -1636,10 +1636,10 @@ function catalog_over() {
   if (typeof window !== "undefined") {
     return;
   }
-  if (process.env.UNII_CATALOG !== undefined) {
-    return JSON.parse(process.env.UNII_CATALOG);
+  if (process.env.LEGION_CATALOG !== undefined) {
+    return JSON.parse(process.env.LEGION_CATALOG);
   }
-  const dir = (process.env.UNII_DIR ?? "~/.unii").replace(/^~(?=\/)/, homedir());
+  const dir = (process.env.LEGION_DIR ?? "~/.legion").replace(/^~(?=\/)/, homedir());
   const file = dir + "/config.json";
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).catalog : undefined;
 }
@@ -1801,7 +1801,7 @@ var FOUND = 50;
 var SHOWN = 200;
 var PAGES = ["home", "inbox", "todo", "tracks", "routines", "digest", "transcripts", "files", "timesheet", "memory"];
 var MAIN = "Legion";
-var TURN = "Unii's turn";
+var TURN = "Legion's turn";
 var WIRE = 2;
 var PING = 1e4;
 var RETRY = 1000;
@@ -1809,7 +1809,7 @@ var TICK = "+";
 var MOVE = 4001;
 var FRAME = 2 ** 22;
 var HINT = "Message Legion (!command runs it on your device; !@name on that one)";
-var AI = "Unii is an AI, not a person, and can make mistakes.";
+var AI = "Legion is an AI, not a person, and can make mistakes.";
 var NOTICE = 3 * 60 * 60 * 1000;
 var WAIT = "compressing…";
 var SUMS = "compressing earlier messages…";
@@ -2516,7 +2516,7 @@ function rollup(crew) {
   return ROLLUP.map((s) => [s, crew.filter((c) => c.status === s).length]).filter(([, n]) => n > 0).map(([s, n]) => n + " " + s).join(", ");
 }
 var STALL2 = 120000;
-var LANE = { user: "told", tool: "tool", unii: "words", work: "words", note: "note", echo: "note" };
+var LANE = { user: "told", tool: "tool", legion: "words", work: "words", note: "note", echo: "note" };
 function view_lane(v, now) {
   const page = v.page;
   if (page === null) {
@@ -2823,7 +2823,7 @@ function part_rows(v, id, n, t, talk) {
     const after = minds.flatMap((x) => entry_rows(null, "mind", x));
     return [...whole_rows(id, entry), ...after];
   }
-  const open2 = talk && n === 1 && ["user", "unii"].includes(entry?.kind ?? "");
+  const open2 = talk && n === 1 && ["user", "legion"].includes(entry?.kind ?? "");
   if (!(v.open.get(key) ?? open2)) {
     return sum_rows(id, n, v.nodes.get(key));
   }
@@ -3825,7 +3825,7 @@ function up_next(v, now) {
 }
 
 // web/src/Pages.ts
-var ISSUES = "https://github.com/bobaseb-oc/uniichat/issues/new";
+var ISSUES = "https://github.com/bobaseb-oc/legion/issues/new";
 function act_html2(act) {
   return ` data-act="${esc2(JSON.stringify(act))}"`;
 }
@@ -4006,7 +4006,7 @@ function routines_html(v, now) {
     if (!pending(r)) {
       return `<div class="routine${r.on ? "" : " off"}"><div class="rh"><b>${r.id}. ${esc2(r.name)}</b>${when}</div>${task}${acts}</div>`;
     }
-    const who = r.by === "main" ? "Unii" : esc2(r.by);
+    const who = r.by === "main" ? "Legion" : esc2(r.by);
     return `<div class="routine off proposed"><div class="rh"><span class="rbadge">Proposed by ${who}</span><b>${r.id}. “${esc2(r.name)}”</b>${when}</div>` + `<blockquote class="rwhy">${who}'s words: “${esc2(r.why ?? "")}”</blockquote><div class="rapprove"><p class="meta">Turn on approves this task:</p>${task}${acts}</div></div>`;
   });
   const head = `<div class="phead"><h2>Routines</h2><p class="meta">Each starts a Legion agent on its task; they run while Legion's server runs and a view or a device is connected.</p></div>`;
@@ -4020,7 +4020,7 @@ function timers_html(v) {
   }
   const time = (ms) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const rows = ts.map((t) => {
-    const who = t.who === "main" ? "Unii" : esc2(t.who);
+    const who = t.who === "main" ? "Legion" : esc2(t.who);
     const close2 = `<button class="pbtn"${act_html2({ $: "Timer", n: t.id })}>Close</button>`;
     return `<div class="routine"><div class="rh"><b>${t.id}. ${who}</b><span class="meta">at ${esc2(time(t.at))}</span></div><p class="rtask">${esc2(t.note)}</p><div class="acts">${close2}</div></div>`;
   });
@@ -4030,7 +4030,7 @@ function digest_html(v) {
   const d = v.inbox?.digest ?? null;
   const refresh = `<button class="pbtn"${act_html2({ $: "Fetch" })}>Refresh</button>`;
   if (d === null) {
-    return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (UNII_SPACES on the device, else its home repo).</p>${refresh}</div>`];
+    return [`<div class="phead"><h2>Digest</h2><p class="meta">No digest yet: a device reads it from your spaces' GitHub repos (LEGION_SPACES on the device, else its home repo).</p>${refresh}</div>`];
   }
   const head = `<div class="phead"><h2>${esc2(d.repos.join(", "))}: last 7 days</h2><p class="meta">${d.merged.length} merged · ${d.open.length} open</p>` + `<button class="pbtn"${act_html2({ $: "Themes" })} title="one call to the compactor's model">Summarize by theme</button>${refresh}</div>`;
   const pr = (p) => `<li><a href="${esc2(p.url)}" target="_blank" rel="noopener noreferrer">${esc2(p.title)}</a> <span class="meta">#${p.number}</span></li>`;
@@ -4291,7 +4291,7 @@ function pins_html(pins) {
   return `<section class="mpins">${head}${rows || `<p class="meta">Nothing pinned. A message's \uD83D\uDCCC in the chat pins it: every call then sees it whole, however old.</p>`}</section>`;
 }
 function notes_html(notes) {
-  const head = `<h3>Notes</h3><p class="meta">What Unii keeps across runs and reads at each call: edit or drop any.</p>`;
+  const head = `<h3>Notes</h3><p class="meta">What Legion keeps across runs and reads at each call: edit or drop any.</p>`;
   const rows = notes.map((n) => `<form class="mnote" data-note="${esc2(n.name)}"><b>${esc2(n.name)}</b> <span class="meta">${esc2(n.line)}</span>` + `<textarea data-keep="note-${esc2(n.name)}" rows="3" aria-label="the note's text">${esc2(n.text)}</textarea>` + `<div class="acts"><button type="submit" class="pbtn">Edit</button><button type="button" class="pbtn"${act_html2({ $: "Note", name: n.name, drop: true })}>Drop</button></div></form>`).join("");
   return `<section class="mnotes">${head}${rows || `<p class="meta">No notes yet.</p>`}</section>`;
 }
@@ -4314,7 +4314,7 @@ function line_html2(v, [id, n], depth) {
 }
 
 // web/src/main.ts
-var APP = window.webkit?.messageHandlers?.unii ?? null;
+var APP = window.webkit?.messageHandlers?.legion ?? null;
 var DESK = matchMedia("(hover: hover)");
 var TERMINAL = "Signed in from a terminal? Run `legion web` there and this page opens signed in.";
 var EXPIRED = "That sign-in link expired. What's your email? I'll send you a new one.";
@@ -4322,7 +4322,7 @@ var GUEST_AI = `By signing in, you accept the <a href="/terms.html" target="_bla
 var SENT = (email) => `Thanks! I sent a link to ${email}. Open it, and we'll go on from here.`;
 var NONE = "No Claude or ChatGPT chats in that folder. Choose ~/.claude or ~/.codex.";
 var PAYING = "Waiting for your payment in the new tab…";
-var PAID = new BroadcastChannel("unii.paid");
+var PAID = new BroadcastChannel("legion.paid");
 var SCENES = `
   <div class="scene"><p>Your entire life.</p><p>One single chat.</p></div>
   <div class="scene"><i class="mark"></i><h1>Legion</h1></div>`;
@@ -4382,7 +4382,7 @@ function $(sel) {
   return document.querySelector(sel);
 }
 function kept(fact) {
-  return "unii." + fact + "." + P.id;
+  return "legion." + fact + "." + P.id;
 }
 async function boot() {
   document.head.insertAdjacentHTML("beforeend", `<style>${theme_css()}</style>`);
@@ -4393,7 +4393,7 @@ async function boot() {
     return;
   }
   if (q.has("deleted")) {
-    solo("Your account was deleted.", `Your chat and Unii's memory are erased. <a href="/">Back to Legion</a>`);
+    solo("Your account was deleted.", `Your chat and Legion's memory are erased. <a href="/">Back to Legion</a>`);
     return;
   }
   if (q.get("paid") === "tab") {
@@ -4464,7 +4464,7 @@ async function guest_send(text) {
   guest_say(res.error ?? SENT(res.who));
 }
 function guest_say(text) {
-  v.live.push({ kind: "unii", text });
+  v.live.push({ kind: "legion", text });
   draw(true);
 }
 function chat() {
@@ -6069,10 +6069,10 @@ function toast(text) {
 }
 function intro_play() {
   const skip = new URLSearchParams(location.search).has("skip");
-  if (localStorage.getItem("unii.intro") !== null || skip) {
+  if (localStorage.getItem("legion.intro") !== null || skip) {
     return Promise.resolve();
   }
-  localStorage.setItem("unii.intro", "1");
+  localStorage.setItem("legion.intro", "1");
   const el = document.createElement("div");
   return new Promise((gone) => {
     function end() {
