@@ -1385,3 +1385,15 @@ Not renamed: tasks/todo.md and tasks/lessons.md history (records of what was don
 - [x] Found on the way: old agent notes ("manager of Unii", 1985 history files) read as children of main (Tools.mained); the launcher starts nothing while ~/.unii is a dir (stop uses ~/.unii and unii-searxng); `legion rename` subcommand; README origin (user, 2026-11-26).
 - [ ] 8. Rebuild `web/app.js`; full `bun run test`; pre-ship polish; PR via `gh stack`.
 - [ ] After merge (user): stop server and device; run the migration; `~/.zshrc`: `UNII_HOME_REPO`→`LEGION_HOME_REPO`, drop `alias unii`; `legion device --install` and `legion server --install` again (plists hold the old env and path); sign in again with `legion web`; rename GitHub repo and local checkout (asked separately).
+
+## Reviewer refusal cache (RED ZONE DRAFT, 2026-11-26)
+
+Why: 1,271 reviewer refusals in 3 days; the same call was refused up to
+12 times, each a reviewer call plus an agent turn.
+
+- [ ] Red tests in Tools.test.ts: a repeat of a refused call is refused from the cache, with no reviewer call, and says not to resend it
+- [ ] Negative tests: an allow is never cached; a new user message re-reviews; TTL expiry re-reviews; a grant beats the cache; other args miss; the boss note is sent once only; a stopped appeal is not cached
+- [ ] Tools.review: cache final refusals (decide "refuse", appeal no or timeout) by Pending.fp, with the latest user message's index; TTL 30 min; at most 200 entries
+- [ ] First hit by a sub-agent: one note to its boss
+- [ ] Mutation check of the guards
+- [ ] Targeted and full suite green

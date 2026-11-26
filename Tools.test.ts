@@ -13,6 +13,7 @@ process.env.LEGION_DIR = fs.mkdtempSync(os.tmpdir() + "/legion-tools-");
 
 const { Tools, MASTER } = await import("./Tools.ts");
 const { Price } = await import("./Price.ts");
+const Pending = await import("./Pending.ts");
 
 // the orchestrator decides what is its to decide (user's ask 2026-11-13):
 // reversible, in-scope calls made and reported; asked only for what is the
@@ -926,6 +927,171 @@ test("risk: a manager boss hears its worker's appeal; a stop, a timeout or no wa
     const bare = risky("super", { boss: undefined });
     working(bare.tools, "Wkr");
     expect((await Tools.call(bare.tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "d")).text).toBe("Refused by auto mode's reviewer: r");
+  });
+});
+
+// RED ZONE (reviewer refusal cache, DRAFT awaiting the user's sign-off):
+// the same call (agent, tool, args) the reviewer refused for good is
+// refused again from a cache, no reviewer call, and told not to resend it
+// unchanged; only refusals are kept (fail closed). A new user message or
+// REFUSED.ms gone by asks the reviewer again; a grant still runs it. A
+// sub-agent's first repeat tells its boss, once
+test("refusal cache: a repeat of a refused call is refused at once, with no reviewer call", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const first = await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    expect(first.text).toBe("Refused by auto mode's reviewer: r");
+    const n = told.length;
+    set('{"allow": true}');
+    const again = await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(n);
+    expect(again.fail).toBe(true);
+    expect(again.text).toStartWith("Refused by auto mode's reviewer: r");
+    expect(again.text).toContain("don't resend it unchanged");
+    // other args, or another agent: asked again
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make y" }, go(), "c");
+    expect(told.length).toBe(n + 1);
+    working(tools, "Two");
+    await Tools.call(tools, "Two", "shell", { device: "mac", command: "make x" }, go(), "d");
+    expect(told.length).toBe(n + 2);
+  });
+});
+
+test("refusal cache: an allow, a low refusal or a reviewer with no answer is never kept", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set('{"allow": true}');
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(2);
+    set(refuse("low"));
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "bun run test" }, go(), "c");
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "bun run test" }, go(), "d")).text).not.toContain("Refused");
+    expect(told.length).toBe(4);
+    // no answer: the user's no is not the reviewer's, never kept
+    set("maybe?");
+    const waiting = Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make z" }, go(), "e");
+    await Bun.sleep(20);
+    Tools.consent(tools, Tools.consents(tools)[0]!.id, false);
+    await waiting;
+    set('{"allow": true}');
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make z" }, go(), "f")).text).not.toContain("refused");
+    expect(told.length).toBe(6);
+  });
+});
+
+test("refusal cache: a new user message or REFUSED.ms gone by asks the reviewer again; a grant still runs it", async () => {
+  const { Memory } = await import("./Memory.ts");
+  const real = Memory.message;
+  const msgs: any[] = [{ kind: "user", text: "fix it" }];
+  (Memory as any).message = (_: any, i: number) => msgs[i] ?? null;
+  try {
+    await reviewer(async (told, set) => {
+      const { tools } = risky("auto");
+      tools.mem.count = msgs.length;
+      working(tools, "Wkr");
+      set(refuse("medium"));
+      const call = (id: string) => Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), id);
+      await call("a");
+      await call("b");
+      expect(told.length).toBe(1);
+      // an agent's or a checker's message is no user's: still cached
+      msgs.push({ kind: "agent", text: "trying" });
+      tools.mem.count = msgs.length;
+      await call("c");
+      expect(told.length).toBe(1);
+      // the user says more: asked again
+      msgs.push({ kind: "user", text: "yes, make x is fine" });
+      tools.mem.count = msgs.length;
+      await call("d");
+      expect(told.length).toBe(2);
+      // time gone by: asked again
+      const ms = Tools.REFUSED.ms;
+      Tools.REFUSED.ms = 10;
+      try {
+        await Bun.sleep(30);
+        await call("e");
+        expect(told.length).toBe(3);
+      } finally {
+        Tools.REFUSED.ms = ms;
+      }
+      // a grant (the user's yes to a re-shown call) beats the cache
+      (tools.grants ??= new Map()).set(Pending.fp("Wkr", "shell", { device: "mac", command: "make x" }), { who: "Wkr", until: Date.now() + 60_000 });
+      const n = told.length;
+      expect((await call("f")).text).not.toContain("Refused");
+      expect(told.length).toBe(n);
+    });
+  } finally {
+    (Memory as any).message = real;
+  }
+});
+
+test("refusal cache: a sub-agent's first repeat tells its boss once; main's tells no one", async () => {
+  await reviewer(async (_told, set) => {
+    const { tools, seen } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const call = (who: string, id: string) => Tools.call(tools, who, "shell", { device: "mac", command: "make x" }, go(), id);
+    await call("Wkr", "a");
+    expect(seen.boss).toEqual([]);
+    await call("Wkr", "b");
+    await call("Wkr", "c");
+    expect(seen.boss).toHaveLength(1);
+    expect(seen.boss[0]).toContain("Wkr");
+    expect(seen.boss[0]).toContain("make x");
+    expect(seen.boss[0]).toContain("r");
+    await call("main", "d");
+    await call("main", "e");
+    expect(seen.boss).toHaveLength(1);
+  });
+});
+
+test("refusal cache: a boss's no or a timeout is kept; a stopped appeal is not", async () => {
+  await reviewer(async (told, set) => {
+    set(refuse("medium"));
+    const { tools } = risky("super");
+    working(tools, "Wkr");
+    const call = (signal: AbortSignal, id: string) => Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, signal, id);
+    const ac = new AbortController();
+    const stopped = call(ac.signal, "a");
+    await Bun.sleep(20);
+    ac.abort();
+    await stopped;
+    const ms = Tools.APPEAL.ms;
+    Tools.APPEAL.ms = 30;
+    try {
+      expect((await call(go(), "b")).text).toBe("Refused by auto mode's reviewer: r");
+      expect(told.length).toBe(2);
+      expect((await call(go(), "c")).text).toContain("don't resend it unchanged");
+      expect(told.length).toBe(2);
+    } finally {
+      Tools.APPEAL.ms = ms;
+    }
+    expect(Tools.appeals(tools)).toEqual([]);
+  });
+});
+
+test("refusal cache: at most REFUSED.max calls kept, the oldest dropped", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    const max = Tools.REFUSED.max;
+    Tools.REFUSED.max = 2;
+    try {
+      for (const c of ["make a", "make b", "make c"]) {
+        await Tools.call(tools, "Wkr", "shell", { device: "mac", command: c }, go(), c);
+      }
+      expect(tools.refused?.size).toBe(2);
+      const n = told.length;
+      await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make a" }, go(), "x");
+      expect(told.length).toBe(n + 1);
+    } finally {
+      Tools.REFUSED.max = max;
+    }
   });
 });
 
