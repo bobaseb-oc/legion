@@ -1464,3 +1464,48 @@ test("assign's description sends worktree removal to Legion's tidy, not the user
   const assign = Tools.list(Tools.serve({} as any, {} as any), "main").find((s: any) => s.name === "assign") as any;
   expect(assign.info).toContain("tidy");
 });
+
+// RED ZONE (no managers, DRAFT awaiting the user's sign-off; user's ask
+// 2026-11-26): Legion works with workers directly. Its spawn starts a
+// worker by default and offers Claude Code workers; a worker starts,
+// tells and stops no one; an older "manager of X" note loads as a worker
+// of Legion, and so does any stored agent whatever its note names
+test("no managers: Legion's spawn starts a worker by default and offers claude; no manager tier left", async () => {
+  const tools = Tools.serve({} as any, { change: () => {}, push: () => {} } as any);
+  const spawn = Tools.list(tools, "main").find((t) => t.name === "spawn")!.schema as any;
+  expect(spawn.properties.as.enum).toEqual(["worker", "claude"]);
+  expect(spawn.properties.as.description).not.toContain("manager");
+  expect(spawn.properties.device).toBeDefined();
+  expect(spawn.properties.dir).toBeDefined();
+  expect(MASTER).not.toContain("manager");
+  // as claude: put to the user before it runs, a Claude Code worker of Legion's
+  const out = await Tools.call(tools, "main", "spawn", { tasks: ["fix it"], as: "claude", device: "mac" }, go(), "1");
+  expect(out.text).not.toContain("tell a manager");
+  Tools.close(tools);
+});
+
+test("no managers: a worker gets no spawn, tell, stop or overrule, and a call to them is refused", async () => {
+  const tools = Tools.serve({} as any, {} as any);
+  const a = working(tools, "WkrA");
+  working(tools, "WkrB");
+  const names = Tools.list(tools, "WkrA").map((t) => t.name);
+  for (const tool of ["spawn", "tell", "stop", "overrule"]) {
+    expect(names).not.toContain(tool);
+  }
+  for (const tool of ["spawn", "tell", "stop"]) {
+    expect((await Tools.call(tools, "WkrB", tool, { tasks: ["x"], name: "WkrA", message: "hi", names: ["WkrA"] }, go(), "1")).fail).toBe(true);
+  }
+  expect(a.stops).toBe(0);
+  expect(Tools.boss(tools, "WkrA")).toBe(false);
+  expect(Tools.boss(tools, "main")).toBe(true);
+  Tools.close(tools);
+});
+
+test("no managers: older notes load as workers of Legion, whoever started them", () => {
+  const worker = (effort: string | null, model: string | null) => ({ role: { $: "sub", effort, model }, parent: "main" });
+  expect(Tools.noted("manager of Legion")).toEqual(worker(null, null));
+  expect(Tools.noted("manager of Unii on sonnet-5.5 at effort low")).toEqual(worker("low", "sonnet-5.5"));
+  expect(Tools.noted("worker of FireAnt on haiku-5.5")).toEqual(worker(null, "haiku-5.5"));
+  expect(Tools.noted("Claude Code of FireAnt on mac in /r")).toEqual({ role: { $: "cli", device: "mac", dir: "/r" }, parent: "main" });
+  expect(Tools.note({ $: "sub", effort: null, model: null } as any, "main")).toBe("worker of Legion");
+});

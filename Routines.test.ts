@@ -254,3 +254,11 @@ test("views: pending timers, whose, when and note, each with a close (the web), 
   expect(rows.some((l) => l.includes("3. Legion · at " + hhmm(at(14, 5)) + " · check <CI>"))).toBe(true);
   expect(rows.some((l) => l.includes("4. Wkr · at"))).toBe(true);
 });
+
+// no managers (user's ask 2026-11-26): a routine starts a worker; one kept
+// from before with tier "manager" still loads, and /routine add has no tier
+test("no managers: a routine has no tier; an older one's manager tier is dropped, not refused", () => {
+  expect(Routines.routine_check({ name: "n", task: "t", when: { $: "every", hours: 4 }, tier: "manager" })).toEqual({ name: "n", task: "t", when: { $: "every", hours: 4 } });
+  expect(Routines.routine_parse("daily 09:00 Morning: look")).toEqual({ name: "Morning", task: "look", when: { $: "daily", at: "09:00" } });
+  expect(Routines.routine_parse("daily 09:00 x")).not.toContain("manager");
+});

@@ -1385,3 +1385,23 @@ Not renamed: tasks/todo.md and tasks/lessons.md history (records of what was don
 - [x] Found on the way: old agent notes ("manager of Unii", 1985 history files) read as children of main (Tools.mained); the launcher starts nothing while ~/.unii is a dir (stop uses ~/.unii and unii-searxng); `legion rename` subcommand; README origin (user, 2026-11-26).
 - [ ] 8. Rebuild `web/app.js`; full `bun run test`; pre-ship polish; PR via `gh stack`.
 - [ ] After merge (user): stop server and device; run the migration; `~/.zshrc`: `UNII_HOME_REPO`→`LEGION_HOME_REPO`, drop `alias unii`; `legion device --install` and `legion server --install` again (plists hold the old env and path); sign in again with `legion web`; rename GitHub repo and local checkout (asked separately).
+
+## No managers (user's ask 2026-11-26): Legion works with workers directly
+
+Intent: cut one handoff. Legion (main) starts, tells and stops every agent;
+the manager tier is gone. RED ZONE: who may start/tell/stop agents is access
+control; the PR stays a draft until the user signs off.
+
+Constraints: stored data is not rewritten. A "manager of X" note loads as a
+worker, and any stored agent's parent loads as Legion. A routine stored with
+tier "manager" runs as a worker. Every gate on Claude Code workers stays
+(the user's yes before one runs).
+
+- [ ] Red tests: Legion's spawn defaults to worker and offers claude; a worker has no spawn/tell/stop and a call is refused; "manager of X" loads as a worker of Legion; a routine with tier manager loads and starts a worker
+- [ ] Tools.ts: no Tier, MGR prompt, MANAGES; Tools.boss is main only; Legion starts Claude Code workers; noted reparents to main
+- [ ] Config.ts: no MANAGER (`agents` still sets WORKER)
+- [ ] Routines.ts and Server.ts: no tier; inbox "as Claude Code workers" goes to Legion as a request
+- [ ] UI (View, Cockpit, Explain, Deck, Demo, Paint, web/src) and web/app.js rebuilt
+- [ ] prompt.txt and README describe the flat crew
+- [ ] Mutation check: manages-main-only, worker-has-no-spawn-tools, legacy "manager of" parse
+- [ ] Targeted tests, then the full suite
