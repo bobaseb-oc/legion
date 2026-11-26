@@ -4,8 +4,8 @@ Legion
 OnCorps' local AI agent: one chat that never ends, run on your own Mac,
 through the OnCorps LiteLLM gateway. You talk to the same orchestrator
 for days or weeks and it remembers. It hands the work to a crew of
-managers and workers that run shell commands, edit repos and drive
-Claude Code on your machine, under the same OnCorps guard hooks Claude
+workers that run shell commands, edit repos and drive Claude Code on
+your machine, under the same OnCorps guard hooks Claude
 Code uses.
 
 **AI agents wrote and reviewed most of this code.** Treat it as an
@@ -27,9 +27,11 @@ How it works
   marked "(not summarized yet)". While it waits, the status says why
   ("compressing earlier messages… (compactor: HTTP 429 …)").
 - **A crew, not one agent.** The orchestrator does no hands-on work. It
-  spawns managers, managers spawn workers (or Claude Code workers), and
-  each agent has a title, repos and a todo list. The web's Crew view and
-  the terminal's `/crew` show the tree; questions the orchestrator has
+  spawns workers (or Claude Code workers, once you approve each) and
+  checks their reports itself; there are no managers between them (the
+  tier went on 2026-11-26: an older manager loads as a worker, and config
+  `manager` is ignored). Each agent has a title, repos and a todo
+  list. The web's Crew view and the terminal's `/crew` show the crew; questions the orchestrator has
   for you wait in a Questions pane, and what only you can do (approve a
   PR, run a login) waits on the Todo page (`#todo`, the terminal's
   `/todos`), where Done tells the agent that filed it. The Tracks page
@@ -509,8 +511,7 @@ on always-on agents. The OnCorps changes:
   installer or self-update;
 - local web search (SearXNG), MCP tools with Keychain OAuth, live rules
   and the skills index, import of redacted Claude Code and Codex history;
-- the agent hierarchy (orchestrator, managers, workers, Claude Code
-  workers), the Crew view, agent labels and todo lists, the questions
+- the agent crew (orchestrator, workers, Claude Code workers), the Crew view, agent labels and todo lists, the questions
   backlog;
 - Claude Code hooks on device tools, glob and grep, `!cmd`, plan, auto
   and full permission modes, notifications with their own sound, and
