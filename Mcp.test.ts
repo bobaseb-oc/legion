@@ -4,15 +4,15 @@
 // bun script) and one over HTTP (JSON or SSE answers); tools listed by
 // page, renamed mcp__<server>__<tool>, their schemas cleaned; results as
 // text and images; a server that fails skipped, said once in a line with
-// no secret; children in their own process groups, killed as unii ends,
-// and those a crashed unii left killed at the next start.
+// no secret; children in their own process groups, killed as legion ends,
+// and those a crashed legion left killed at the next start.
 
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { Mcp, type Server } from "./Mcp.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-mcp-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-mcp-");
 const PIDS = DIR + "/children.pids";
 const SECRET = "sk-test-0123456789";
 
@@ -224,7 +224,7 @@ test("children have their own process groups: end() kills them and theirs; idle 
   expect(alive(again)).toBe(false);
 });
 
-test("the next start kills children a crashed unii left, only if each is still the process it was", async () => {
+test("the next start kills children a crashed legion left, only if each is still the process it was", async () => {
   const left = Bun.spawn(["sleep", "60"], { detached: true });
   const other = Bun.spawn(["sleep", "60"], { detached: true });
   const start = (pid: number) => Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]).stdout.toString().trim();
@@ -280,7 +280,7 @@ test("Tools: MCP tools are offered to the chat and its subagents, not to compute
     Mcp.end();
     process.exit(0);
   `;
-  const { UNII_MCP, ...rest } = process.env;
-  const run = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, UNII_DIR: DIR, UNII_MCP: file } });
+  const { LEGION_MCP, ...rest } = process.env;
+  const run = Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, LEGION_DIR: DIR, LEGION_MCP: file } });
   expect(JSON.parse(run.stdout.toString())).toEqual({ main: true, sub: true, hands: false, call: Tools_fence("hi env=undefined"), refused: "No tool mcp__fake__echo." });
 });

@@ -12,9 +12,9 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-agents-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-agents-");
 
-process.env.UNII_DIR = DIR;
+process.env.LEGION_DIR = DIR;
 
 const config = await import("./Config.ts");
 config.KEYS.anthropic = "test";
@@ -119,7 +119,7 @@ test("an agent's log is a tree of its own: its ask has its summaries, only its l
   const name = Memory.agent_new(mem);
   Memory.agent_push(mem, name, "user", "the task");
   for (let k = 0; k < 8; k++) {
-    Memory.agent_push(mem, name, "unii", LONG(k));
+    Memory.agent_push(mem, name, "legion", LONG(k));
   }
   Memory.agent_push(mem, name, "user", "go on");
   expect(fs.existsSync(DIR + "/chat/docs/agent/" + name + "/main.index")).toBe(true);
@@ -161,7 +161,7 @@ test("a chat moving takes its agents' running summaries along; none is asked aga
   hold = true;
   const mem = Memory.load(DIR + "/moving", () => SHARE);
   const name = Memory.agent_new(mem);
-  Memory.agent_push(mem, name, "unii", LONG(0));
+  Memory.agent_push(mem, name, "legion", LONG(0));
   await until(() => held.length === 1);
 
   Memory.halt(mem);
@@ -186,7 +186,7 @@ test("an agent's summaries are paid by the chat's payer, even one set after the 
   const name = Memory.agent_new(mem);
   const paid: string[] = [];
   mem.pay = ((kind: string, what: string) => (paid.push(kind + " " + what), undefined)) as any;
-  Memory.agent_push(mem, name, "unii", LONG(0));
+  Memory.agent_push(mem, name, "legion", LONG(0));
   await until(() => paid.length > 0);
   expect(paid[0]).toBe("compactor 0+1");
   Memory.stop(mem);
@@ -228,7 +228,7 @@ test("a subagent sees its own tree and a brief of the chat's latest lines, never
   Memory.stop(mem);
 }));
 
-test("zoom from an agent: its own tree by id, its starter's chat by ^id; another agent's only for Unii", () => faked(async () => {
+test("zoom from an agent: its own tree by id, its starter's chat by ^id; another agent's only for Legion", () => faked(async () => {
   const mem = Memory.load(DIR + "/zoom", () => SHARE);
   Memory.push(mem, [{ kind: "user", text: "the chat's first message" }]);
   const reports: string[] = [];
@@ -289,7 +289,7 @@ test("an agent's task stays word for word when its log since is too long to go r
   Memory.stop(mem);
 }));
 
-test("a manager spawns workers; a worker's report wakes its manager, never Unii, and the manager's reaches Unii", () => faked(async () => {
+test("a manager spawns workers; a worker's report wakes its manager, never Legion, and the manager's reaches Legion", () => faked(async () => {
   const mem = Memory.load(DIR + "/tiers", () => SHARE);
   const reports: string[] = [];
   const tools = served(mem, reports);
@@ -363,7 +363,7 @@ test("a payer's refusal holds the agents' trees with the chat's: asked once, bui
     mem.hold[0] = credit ? null : "not enough credit";
     return credit ? grant : "not enough credit";
   }) as any;
-  Memory.agent_push(mem, name, "unii", LONG(0));
+  Memory.agent_push(mem, name, "legion", LONG(0));
   await sleep(200);
   expect(paid).toBe(1);
   const sub = Memory.agent_mem(mem, name)!;
@@ -414,10 +414,10 @@ test("a Claude Code worker asks first; approved it runs on its device and report
   expect(job.job).toMatchObject({ name: "claude", cwd: name, input: { dir: "~/repos/x", model: "claude-sonnet-5-5" } });
   expect(job.job.input.task).toContain("fix the bug");
   expect(Tools.crew(tools)[1].status).toBe("working");
-  Tools.done(tools, "mac", job.id, { text: "unii: on it\n\nResult ($0.0100): fixed it", fail: false });
+  Tools.done(tools, "mac", job.id, { text: "legion: on it\n\nResult ($0.0100): fixed it", fail: false });
   await until(() => told(mem, boss).length === 1);
   expect(told(mem, boss)[0]).toContain("fixed it");
-  expect(Memory.agent(mem, name)!.some((r) => r.kind === "echo" && r.text.includes("unii: on it"))).toBe(true);
+  expect(Memory.agent(mem, name)!.some((r) => r.kind === "echo" && r.text.includes("legion: on it"))).toBe(true);
   expect(Tools.approve(tools, name, true)).toContain("No Claude Code worker");
 
   await Tools.call(tools, boss, "spawn", { tasks: ["another"], as: "claude", device: "mac" }, go, "2");
@@ -466,7 +466,7 @@ test("agents' trees past OPEN close, the idle one used longest ago first; one us
   hold = true;
   const mem = Memory.load(DIR + "/many", () => SHARE);
   const busy = Memory.agent_new(mem);
-  Memory.agent_push(mem, busy, "unii", LONG(0));
+  Memory.agent_push(mem, busy, "legion", LONG(0));
   await until(() => held.length === 1);
   const names = Array.from({ length: OPEN + 3 }, (_, k) => {
     const name = Memory.agent_new(mem);
@@ -666,7 +666,7 @@ test("plan: the orchestrator files its plan in plan mode, kept across a reload; 
 // each read by its log's first entries and last date, no tree opened
 function logged(dir: string, name: string, task: string, dates: string[]): void {
   fs.mkdirSync(dir + "/docs/agent", { recursive: true });
-  const recs = [{ kind: "note", text: "worker of Unii" }, { kind: "user", text: task }, ...dates.slice(2).map(() => ({ kind: "unii", text: "on it" }))].map((r, k) => ({ i: k, ...r, date: dates[k] }));
+  const recs = [{ kind: "note", text: "worker of Legion" }, { kind: "user", text: task }, ...dates.slice(2).map(() => ({ kind: "legion", text: "on it" }))].map((r, k) => ({ i: k, ...r, date: dates[k] }));
   fs.writeFileSync(dir + "/docs/agent/" + name + ".jsonl", recs.map((r) => JSON.stringify(r) + "\n").join(""));
 }
 
@@ -674,9 +674,9 @@ test("an agent's ends: its note, its task and its last date, read from its index
   const dir = DIR + "/ends";
   const mem = Memory.load(dir, () => SHARE);
   const name = Memory.agent_new(mem);
-  Memory.agent_push(mem, name, "note", "worker of Unii");
+  Memory.agent_push(mem, name, "note", "worker of Legion");
   Memory.agent_push(mem, name, "user", "Fix the login flow");
-  Memory.agent_push(mem, name, "unii", "done");
+  Memory.agent_push(mem, name, "legion", "done");
   const last = Memory.agent(mem, name)!.at(-1)!.date;
   Memory.stop(mem);
   logged(dir, "Old-One", "Deploy it", ["2026-11-01T10:00:00.000Z", "2026-11-01T10:00:01.000Z", "2026-11-02T09:00:00.000Z"]);
@@ -686,11 +686,11 @@ test("an agent's ends: its note, its task and its last date, read from its index
   expect(again.agents.size).toBe(0);
   expect(Memory.agent_names(again).sort()).toEqual([name, "Old-One"].sort());
   const ends = Memory.agent_ends(again, name)!;
-  expect(ends.head.map((r) => [r.kind, r.text])).toEqual([["note", "worker of Unii"], ["user", "Fix the login flow"]]);
+  expect(ends.head.map((r) => [r.kind, r.text])).toEqual([["note", "worker of Legion"], ["user", "Fix the login flow"]]);
   expect(ends.date).toBe(last);
   expect(again.agents.size).toBe(0);
   const old = Memory.agent_ends(again, "Old-One")!;
-  expect(old.head.map((r) => r.text)).toEqual(["worker of Unii", "Deploy it"]);
+  expect(old.head.map((r) => r.text)).toEqual(["worker of Legion", "Deploy it"]);
   expect(old.date).toBe("2026-11-02T09:00:00.000Z");
   expect(Memory.agent_ends(again, "bad_name")).toBeNull();
   expect(Memory.agent_ends(again, "../ends")).toBeNull();
@@ -735,11 +735,11 @@ test("agents found by part of a name or title, any case: working, done, archived
 }));
 
 // RED ZONE (user authority over agents' models, DRAFT awaiting the user's
-// sign-off): Unii may propose a model above a tier's (Opus) for one
+// sign-off): Legion may propose a model above a tier's (Opus) for one
 // spawn; it waits as a call put to the user (Tools.ask_user, answered by
 // the consent act behind SAYS: never a device's or an agent's key, as the
 // "consent" test in Server.test.ts shows), and only their yes starts it
-test("Unii may propose Opus for one spawn: only the user's yes starts it, and only that one", () => faked(async () => {
+test("Legion may propose Opus for one spawn: only the user's yes starts it, and only that one", () => faked(async () => {
   const mem = Memory.load(DIR + "/opus", () => SHARE);
   const tools = served(mem, []);
   const ctl = () => new AbortController().signal;

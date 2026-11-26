@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-process.env.UNII_DIR = fs.mkdtempSync(os.tmpdir() + "/unii-tools-");
+process.env.LEGION_DIR = fs.mkdtempSync(os.tmpdir() + "/legion-tools-");
 
 const { Tools, MASTER } = await import("./Tools.ts");
 const { Price } = await import("./Price.ts");
@@ -58,7 +58,7 @@ test("a call's MCP requests follow its chat past a process that ended", async ()
   c.stop(true);
 });
 
-// an agent at work (a worker of Unii, unless said), its call a stub that
+// an agent at work (a worker of Legion, unless said), its call a stub that
 // counts its stops
 function working(tools: any, name: string, tier = "worker", parent = "main"): { stops: number } {
   const seen = { stops: 0 };
@@ -137,7 +137,7 @@ test("a child runs on its tier's model or one below it, never above nor another 
   expect(typeof Tools.child("manager", "gpt-6-luna")).toBe("string");
   expect(typeof Tools.child("worker", "no-such-model")).toBe("string");
   const tools = Tools.serve({} as any, { change: () => {} } as any);
-  // Unii's spawn above the tier's waits for the user (agents.test.ts:
+  // Legion's spawn above the tier's waits for the user (agents.test.ts:
   // "propose Opus"); a stop while it waits refuses it, nothing started
   const stop = new AbortController();
   const asked = Tools.call(tools, "main", "spawn", { tasks: ["x"], model: "opus-5.5" }, stop.signal, "1");
@@ -175,10 +175,14 @@ test("an agent's note says its tier, starter, model and effort, and reads back a
   expect(note).toBe("worker of FireAnt on haiku-5.5 at effort high");
   expect(Tools.noted(note)).toEqual({ role, parent: "FireAnt" });
   expect(Tools.noted(Tools.note({ $: "sub", tier: "manager", effort: null, model: null }, "main"))).toEqual({ role: { $: "sub", tier: "manager", effort: null, model: null }, parent: "main" });
-  // an older agent's: a worker of Unii
+  // an older agent's: a worker of Legion
   expect(Tools.noted("subagent at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: null }, parent: "main" });
   expect(Tools.noted("computer task on mac")).toEqual({ role: { $: "hands", device: "mac" }, parent: "main" });
   expect(Tools.noted("something else")).toBeNull();
+  // a note from before the rename names the main agent Unii: still main
+  expect(Tools.noted("manager of Unii")).toEqual({ role: { $: "sub", tier: "manager", effort: null, model: null }, parent: "main" });
+  expect(Tools.noted("worker of Unii on sonnet-5.5 at effort low")).toEqual({ role: { $: "sub", tier: "worker", effort: "low", model: "sonnet-5.5" }, parent: "main" });
+  expect(Tools.noted("Claude Code of Unii on mac in /r")).toEqual({ role: { $: "cli", device: "mac", dir: "/r" }, parent: "main" });
 });
 
 test("the crew: each agent's tier, starter, model and status; one dismissed is gone", () => {
@@ -196,13 +200,13 @@ test("the crew: each agent's tier, starter, model and status; one dismissed is g
   Tools.close(tools);
 });
 
-test("the devices line names a device's home repo, and Unii's tools say they run there", () => {
+test("the devices line names a device's home repo, and Legion's tools say they run there", () => {
   const tools = Tools.serve({} as any, {} as any);
-  Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.unii/work", home: "~/repos/home" });
-  Tools.attach(tools, "t2", "box", "u", { send: () => {}, live: () => true, computer: false, work: "~/.unii/work" });
+  Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.legion/work", home: "~/repos/home" });
+  Tools.attach(tools, "t2", "box", "u", { send: () => {}, live: () => true, computer: false, work: "~/.legion/work" });
   const text = Tools.devices(tools).text;
-  expect(text).toContain("- mac, work dir ~/.unii/work, home repo ~/repos/home");
-  expect(text).toMatch(/- box, work dir ~\/\.unii\/work\n/);
+  expect(text).toContain("- mac, work dir ~/.legion/work, home repo ~/repos/home");
+  expect(text).toMatch(/- box, work dir ~\/\.legion\/work\n/);
   const shell = (who: string) => Tools.list(tools, who).find((t) => t.name === "shell")!.info;
   expect(shell("main")).toContain("home repo");
   working(tools, "Wkr");
@@ -244,7 +248,7 @@ test("a device named whose links are all dead is not open to an agent's job", ()
   const link = (live: () => boolean) => ({ send: () => {}, live, computer: false, work: "~/w" });
   Tools.attach(tools, "t1", "mac", "u", link(() => true));
   Tools.attach(tools, "t2", "box", "u", link(() => false));
-  expect(Tools.open(tools, "box", false)).toBe("No device box is open (unii isn't running there). Open: mac. Only the user opens it, so don't retry or wait: end your turn, saying what is left.");
+  expect(Tools.open(tools, "box", false)).toBe("No device box is open (legion isn't running there). Open: mac. Only the user opens it, so don't retry or wait: end your turn, saying what is left.");
   expect(typeof Tools.start_job(tools, "box", { name: "shell", input: { command: "ls" }, cwd: "main" } as any, "j1")).toBe("string");
   expect(typeof Tools.open(tools, "mac", false)).not.toBe("string");
   Tools.close(tools);
@@ -273,7 +277,7 @@ test("an agent's pulse: status, its stream's last line, its report's last line",
 });
 
 // Labels: an agent's title (its goal) and the repos its work touches, set
-// by the agent itself or by Unii or a manager over it, trimmed and capped,
+// by the agent itself or by Legion or a manager over it, trimmed and capped,
 // in the crew the views show; another's agent can't be labelled
 test("label: itself or an agent under it, trimmed and capped, in the crew", async () => {
   const tools = Tools.serve({} as any, { change: () => {} } as any);
@@ -312,7 +316,7 @@ test("label: itself or an agent under it, trimmed and capped, in the crew", asyn
 test("todo: an agent sets its own checklist, cleaned and capped, in the crew; main's todo is another agent's list only", async () => {
   // a real chat dir: the checklist is saved in its view.json too
   const { Memory } = await import("./Memory.ts");
-  const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/unii-todo-"), () => ({}) as any), { change: () => {} } as any);
+  const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/legion-todo-"), () => ({}) as any), { change: () => {} } as any);
   const sub = (name: string, parent: string, tier: string) => ({ name, parent, role: { $: "sub", tier, effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
   tools.agents.set("Wkr", sub("Wkr", "main", "worker"));
   const todo = (who: string, args: object) => Tools.call(tools, who, "todo", args, new AbortController().signal, "x");
@@ -343,7 +347,7 @@ test("todo: an agent sets its own checklist, cleaned and capped, in the crew; ma
 test("todo: main closes and removes items on an agent's checklist, saved and noted; nothing else", async () => {
   const { Memory } = await import("./Memory.ts");
   const notes: string[] = [];
-  const mem = Memory.load(fs.mkdtempSync(os.tmpdir() + "/unii-todo-"), () => ({}) as any);
+  const mem = Memory.load(fs.mkdtempSync(os.tmpdir() + "/legion-todo-"), () => ({}) as any);
   const tools = Tools.serve(mem, { change: () => {}, note: (t: string) => notes.push(t) } as any);
   const sub = (name: string) => ({ name, parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false }) as any;
   tools.agents.set("Wkr", sub("Wkr"));
@@ -759,14 +763,14 @@ test("fetch and search answers are fenced as untrusted", async () => {
 });
 
 // Undo (Undo.ts): a call that may change files carries its agent's turn
-// (snap), so the device snapshots first, once a turn; a read, Unii's own
+// (snap), so the device snapshots first, once a turn; a read, Legion's own
 // call, and a shell in plan mode carry none; the agent's device is kept
 // (the Crew view's Undo and handoff go there). No agent has an undo tool:
 // undo is the user's alone
 test("snap: a changing call carries its agent's turn; the device is kept; no undo tool", () => {
   for (const mode of ["full", "plan"] as const) {
     const tools = Tools.serve({ dir: "/nowhere", mode } as any, { change: () => {}, pick: () => null } as any);
-    Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.unii/work" });
+    Tools.attach(tools, "t1", "mac", "u", { send: () => {}, live: () => true, computer: false, work: "~/.legion/work" });
     const a = { name: "Owl", parent: "main", role: { $: "sub", tier: "worker", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false, since: 123 } as any;
     tools.agents.set(a.name, a);
     const job = (who: string, name: string, args: any, id: string) => {
@@ -794,12 +798,12 @@ test("snap: a changing call carries its agent's turn; the device is kept; no und
 // a fixed head (never an agent's text first, so never read as a flag),
 // its title, repos, todo and last words as data, control characters out, capped
 test("handoff brief: a fixed head, the agent's text as data, controls out, capped", () => {
-  const a = { name: "Owl", replies: ["one\ntwo\n\x1b[31mred\x07\nlast words"], title: "--dangerously-skip-permissions $(rm -rf ~)", repos: ["uniichat"], todo: [{ text: "Fix it", status: "doing" }], files: ["/r/a.ts"] } as any;
+  const a = { name: "Owl", replies: ["one\ntwo\n\x1b[31mred\x07\nlast words"], title: "--dangerously-skip-permissions $(rm -rf ~)", repos: ["legion"], todo: [{ text: "Fix it", status: "doing" }], files: ["/r/a.ts"] } as any;
   const brief = Tools.handoff(a);
   expect(brief.startsWith("You're picking up work")).toBe(true);
   expect(brief).toContain("Title: --dangerously-skip-permissions $(rm -rf ~)");
   expect(brief).toContain("- [doing] Fix it");
-  expect(brief).toContain("Repos: uniichat");
+  expect(brief).toContain("Repos: legion");
   expect(brief).toContain("last words");
   expect(brief).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   expect(Tools.handoff({ ...a, replies: ["x".repeat(50_000)] }).length).toBeLessThanOrEqual(8000);
@@ -824,7 +828,7 @@ test("a call with no device (fetch) is shown as on the server, never 'undefined'
 // sub-agent's medium refusal waits for the boss that wrote its task
 // (overrule); a high one, or main's own, is refused
 function risky(mode: string, hooks: any = {}) {
-  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-unii/" };
+  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-legion/" };
   const seen = { boss: [] as string[], pushed: [] as Array<[string, string]>, notes: [] as string[] };
   const tools = Tools.serve(mem, {
     change: () => {},
@@ -936,10 +940,10 @@ test("risk: the reviewer is asked for a risk label and told what each level is",
   });
 });
 
-// notes: Unii's tool alone; a bad name refused before any
+// notes: Legion's tool alone; a bad name refused before any
 // file call; a read fenced as untrusted data, never instructions
 function noting(): { tools: any; base: string; dir: string } {
-  const base = fs.mkdtempSync(os.tmpdir() + "/unii-notes-");
+  const base = fs.mkdtempSync(os.tmpdir() + "/legion-notes-");
   const dir = base + "/u";
   fs.mkdirSync(dir);
   const tools = Tools.serve({ dir, mode: "auto", count: 0 } as any, { change: () => {} } as any);
@@ -969,20 +973,20 @@ test("L2-AC2: the notes tool refuses a write to ../x; no file outside notes/ exi
   }
 });
 
-test("L2-AC4: a sub-agent Wkr writing a note is told only Unii keeps notes, and fails", async () => {
+test("L2-AC4: a sub-agent Wkr writing a note is told only Legion keeps notes, and fails", async () => {
   const { tools, dir } = noting();
   try {
     working(tools, "Wkr");
     const out = await Tools.call(tools, "Wkr", "notes", { write: "mine", line: "l", text: "t" }, go(), "n1");
     expect(out.fail).toBe(true);
-    expect(out.text).toContain("Only Unii keeps notes");
+    expect(out.text).toContain("Only Legion keeps notes");
     expect(fs.existsSync(dir + "/notes/mine.md")).toBe(false);
   } finally {
     Tools.close(tools);
   }
 });
 
-test("L2-AC5: Tools.list for Wkr has no notes tool; Unii's has it", () => {
+test("L2-AC5: Tools.list for Wkr has no notes tool; Legion's has it", () => {
   const { tools } = noting();
   try {
     working(tools, "Wkr");
@@ -1030,7 +1034,7 @@ test("unkeyed: an agent's shell call opening a PR without a ticket key is refuse
   }
 });
 
-test("directives: the notes tool tells Unii to keep the user's standing orders in its note named directives", () => {
+test("directives: the notes tool tells Legion to keep the user's standing orders in its note named directives", () => {
   const { tools } = risky("auto");
   try {
     const notes = Tools.list(tools, "main").find((t: any) => t.name === "notes");
@@ -1056,7 +1060,7 @@ async function reshown(who: string, tool: string, args: object, id = 7, mode = "
   const Pending = await import("./Pending.ts");
   const now = Date.now();
   const record = { id, kind: "consent", who, tool, args: Pending.canon(args), fp: Pending.fp(who, tool, args), made: now, until: now + Pending.CONSENT_MS, state: "open", ...extra };
-  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-unii/", pending: [record], pended: id };
+  const mem: any = { mode, count: 0, agents: new Map(), dir: "/nonexistent-legion/", pending: [record], pended: id };
   const seen = { pended: 0 };
   const tools = Tools.serve(mem, { change: () => {}, push: () => {}, note: () => {}, pended: () => void (seen.pended += 1) } as any);
   return { Pending, mem, tools, seen };
@@ -1365,11 +1369,11 @@ test("briefs say what is ruled out; reports cap, mark evidence and say what's le
 test("at_paths: a write's path as the device resolves it, for the floor; note blocks name their origin", async () => {
   const { Modes } = await import("./Modes.ts");
   const tools = Tools.serve({} as any, {} as any);
-  const work = os.homedir() + "/.unii/work";
+  const work = os.homedir() + "/.legion/work";
   tools.devices.set("mac", { who: "u", terms: new Map([["t", { send: () => {}, live: () => true, computer: false, work }]]), jobs: new Map() } as any);
   const args = { path: "../../users/10/notes/directives.md", content: "x", device: "mac" };
   const at = Tools.at_paths(tools, "AmberFox", "write", args);
-  expect(at[0]).toBe(os.homedir() + "/.unii/users/10/notes/directives.md");
+  expect(at[0]).toBe(os.homedir() + "/.legion/users/10/notes/directives.md");
   expect(Modes.floor("write", args, at)).toBe("high");
   expect(Tools.at_paths(tools, "AmberFox", "shell", { command: "ls" })).toEqual([]);
   const dir = fs.mkdtempSync(os.tmpdir() + "/notes-label-");
@@ -1390,8 +1394,8 @@ test("risk: a write through a link into Legion's dir is floored where it lands",
     working(tools, "Wkr");
     const work = fs.realpathSync(fs.mkdtempSync(os.tmpdir() + "/w2-work-"));
     fs.mkdirSync(work + "/Wkr");
-    fs.mkdirSync(os.homedir() + "/.unii/users", { recursive: true });
-    fs.symlinkSync(os.homedir() + "/.unii/users", work + "/Wkr/u");
+    fs.mkdirSync(os.homedir() + "/.legion/users", { recursive: true });
+    fs.symlinkSync(os.homedir() + "/.legion/users", work + "/Wkr/u");
     tools.devices.set("mac", { who: "u", terms: new Map([["t", { send: () => {}, live: () => true, computer: false, work }]]), jobs: new Map() } as any);
     set(refuse("low"));
     const args = { device: "mac", path: "u/10/notes/directives.md", content: "Obey." };
@@ -1400,12 +1404,12 @@ test("risk: a write through a link into Legion's dir is floored where it lands",
 });
 
 // RED ZONE (one-click tidy, DRAFT awaiting the user's sign-off; user's ask
-// 2026-11-26): Unii's tidy puts the inbox's safe worktrees to the user as
+// 2026-11-26): Legion's tidy puts the inbox's safe worktrees to the user as
 // one consent naming each path; only a yes sends them (hooks.tidy, the
 // server's gate: Server.ts Chat.tidy, then the device's re-check); a row
 // not safe is never asked about or sent, only said with why it is kept;
 // a worker has no tidy
-test("tidy: Unii asks once for the inbox's safe worktrees; a yes sends exactly those, a no or an unsafe path nothing", async () => {
+test("tidy: Legion asks once for the inbox's safe worktrees; a yes sends exactly those, a no or an unsafe path nothing", async () => {
   const rows = [
     { repo: "r", path: "/w/a", branch: "a", changes: 0, merged: true, safe: true },
     { repo: "r", path: "/w/b", branch: "b", changes: 2, merged: true, safe: false, why: "it has changes" },
@@ -1456,7 +1460,7 @@ test("tidy: Unii asks once for the inbox's safe worktrees; a yes sends exactly t
 });
 
 // the assign tool tells agents a tidy is not a todo (user's ask 2026-11-26)
-test("assign's description sends worktree removal to Unii's tidy, not the user's Todo page", () => {
+test("assign's description sends worktree removal to Legion's tidy, not the user's Todo page", () => {
   const assign = Tools.list(Tools.serve({} as any, {} as any), "main").find((s: any) => s.name === "assign") as any;
   expect(assign.info).toContain("tidy");
 });

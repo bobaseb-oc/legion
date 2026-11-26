@@ -115,7 +115,7 @@ test("the items posted are scrubbed of secret-shaped strings", () => {
   const ant = "sk-ant-" + "x".repeat(30);
   const items = gchat_items({
     questions: [{ id: 1, text: "use " + gh + "?", options: ["yes " + ant, "no"], at: 0, date: "" }, { id: 2, text: "note " + gh, at: 0, date: "", fyi: true }],
-    assigned: [{ n: 3, text: "rotate " + gh, by: "Unii", date: "" }],
+    assigned: [{ n: 3, text: "rotate " + gh, by: "Legion", date: "" }],
     decided: [{ id: 4, kind: "other", question: "push " + gh + "?", answer: ant, date: new Date().toISOString() }],
   }, Date.now());
   expect(items.map((x) => x.key)).toEqual(["q1", "n2", "t3", "d4"]);
@@ -239,7 +239,7 @@ test("O6: an approval reply: exact trimmed yes or no only", () => {
 
 // the server, in a process of its own: fetch stubbed (no network), the
 // webhook's and Chat's answers scripted; STEP: "post" files the items and
-// posts them, "reply" (a restart: same UNII_DIR) posts each open item
+// posts them, "reply" (a restart: same LEGION_DIR) posts each open item
 // again in a new thread and acts on the replies there only
 const SERVER = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
@@ -306,7 +306,7 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   const threads = chat.bridging?.threads ?? [];
   out.keys = threads.map((p) => p.key);
   // this process's threads, for the restart to reply in (memory only: PLP-2922)
-  fs.writeFileSync(process.env.UNII_DIR + "/old-threads.json", JSON.stringify(threads.map((p) => [p.key, p.thread])));
+  fs.writeFileSync(process.env.LEGION_DIR + "/old-threads.json", JSON.stringify(threads.map((p) => [p.key, p.thread])));
   out.lists = lists.length;
   const before = posts.length;
   chat.socks.delete(device);
@@ -317,7 +317,7 @@ if (process.env.STEP === "post" || process.env.STEP === "off") {
   out.bye = posts.slice(before).map((p) => ({ tk: p.tk, text: p.text }));
 } else {
   Chat.gchat_token = async () => "tok";
-  const old = new Map(JSON.parse(fs.readFileSync(process.env.UNII_DIR + "/old-threads.json", "utf8")));
+  const old = new Map(JSON.parse(fs.readFileSync(process.env.LEGION_DIR + "/old-threads.json", "utf8")));
   out.saved = old.size;
   const q = chat.mem.questions.find((x) => !x.fyi && x.text === "Ship it?");
   const n = chat.mem.questions.find((x) => x.fyi);
@@ -365,14 +365,14 @@ process.exit(0);
 
 async function run(dir: string, step: string, env: Record<string, string>): Promise<{ out: any; all: string }> {
   fs.writeFileSync(dir + "/gchat.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, UNII_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", UNII_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env: { ...process.env, LEGION_GCHAT_SPACE: "", GCHAT_WEBHOOK_URL: "", LEGION_GCHAT_KEYCHAIN: "", LEGION_GCHAT_USER: "u1", LEGION_DIR: dir, STEP: step, ...env }, stdout: "pipe", stderr: "pipe" });
   const [o, e] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), all: o + e };
 }
 
 test("the server: each item posted once a process, again in a new thread after a restart; replies in its own threads acted on once, as a view's acts; the key never shown", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-gchat-");
-  const env = { UNII_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_ };
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-gchat-");
+  const env = { LEGION_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_ };
   const a = await run(dir, "post", env);
   // the first post failed (not reachable), so tried again on the second pass
   expect(a.out.first).toBe(5);
@@ -411,9 +411,9 @@ test("the server: each item posted once a process, again in a new thread after a
 }, 30_000);
 
 test("the server: off when the space or the key is unset", async () => {
-  const envs: Array<Record<string, string>> = [{ UNII_GCHAT_SPACE: SPACE }, { GCHAT_WEBHOOK_URL: URL_ }, {}];
+  const envs: Array<Record<string, string>> = [{ LEGION_GCHAT_SPACE: SPACE }, { GCHAT_WEBHOOK_URL: URL_ }, {}];
   for (const env of envs) {
-    const dir = fs.mkdtempSync(os.tmpdir() + "/unii-gchat-");
+    const dir = fs.mkdtempSync(os.tmpdir() + "/legion-gchat-");
     const { out, all } = await run(dir, "off", env);
     expect(out.first).toBe(0);
     expect(out.lists).toBe(0);
@@ -486,9 +486,9 @@ process.exit(0);
 `;
 
 async function limits(step: string, script: number[]): Promise<{ out: any; err: string }> {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-gchat-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-gchat-");
   fs.writeFileSync(dir + "/limits.ts", LIMITS);
-  const env = { UNII_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", UNII_DIR: dir, STEP: step, SCRIPT: JSON.stringify(script) };
+  const env = { LEGION_GCHAT_SPACE: SPACE, GCHAT_WEBHOOK_URL: URL_, LEGION_GCHAT_KEYCHAIN: "", LEGION_GCHAT_USER: "u1", LEGION_DIR: dir, STEP: step, SCRIPT: JSON.stringify(script) };
   const proc = Bun.spawn([process.execPath, dir + "/limits.ts"], { env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
   const [o, e] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   return { out: JSON.parse(o.trim().split("\n").at(-1) ?? "{}"), err: e };

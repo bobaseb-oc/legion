@@ -1,5 +1,5 @@
 {
-  "name": "unii-local-tools",
+  "name": "legion-local-tools",
   "private": true,
   "description": "MCP and language servers for the local build, pinned; install with npm ci --prefix local/tools",
   "dependencies": {

@@ -5,7 +5,7 @@
 // text redacted and capped, files 0600, a symlinked dir or note refused,
 // at most NOTES notes, an index cut to NOTE_INDEX bytes with a line that
 // says how many were left out. Hand-planted files with a valid name are
-// listed (the user sees what Unii reads); MEMORY.md and bad names are not.
+// listed (the user sees what Legion reads); MEMORY.md and bad names are not.
 
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -16,7 +16,7 @@ const Notes = await import("./Notes.ts");
 // a user dir of its own, inside a base dir of its own, so a write that
 // escapes notes/ (or the user dir) is seen
 function fresh(): { base: string; dir: string } {
-  const base = fs.mkdtempSync(os.tmpdir() + "/unii-notes-");
+  const base = fs.mkdtempSync(os.tmpdir() + "/legion-notes-");
   const dir = base + "/u";
   fs.mkdirSync(dir);
   return { base, dir };

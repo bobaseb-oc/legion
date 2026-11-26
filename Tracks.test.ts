@@ -80,9 +80,9 @@ const log = (name) => (Memory.agent(chat.mem, name) ?? []).map((r) => ({ kind: r
 `;
 
 async function server(file: string, script: string): Promise<any> {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/" + file, script);
-  const proc = Bun.spawn([process.execPath, dir + "/" + file], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/" + file], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
 }
 
@@ -715,13 +715,13 @@ process.exit(0);
 
 async function server_in(dir: string, file: string, script: string): Promise<any> {
   fs.writeFileSync(dir + "/" + file, script);
-  const proc = Bun.spawn([process.execPath, dir + "/" + file], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/" + file], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
 }
 
 let saving: Promise<{ a: any; b: any }> | null = null;
 const save_run = () => (saving ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const a = await server_in(dir, "save-a.ts", SAVE_A);
   const b = await server_in(dir, "save-b.ts", SAVE_B(a.w, a.v));
   return { a, b };

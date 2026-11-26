@@ -1,8 +1,8 @@
 // Export
 // ======
 // `bun local/prime/export.ts`. The staged documents (redact.ts,
-// ~/.unii-prime/staged.json) as a Claude website export
-// (~/.unii-prime/context.json), which `/import ~/.unii-prime/context.json`
+// ~/.legion-prime/staged.json) as a Claude website export
+// (~/.legion-prime/context.json), which `/import ~/.legion-prime/context.json`
 // reads as it reads any (Import.ts chat_claude): a chat per document (or
 // per group: a message each, oldest first),
 // named by its kind and path, dated by its file, one message: a header

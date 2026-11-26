@@ -1,7 +1,7 @@
 // Tidy list
 // =========
 // `bun local/tidy.ts --list` (legion tidy --list): every linked worktree
-// under the clone roots (UNII_SPACES, default /Volumes/dev/git and
+// under the clone roots (LEGION_SPACES, default /Volumes/dev/git and
 // ~/.claude) and the tidy's extra roots (~/repos, /private/tmp/claude-501),
 // one line each: repo, branch, merged or gone, changes, unpushed, stashes,
 // size, age, in use, safe. Read-only: it removes nothing (only the user's

@@ -67,7 +67,7 @@ test("the view's history: the user's messages by id, with their dates, then what
   const v = View.view_new();
   v.whole.set(3, { kind: "user", text: "third", date: "2026-11-24T10:00:00.000Z" });
   v.whole.set(1, { kind: "user", text: "first" });
-  v.whole.set(2, { kind: "unii", text: "not mine" });
+  v.whole.set(2, { kind: "legion", text: "not mine" });
   const typed = [{ text: "!ls", at: 5 }];
   expect(Hist.hist_said(v, typed)).toEqual([{ text: "first", at: null }, { text: "third", at: Date.parse("2026-11-24T10:00:00.000Z") }, { text: "!ls", at: 5 }]);
 });

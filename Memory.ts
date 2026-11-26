@@ -676,10 +676,10 @@ export namespace Memory {
   }
 
   // a message as models read it, tagged by its author: an imported chat's
-  // AI (its say and calls) is "ai", not Unii
+  // AI (its say and calls) is "ai", not Legion
   export function show(root: Root): string {
     const pics = (root.images ?? []).map((name) => "\n[image docs/images/" + name + "]");
-    const who  = root.imported && (root.kind === "unii" || root.kind === "tool") ? "ai" : root.kind;
+    const who  = root.imported && (root.kind === "legion" || root.kind === "tool") ? "ai" : root.kind;
     return who + ": " + root.text + pics.join("");
   }
 

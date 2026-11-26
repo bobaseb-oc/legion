@@ -1,14 +1,14 @@
 // Notes
 // =====
-// Unii's notes: what it keeps across runs, one file per
-// note under <dir>/notes, in Claude Code's MEMORY.md style. Only Unii
+// Legion's notes: what it keeps across runs, one file per
+// note under <dir>/notes, in Claude Code's MEMORY.md style. Only Legion
 // writes them (Tools.notes); the user sees, edits and drops each (the
 // Memory page: Chat.noted). Untrusted text: a name from NAME only, text
 // redacted (redact.ts) and capped, files 0600 in a 0700 dir, a symlinked
 // dir or note refused, at most NOTES notes. A file is read only up to
 // NOTE_FILE bytes and LISTED files (an agent's shell can plant more: one
 // past it is listed as too large, its text never read, so the user sees
-// it and drops it). The index reaches Unii fenced
+// it and drops it). The index reaches Legion fenced
 // (Tools.notes_block), cut to NOTE_INDEX bytes. notes/MEMORY.md is an
 // export copy, rewritten after each change and never read back.
 
@@ -96,7 +96,7 @@ function load(dir: string, name: string): Note | null {
 }
 
 // every note with a valid name, newest first (a hand-planted one too: the
-// user sees what Unii reads)
+// user sees what Legion reads)
 export function notes_list(dir: string): Note[] {
   const st = fs.lstatSync(notes_dir(dir), { throwIfNoEntry: false });
   if (st === undefined || !st.isDirectory()) {
@@ -116,7 +116,7 @@ export function notes_list(dir: string): Note[] {
 const index_line = (n: Note): string => "- [" + n.name + "](" + n.name + ".md) — " + n.line + "\n";
 const more_line = (n: number): string => "… " + n + " more note" + (n === 1 ? "" : "s") + " (read lists them all)\n";
 
-// the index Unii sees, at most NOTE_INDEX bytes: past it, the rest said
+// the index Legion sees, at most NOTE_INDEX bytes: past it, the rest said
 // in a last line
 export function notes_index(dir: string): string {
   const notes = notes_list(dir).filter((n) => n.big !== true);

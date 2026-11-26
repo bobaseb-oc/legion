@@ -2,9 +2,9 @@
 // ==========
 // `bun local/mcp.ts [out]`. The MCP servers the chat's agent may use
 // (Mcp.ts reads them; the wrapper makes them at each start, to
-// ~/.unii/mcp.json): Claude Code's own (~/.claude.json mcpServers), then
+// ~/.legion/mcp.json): Claude Code's own (~/.claude.json mcpServers), then
 // the extra ones of mcp.extra.json (programs installed in local/tools),
-// each as ~/.unii/mcp.local.json changes it ({"<server>": {"enabled":
+// each as ~/.legion/mcp.local.json changes it ({"<server>": {"enabled":
 // false} | {"tools": [...]} | {"allowed_origins": [...]}}). No secret is
 // written: each header or env value becomes a placeholder, kept with the
 // path to it in ~/.claude.json, read as the server opens. Left out, each
@@ -40,7 +40,7 @@ type Extra = Omit<Server, "name"> & { allowed_origins?: string[] };
 // which: where a program is on PATH (null: nowhere)
 export function mcp_config(home: string, root: string, which: (cmd: string) => string | null = Bun.which): Config {
   const file = home + "/.claude.json";
-  const local: Record<string, { enabled?: boolean; tools?: string[]; allowed_origins?: string[] }> = json(home + "/.unii/mcp.local.json");
+  const local: Record<string, { enabled?: boolean; tools?: string[]; allowed_origins?: string[] }> = json(home + "/.legion/mcp.local.json");
   const out: Config = { servers: [], secrets: { file, vars: {} }, lsp: {}, notes: [] };
   const on = (name: string) => !EXCLUDE.includes(name) && local[name]?.enabled !== false;
   const tools = (name: string) => (Array.isArray(local[name]?.tools) ? { tools: local[name].tools } : {});
@@ -102,7 +102,7 @@ export function mcp_config(home: string, root: string, which: (cmd: string) => s
 }
 
 if (import.meta.main) {
-  const out = process.argv[2] ?? os.homedir() + "/.unii/mcp.json";
+  const out = process.argv[2] ?? os.homedir() + "/.legion/mcp.json";
   const got = mcp_config(os.homedir(), path.resolve(import.meta.dir, ".."));
   fs.writeFileSync(out, JSON.stringify({ servers: got.servers, secrets: got.secrets, lsp: got.lsp }, null, 2) + "\n", { mode: 0o600 });
   got.notes.forEach((note) => console.error("mcp: " + note));

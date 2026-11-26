@@ -138,7 +138,7 @@ test("the top bar's Todo tab: after Inbox, its count when any are open, marked w
   expect(Html.mode_html("todo", "", 0, undefined, 0, 0, 0).join("")).toContain('<a href="#todo" class="here">Todo</a>');
 });
 
-test("the focus card: the agent in focus with its actions, or Unii's chat", () => {
+test("the focus card: the agent in focus with its actions, or Legion's chat", () => {
   const v = View.view_new();
   View.view_hear(v, { $: "state", ...v, crew: [crew("Run", "main", "working")] });
   expect(Html.focus_html(v)).toContain("Legion");
@@ -182,7 +182,7 @@ test("a tree row shows its pulse: what it does at work, its last line done", () 
   expect(Html.tree_html(v, 0)[0]).not.toContain('class="line"');
 });
 
-// The Crew grid (Html.grid_html): a tile per agent Unii started, its dots
+// The Crew grid (Html.grid_html): a tile per agent Legion started, its dots
 // linking to each under it, its roll-up, its pulse, its actions and a box
 // to tell it
 test("the grid: tiles with dots, roll-up, pulse, actions and a tell box", async () => {

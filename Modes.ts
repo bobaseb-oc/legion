@@ -66,7 +66,7 @@ const MONEY = /\bpay(s|ing|ment|ments)?\b|\bpaid\b|\binvoic|\bpurchas|\bcharg(e|
 const OUTWARD = /\bsend(s|ing)?\b|\bsent\b|\be-?mail|\bpost(s|ed|ing)?\b(?!-)|\bpublish|\btweet|\bannounce|\bmessage\s+(him|her|them|someone|the (client|customer|team|channel))|\bDM\b|\bslack\b|\bshare\s+(it\s+|the\s+\w+\s+)?with|\bexternal|\breply to (the )?(client|customer|thread|email)/i;
 
 // what an agent refused in plan mode does instead
-const AFTER = "Say what you would change instead: in your report, or, for Unii, in the plan it files (plan).";
+const AFTER = "Say what you would change instead: in your report, or, for Legion, in the plan it files (plan).";
 
 // the tools that only read, in every mode
 const READS = ["read", "glob", "grep", "google", "harvest"];
@@ -122,15 +122,16 @@ export const SECRET = new RegExp(String.raw`^(\.env.*|.*\.(pem|key|p12|pfx|keych
 export const SECRET_AT = new RegExp(String.raw`(^|\/)(${DIRS})(\/|$)|\/\.git\/config$`, "i");
 
 // RED ZONE (S1c, DRAFT awaiting the user's sign-off): Legion's own trust
-// state, by its path in Legion's dir (~/.unii, $UNII_DIR; a terminal's
-// $UNII_HOME): its sessions (cloud.db and its -wal, -shm, -journal), the
+// state, by its path in Legion's dir (~/.legion, $LEGION_DIR; a terminal's
+// $LEGION_HOME): its sessions (cloud.db and its -wal, -shm, -journal), the
 // sign-in secret's hash (Cloud.ts SIGNIN), the server's log, a terminal's
 // device key (<host>/token). Machine.trust refuses them to agents' tools.
-// TRUST_WORDS: the same, or the dir, named in a shell command (SECRETS)
+// TRUST_WORDS: the same, or the dir (~/.unii too, its name before the
+// rename), named in a shell command (SECRETS)
 // RED ZONE (security review 4 F2, signed off by the user 2026-11-25):
 // and its bin dir (the built key helper, legion-key, and its .sha256)
 export const TRUST = /^\/(cloud\.db(-wal|-shm|-journal)?|signin-hash|server\.log|[^/]+\/token|bin\/.+)$/i;
-const TRUST_WORDS = String.raw`\.unii\b|\bUNII_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
+const TRUST_WORDS = String.raw`\.(legion|unii)\b|\bLEGION_(DIR|HOME)\b|cloud\.db|server\.log|signin-hash`;
 
 // a read-only command that may read secrets: still reviewed in auto mode
 // (the list above, in the line or its words; not a bare key: too common.

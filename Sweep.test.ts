@@ -12,7 +12,7 @@ import * as path from "node:path";
 import * as Sweep from "./Sweep.ts";
 
 const DAY = 86400e3;
-const ROOT = fs.realpathSync(process.env.UNII_TEST_ROOT ?? fs.mkdtempSync("/tmp/sweep-"));
+const ROOT = fs.realpathSync(process.env.LEGION_TEST_ROOT ?? fs.mkdtempSync("/tmp/sweep-"));
 
 // a fresh WORK of its own, and a dir outside it
 const fresh = (): { work: string; out: string } => {
@@ -553,7 +553,7 @@ Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
 const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 AskAI.ask = (ask, on) => AskAI.tie(on, ask.bill, () => {}, () => {})[0];
-const work = process.env.UNII_WORK;
+const work = process.env.LEGION_WORK;
 const DAY = 86400e3;
 const age = (dir, days) => {
   const t = new Date(Date.now() - days * DAY);
@@ -599,7 +599,7 @@ const run = async (name: string, script: string): Promise<any> => {
   const dir = fs.mkdtempSync(ROOT + "/sweep-server-");
   fs.mkdirSync(dir + "/work");
   fs.writeFileSync(dir + "/" + name + ".ts", script);
-  const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   return { ...out, work: fs.realpathSync(dir + "/work") };
 };
@@ -695,7 +695,7 @@ test("M2: a GChat yes in a pre-restart or view.json-forged thread applies nothin
   const space = "spaces/TESTSPACE";
   const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
   const step = async (s: string, old = ""): Promise<any> => {
-    const env = { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work", UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", STEP: s, OLD: old };
+    const env = { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work", LEGION_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, LEGION_GCHAT_KEYCHAIN: "", LEGION_GCHAT_USER: "u1", STEP: s, OLD: old };
     const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env, stdout: "pipe", stderr: "inherit" });
     return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   };

@@ -538,7 +538,7 @@ test("AC25: the Tracks page escapes an item's and a pin's text", async () => {
   expect(html).not.toContain("<img");
 });
 
-// Notes: the Memory page lists Unii's notes, each with an
+// Notes: the Memory page lists Legion's notes, each with an
 // Edit and a Drop; every note's text escaped (a note is untrusted text)
 const two_notes = () => [
   { name: "alpha-plan", line: "the alpha line", text: "alpha body", at: NOW },

@@ -204,7 +204,7 @@ export namespace Anthropic {
       on("mind", delta.thinking);
     }
     if (delta.type === "text_delta") {
-      on("unii", delta.text);
+      on("legion", delta.text);
     }
     if (delta.type === "input_json_delta") {
       on("tool", delta.partial_json);
@@ -252,7 +252,7 @@ export namespace Anthropic {
     for (const b of out) {
       const entry = Anthropic.entry(b);
       const top = entries[entries.length - 1];
-      if (entry?.kind === "unii" && top?.kind === "unii") {
+      if (entry?.kind === "legion" && top?.kind === "legion") {
         top.text += entry.text;
       } else if (entry !== null) {
         entries.push(entry);
@@ -266,7 +266,7 @@ export namespace Anthropic {
     const c = b.content;
     switch (b.type) {
       case "text": {
-        return { kind: "unii", text: b.text };
+        return { kind: "legion", text: b.text };
       }
       case "thinking": {
         return { kind: "mind", text: b.thinking };

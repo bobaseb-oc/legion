@@ -1,12 +1,12 @@
 // Directives
 // ==========
-// The turn-end check (user's ask 2026-11-20: Unii forgets standing orders,
+// The turn-end check (user's ask 2026-11-20: Legion forgets standing orders,
 // as asking in the chat, not with ask): after a turn's reply, a nudge,
 // at most one per user message, when the turn skipped one. Two parts:
 // the ask-guard (no model: the reply asks the user, no ask was filed),
 // then the checker (config.CHECKER, a call with no tools), only when
-// Unii keeps a note named NAME (Notes.ts, written with the notes tool;
-// the user's call: Unii writes it freely), judging the reply against it.
+// Legion keeps a note named NAME (Notes.ts, written with the notes tool;
+// the user's call: Legion writes it freely), judging the reply against it.
 // A nudge reaches the turn as a user message, labelled TAG: it only names
 // what was skipped, never orders or grants; a turn that answers a nudge
 // is never checked (no loop). The note's text reaches every turn whole
@@ -25,7 +25,7 @@ const CHECK = "You check whether an AI orchestrator's reply follows its own stan
 const GUARD = "your reply ends asking the user something, but you filed no ask. If it is a decision for the user, file it with ask (a short brief, your pick) so it reaches their questions pane; if it was rhetorical or the turn can't go on without it, go on.";
 
 export namespace Directives {
-  // the note holding Unii's standing directives; a nudge's label; a
+  // the note holding Legion's standing directives; a nudge's label; a
   // checker's reason's most chars; the checker's prompt
   export const NAME = "directives";
   export const TAG = "[checker, not the user]";
@@ -48,7 +48,7 @@ export namespace Directives {
       at--;
     }
     const since = msgs.slice(at + 1);
-    const reply = since.filter((m) => m.kind === "unii").at(-1)?.text ?? null;
+    const reply = since.filter((m) => m.kind === "legion").at(-1)?.text ?? null;
     const user = at >= 0 ? msgs[at]!.text : null;
     return { user, reply, asked: since.some((m) => m.kind === "tool" && m.text.startsWith("ask ")), nudged: user?.startsWith(TAG) ?? false };
   }

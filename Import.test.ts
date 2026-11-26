@@ -94,8 +94,8 @@ function zip64(name: string, data: Uint8Array): Blob {
   return new Blob([...head, ...dir, end64, locator, end]);
 }
 
-// an imported chat's AI, its say and calls, reads as "ai", never Unii
-test("an import's AI is not Unii", () => {
+// an imported chat's AI, its say and calls, reads as "ai", never Legion
+test("an import's AI is not Legion", () => {
   const show = (kind: any, imported?: boolean) => Memory.show(Memory.root(0, { kind, text: "", imported }));
-  expect([show("unii", true), show("tool", true), show("user", true), show("unii")]).toEqual(["ai: ", "ai: ", "user: ", "unii: "]);
+  expect([show("legion", true), show("tool", true), show("user", true), show("legion")]).toEqual(["ai: ", "ai: ", "user: ", "legion: "]);
 });

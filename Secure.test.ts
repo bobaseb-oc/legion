@@ -14,7 +14,7 @@ import { WIRE } from "./View.ts";
 
 const PORT = 9591;
 const SITE = "http://127.0.0.1:" + PORT;
-const DIR  = fs.mkdtempSync(os.tmpdir() + "/unii-secure-");
+const DIR  = fs.mkdtempSync(os.tmpdir() + "/legion-secure-");
 let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
 let printed = "";
 let cookie = "";
@@ -38,7 +38,7 @@ async function signin(who: string, key: string, more: Record<string, string>, te
 beforeAll(async () => {
   const { RESEND_API_KEY, ...env } = process.env;
   proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(PORT)], {
-    env    : { ...env, UNII_DIR: DIR, UNII_SITE: SITE, UNII_WORK: DIR + "/work", UNII_ANOTHER: "1" },
+    env    : { ...env, LEGION_DIR: DIR, LEGION_SITE: SITE, LEGION_WORK: DIR + "/work", LEGION_ANOTHER: "1" },
     stdout : "pipe",
     stderr : "pipe",
   });
@@ -65,7 +65,7 @@ beforeAll(async () => {
   expect((await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } })).status).toBe(403);
   const web = await fetch(SITE + "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + termkey } });
   const res = await fetch((await web.json()).url, { redirect: "manual" });
-  cookie = /^(unii=[^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
+  cookie = /^(legion=[^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
   expect(cookie).not.toBe("");
 });
 
@@ -146,7 +146,7 @@ test("HTML goes with a CSP; every answer with nosniff and no referrer; /tree run
 
 // RED ZONE (R1, signed off by the user 2026-11-19): a view is a
 // browser's only: its session a cookie's, made by a browser's sign-in. A
-// terminal's Bearer session (its token in ~/.unii, within an agent
+// terminal's Bearer session (its token in ~/.legion, within an agent
 // shell's reach) is never one: its socket names its device or is
 // refused, sent as a cookie too; its /api/act is a device's
 test("only a browser's session is a view: a terminal's token, as Bearer or cookie, never is", async () => {
@@ -162,12 +162,12 @@ test("only a browser's session is a view: a terminal's token, as Bearer or cooki
   expect(await opens("?device=box", bearer)).toBe(true);
   expect(await opens("", bearer)).toBe(false);
   expect(await opens("?device=", bearer)).toBe(false);
-  expect(await opens("", { cookie: "unii=" + key })).toBe(false);
+  expect(await opens("", { cookie: "legion=" + key })).toBe(false);
   // a todo ticked: a view finds none ("No todo"), a device is refused
   const tick = (headers: Record<string, string>) => fetch(SITE + "/api/act?$=assignment&id=" + crypto.randomUUID() + "&n=1&done=true", { method: "POST", headers }).then((r) => r.json());
   expect((await tick({ cookie })).error).toMatch(/^No todo/);
   expect((await tick(bearer)).error).toMatch(/in a view/);
-  expect((await tick({ cookie: "unii=" + key })).error).toMatch(/in a view/);
+  expect((await tick({ cookie: "legion=" + key })).error).toMatch(/in a view/);
 });
 
 // RED ZONE (K1, DRAFT awaiting the user's sign-off): a terminal's sign-in
@@ -272,9 +272,9 @@ const { Memory } = await import(${JSON.stringify(import.meta.dir + "/Memory.ts")
 const config = await import(${JSON.stringify(import.meta.dir + "/Config.ts")});
 const fs = await import("node:fs");
 Chat.cloud = Cloud.open(() => {}, () => {}, async () => null);
-const failed = Chat.fail(new Error("ENOENT: /Users/x/.unii/secret"));
+const failed = Chat.fail(new Error("ENOENT: /Users/x/.legion/secret"));
 const told = Chat.fail(Chat.told("An import has no kind x."));
-Cloud.who = () => { throw new Error("SQLITE_CORRUPT at /Users/x/.unii/cloud.db"); };
+Cloud.who = () => { throw new Error("SQLITE_CORRUPT at /Users/x/.legion/cloud.db"); };
 const res = await Main.http(new Request("http://127.0.0.1/api/hello", { headers: { host: new URL(config.SITE).host } }), {});
 const mem = Memory.load(config.DIR + "/m", () => ({}));
 Memory.save(mem);
@@ -284,9 +284,9 @@ process.exit(0);
 `;
 
 test("unexpected errors tell the client nothing of them; meant ones are told; limits are finite; the chat's state is 0600", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-secure-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-secure-");
   fs.writeFileSync(dir + "/fail.ts", FAIL);
-  const run = Bun.spawn([process.execPath, dir + "/fail.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "pipe" });
+  const run = Bun.spawn([process.execPath, dir + "/fail.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "pipe" });
   const out = JSON.parse((await new Response(run.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   const logged = await new Response(run.stderr).text();
   expect(JSON.stringify(out.failed)).not.toContain("secret");

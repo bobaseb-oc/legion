@@ -1,18 +1,18 @@
 #!/usr/bin/env bun
 // Term
 // ====
-// `legion` (`unii` too): a terminal view of the agent (Server.ts) and, while open, a
+// `legion` (`legion` too): a terminal view of the agent (Server.ts) and, while open, a
 // device its tools reach (DEVICE). It feeds a View the server's messages
 // and the person's acts, and prints what it says (Paint.ts, Screen.ts)
 // into the terminal's own scrollback. Every act of the site is a command
 // here (COMMANDS, /help). The agent's jobs run here (Machine.ts) until
-// done or halted; all they left running dies as this unii quits. From a
+// done or halted; all they left running dies as this legion quits. From a
 // pipe, each line is a message.
 //
 // One executable per platform (upstream releases it; this build runs
 // from its source, asks no one for updates and sends no telemetry).
 // `legion serve` runs the server it carries. The server:
-// the url given, else $UNII_URL, else http://127.0.0.1:8788 (this build;
+// the url given, else $LEGION_URL, else http://127.0.0.1:8788 (this build;
 // upstream's is uniichat.com); each server's session is a file of its own
 // (TOKEN).
 //
@@ -75,7 +75,7 @@ type Term = {
   shut?   : string;  // the text whose / menu Esc closed
   stamps? : Record<string, string>; // the inbox's rows as /inbox last showed them (Cockpit.inbox_seen)
   goto?   : string | null; // the last alert's agent, shown as the terminal comes back
-  branch? : string | null; // the branch of the folder Unii works in (term_status)
+  branch? : string | null; // the branch of the folder Legion works in (term_status)
   spend?  : Cost.Spend;    // today's LiteLLM spend (term_status)
   reported?: string;       // the status last sent as this device's (term_status)
   reads?  : (msg: View.Server) => void; // the cockpit's reads, as legion device's (Device.device_reads)
@@ -91,7 +91,7 @@ type Cmd = [use: string, keys: string, text: string, run: (t: Term, arg: string)
 // Constants
 // =========
 
-// this unii's version: each release ships one, a new one for every
+// this legion's version: each release ships one, a new one for every
 // change to Term.ts or what it imports
 const VERSION = "1.0.145";
 
@@ -107,9 +107,9 @@ const PORT   = SERVE ? ARGS.find((a) => /^\d+$/.test(a)) : undefined;
 const WORDS  = ["login", "help", "--help", "-h", "version", "update", "serve", "web", "device"];
 const WEB    = /^https?:\/\//;
 const ODD    = ARGS.find((a) => !WORDS.includes(a) && !WEB.test(a) && a !== PORT);
-const HOME   = process.env.UNII_HOME || os.homedir() + "/.unii";
+const HOME   = process.env.LEGION_HOME || os.homedir() + "/.legion";
 const OURS   = "http://127.0.0.1:8788";
-const SERVER = (ARGS.find((a) => WEB.test(a)) ?? process.env.UNII_URL ?? OURS).replace(/\/$/, "");
+const SERVER = (ARGS.find((a) => WEB.test(a)) ?? process.env.LEGION_URL ?? OURS).replace(/\/$/, "");
 const TOKEN  = HOME + "/" + new URL(SERVER).host + "/token";
 // RED ZONE (K1, K2, DRAFT awaiting the user's sign-off): the terminal
 // key: signed in with the device key (TOKEN, a file: jobs, `legion
@@ -127,12 +127,12 @@ let TERMKEY: string | null = null;
 // sign-in secret, the Keychain's "legion-signin-<host>" (login_local)
 const SIGNIN = "legion-signin";
 // RED ZONE (security review U1, DRAFT awaiting the user's sign-off): the
-// server's own dir, as Config.DIR reads it ($UNII_DIR, default ~/.unii),
+// server's own dir, as Config.DIR reads it ($LEGION_DIR, default ~/.legion),
 // where its socket is; every request and socket to the server goes over
 // it only (Device.device_wire), never TCP. This build talks to a server
 // on this computer only (upstream's may be any, by default the hosted
 // one): a job it is sent runs here
-const SOCKDIR = (process.env.UNII_DIR ?? "~/.unii").replace(/^~(?=\/|$)/, os.homedir());
+const SOCKDIR = (process.env.LEGION_DIR ?? "~/.legion").replace(/^~(?=\/|$)/, os.homedir());
 try {
   Device.device_wire(SERVER, SOCKDIR);
 } catch (err: any) {
@@ -157,7 +157,7 @@ function term_keys(prefix: string): Store {
   return Auth.present(prefix, Auth.keybin(SOCKDIR + "/bin/legion-key"), Auth.asking(prefix));
 }
 
-const USAGE = `Usage: legion [url]         the chat (url: $UNII_URL, else http://127.0.0.1:8788)
+const USAGE = `Usage: legion [url]         the chat (url: $LEGION_URL, else http://127.0.0.1:8788)
        legion login [url]   sign in
        legion web [url]     a one-use link (printed) that signs your browser in as this terminal
        legion device [url]  this computer runs the agents' jobs, with no screen
@@ -165,13 +165,13 @@ const USAGE = `Usage: legion [url]         the chat (url: $UNII_URL, else http:/
        legion update [url]  disabled in this build (it ran curl | sh)
        legion version       this legion's version
        legion serve [port]  your own Legion server, at http://127.0.0.1:8788
-                            (another port: set UNII_SITE to its address too),
+                            (another port: set LEGION_SITE to its address too),
                             on your ANTHROPIC_API_KEY and OPENAI_API_KEY;
                             chat with it: legion http://127.0.0.1:8788
        legion help          this
-UNII_WORK: where the agent works on this computer (default
-~/.unii/work). UNII_COMPUTER=1: it may use the screen. UNII_HOME: where
-it keeps its sign-in (default ~/.unii).
+LEGION_WORK: where the agent works on this computer (default
+~/.legion/work). LEGION_COMPUTER=1: it may use the screen. LEGION_HOME: where
+it keeps its sign-in (default ~/.legion).
 This build sends no telemetry and opens no server but this computer's.
 In the chat, /help lists every command and key.`;
 
@@ -182,13 +182,13 @@ const DEVICE = LOCAL || os.hostname();
 
 // where the agent's tools work on this device: in WORK/main (the agent)
 // and WORK/<name> (each subagent)
-const WORK = process.env.UNII_WORK || "~/.unii/work";
-// the home repo: where Unii's own jobs run, its AGENTS.md pointing to the
+const WORK = process.env.LEGION_WORK || "~/.legion/work";
+// the home repo: where Legion's own jobs run, its AGENTS.md pointing to the
 // other repos (none: <work>/main)
-const HOME_REPO = process.env.UNII_HOME_REPO || "";
+const HOME_REPO = process.env.LEGION_HOME_REPO || "";
 
 // whether the agent may use this device's screen, mouse and keyboard
-const COMPUTER = process.env.UNII_COMPUTER === "1";
+const COMPUTER = process.env.LEGION_COMPUTER === "1";
 
 // how this device runs the server's jobs (Device.ts), a terminal or not
 const RULES: Device.Rules = { work: WORK, home: HOME_REPO || undefined, computer: COMPUTER };
@@ -248,7 +248,7 @@ function term_groups(v: View.View): [group: string, cmds: Cmd[]][] {
       ["/kill <n>",         "",                        "stop background command n", term_kill],
       ["/fold",             "Ctrl+F",                  "the chat in the fewest blocks; again: unfold (Ctrl+F eaten? type /fold)", term_fold],
       ["/import [...]",     "",                        "import your Claude and ChatGPT chats (alone: options, costs)", term_import],
-      ["/export",           "",                        "save memory and account as ./unii-memory.json",  term_export],
+      ["/export",           "",                        "save memory and account as ./legion-memory.json",  term_export],
       ["",                  "Ctrl+Z",                  "suspend; fg brings it back",                     (t) => Screen.screen_suspend(t.scr)],
       ["/quit",             "",                        "leave: the chat goes on without this terminal",  term_quit],
       ["/help",             "",                        "this list",                                      term_help],
@@ -434,7 +434,7 @@ function term_send(t: Term, msg: View.Client, sent?: View.Sent): void {
 }
 
 // a message of the server: to the view, then to the jobs and the page;
-// the import's ask (UNII_IMPORT_ASK) comes under the first view, where
+// the import's ask (LEGION_IMPORT_ASK) comes under the first view, where
 // it is seen
 function term_hear(t: Term, msg: View.Server): void {
   const first = msg.$ === "view" && t.v.parts.length === 0;
@@ -451,7 +451,7 @@ function term_hear(t: Term, msg: View.Server): void {
   term_print(t, msg);
   if (first) {
     term_history(t);
-    if (process.env.UNII_IMPORT_ASK === "1") {
+    if (process.env.LEGION_IMPORT_ASK === "1") {
       void term_import(t, "claude", true);
     }
   }
@@ -462,7 +462,7 @@ function term_hear(t: Term, msg: View.Server): void {
   }
 }
 
-// the folder Unii's jobs run in: the home repo, else unii's own main dir
+// the folder Legion's jobs run in: the home repo, else legion's own main dir
 function term_dir(): string {
   const dir = HOME_REPO || WORK + "/main";
   return dir.startsWith("~/") ? os.homedir() + dir.slice(1) : dir;
@@ -1153,7 +1153,7 @@ function term_pick(t: Term, move: Move, arg: string): void {
 
 async function term_export(t: Term): Promise<void> {
   const res  = await term_get(t, "/export", "export");
-  const file = process.cwd() + "/unii-memory.json";
+  const file = process.cwd() + "/legion-memory.json";
   if (res !== null) {
     await Bun.write(file, res);
     term_note(t, "Your data is in " + file + ".");
@@ -1165,7 +1165,7 @@ async function term_export(t: Term): Promise<void> {
 // Import.Want: since a day; tools; -#n: not session n): without go,
 // what it finds and costs (sessions: and the list); with go, sent;
 // pause, resume: the import running
-// ask: as asked at the start (UNII_IMPORT_ASK): it says nothing unless
+// ask: as asked at the start (LEGION_IMPORT_ASK): it says nothing unless
 // there is something new to import
 async function term_import(t: Term, arg: string, ask = false): Promise<void> {
   if (/^(pause|resume)$/.test(arg)) {
@@ -1189,7 +1189,7 @@ async function term_import(t: Term, arg: string, ask = false): Promise<void> {
     return;
   }
   const sessions = read.flat().filter((s) => apps.length === 0 || apps.includes(s.app));
-  const done  = await term_get(t, "/api/imported", "read what Unii has");
+  const done  = await term_get(t, "/api/imported", "read what Legion has");
   if (done === null) {
     return;
   }
@@ -1283,7 +1283,7 @@ async function term_logout(t: Term): Promise<void> {
     await Device.device_fetch(term_wire(t.url), "/api/logout", { method: "POST", headers: term_file() }).catch(() => null);
   }
   await term_forget(t);
-  term_note(t, "Signed out. Run unii to sign in again.");
+  term_note(t, "Signed out. Run legion to sign in again.");
   term_quit(t);
 }
 
@@ -1904,7 +1904,7 @@ async function web_run(url: string): Promise<void> {
   const res = await Device.device_fetch(term_wire(url), "/api/web-link", { method: "POST", headers: { authorization: "Bearer " + key } }).catch(() => null);
   const body = (await res?.json().catch(() => ({})) ?? {}) as { url?: string; error?: string };
   if (res === null || !res.ok || body.url === undefined) {
-    login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with unii" : "the server refused (" + res.status + ")"));
+    login_fail(body.error ?? (res === null ? "no server at " + url + ": start it with legion" : "the server refused (" + res.status + ")"));
   }
   console.log("Open this within a minute (it works once; click it, or copy it into your browser):\n  " + body.url);
 }

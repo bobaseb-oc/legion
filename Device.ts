@@ -4,7 +4,7 @@
 // (Machine.run) and answers their output. The terminal (Term.ts) is one,
 // and `legion device` is one with no screen, so the agents' shells work
 // while no terminal is open. Both keep the same rules (Rules): computer
-// use only where allowed (UNII_COMPUTER=1), an output too large for a
+// use only where allowed (LEGION_COMPUTER=1), an output too large for a
 // socket message refused by its size, a job the server no longer lists
 // stopped. Approvals stay the server's (a Claude Code worker waits for
 // the person's ✓, from the web or a terminal), so a device asks nothing.
@@ -26,14 +26,14 @@ import * as View from "./View.ts";
 // its tool's name
 export type Run = { abort: AbortController; away: AbortController; name: string };
 
-// where jobs work (the device's work dir; its home repo, Unii's own),
+// where jobs work (the device's work dir; its home repo, Legion's own),
 // whether it does computer use, what runs a job (Machine.run; a test's),
-// the repos the cockpit shows (its spaces: UNII_SPACES; none: the home repo),
-// where it keeps the undo list and Claude Code briefs (state: $UNII_DIR,
-// else ~/.unii; a test's)
+// the repos the cockpit shows (its spaces: LEGION_SPACES; none: the home repo),
+// where it keeps the undo list and Claude Code briefs (state: $LEGION_DIR,
+// else ~/.legion; a test's)
 export type Rules = { work: string; home?: string; computer: boolean; run?: typeof Machine.run; spaces?: string[]; state?: string };
 
-export const NO_COMPUTER = "This device does no computer use (UNII_COMPUTER=1 lets it).";
+export const NO_COMPUTER = "This device does no computer use (LEGION_COMPUTER=1 lets it).";
 
 // the server's word on this device's jobs: a job, run unless it runs or
 // its output waits for an answer; or their ids, the rest stopped
@@ -140,7 +140,7 @@ export function device_away(jobs: Map<string, Run>): number {
 export const STATUS_EVERY = 60_000;
 
 // this device's report for the status line (the web's; the terminal draws
-// its own from it): the folder Unii works in (its home repo, else
+// its own from it): the folder Legion works in (its home repo, else
 // <work>/main) and its branch, today's LiteLLM spend (Cost.ts: the
 // refresher run when due)
 export function device_status(rules: Rules, now: number): View.Client {
@@ -235,7 +235,7 @@ function home(dir: string): string {
 // Spaces
 // ------
 // The repos the cockpit covers: those listed (Rules.spaces, a test's),
-// else found: git repos under the roots (UNII_SPACES, comma-separated; by
+// else found: git repos under the roots (LEGION_SPACES, comma-separated; by
 // default /Volumes/dev/git and ~/.claude) and the home repo. All are
 // checked for worktrees to clean up (git runs only where .git/worktrees
 // is); the active ones (git files changed in ACTIVE) feed the digest and
@@ -251,7 +251,7 @@ const FIND = 30 * 60e3;
 // the most active spaces the digest asks GitHub about
 const DIGESTED = 40;
 
-// the roots, as UNII_SPACES says (none: ROOTS)
+// the roots, as LEGION_SPACES says (none: ROOTS)
 export function device_roots(env: string | undefined): string[] {
   const roots = (env ?? "").split(",").map((s: string) => s.trim()).filter((s: string) => s !== "");
   return (roots.length > 0 ? roots : ROOTS).map(home);
@@ -313,7 +313,7 @@ export function device_spaces(rules: Rules, now: number): { spaces: Space[]; lis
   if (rules.spaces !== undefined) {
     return { spaces: rules.spaces.map((p) => ({ path: home(p), at: now })), listed: true };
   }
-  const roots = device_roots(process.env.UNII_SPACES);
+  const roots = device_roots(process.env.LEGION_SPACES);
   const key = roots.join(",") + "|" + (rules.home ?? "");
   if (found === null || found.key !== key || now - found.at > FIND) {
     found = { at: now, key, spaces: device_discover(roots, now, rules.home) };
@@ -593,19 +593,19 @@ async function device_bytes(p: string, run: Exec): Promise<number | undefined> {
 // Tidy
 // ----
 // The worktrees to clean up are also looked for under TIDY_ROOTS
-// (UNII_TIDY_ROOTS: others, comma-separated), for that list only: not
+// (LEGION_TIDY_ROOTS: others, comma-separated), for that list only: not
 // spaces of the digest or the sidebar. RED ZONE (security review 4 D1, D3,
 // signed off by the user 2026-11-25): Claude Code's sandbox temp dir
 // (any sandboxed session may write a repo there), this user's by uid, is
-// in TIDY_LISTED (UNII_TIDY_LISTED): legion tidy --list only, never the
+// in TIDY_LISTED (LEGION_TIDY_LISTED): legion tidy --list only, never the
 // unattended scan
 export const TIDY_ROOTS = ["~/repos"];
 export const TIDY_LISTED = ["/private/tmp/claude-" + (process.getuid?.() ?? "none")];
 
 function tidy_spaces(now: number, have: Space[], listing = false): Space[] {
   const seen = new Set(have.map((s) => s.path));
-  const roots = device_roots(process.env.UNII_TIDY_ROOTS ?? TIDY_ROOTS.join(","));
-  const listed = listing ? device_roots(process.env.UNII_TIDY_LISTED ?? TIDY_LISTED.join(",")) : [];
+  const roots = device_roots(process.env.LEGION_TIDY_ROOTS ?? TIDY_ROOTS.join(","));
+  const listed = listing ? device_roots(process.env.LEGION_TIDY_LISTED ?? TIDY_LISTED.join(",")) : [];
   return device_discover([...roots, ...listed], now).filter((s) => !seen.has(s.path) && fs.existsSync(s.path + "/.git/worktrees"));
 }
 
@@ -655,7 +655,7 @@ export async function device_tidy(paths: string[], run: Exec = exec): Promise<{ 
 // every linked worktree under the roots and TIDY_ROOTS, with its checks
 // and safe (legion tidy --list; read-only)
 export async function device_tidy_scan(run: Exec = exec, now = Date.now()): Promise<Inbox.Clean[]> {
-  const spaces = device_discover(device_roots(process.env.UNII_SPACES), now);
+  const spaces = device_discover(device_roots(process.env.LEGION_SPACES), now);
   const all = [...spaces, ...tidy_spaces(now, spaces, true)].filter((s) => fs.existsSync(s.path + "/.git/worktrees"));
   const cwds = await device_cwds(run);
   const rows: Inbox.Clean[] = [];
@@ -1147,7 +1147,7 @@ async function look_git(rules: Rules, what: View.Look & { kind: "git" }): Promis
 
 // where the undo list and Claude Code's briefs are kept
 function state(rules: Rules): string {
-  return rules.state ?? home(process.env.UNII_DIR ?? "~/.unii");
+  return rules.state ?? home(process.env.LEGION_DIR ?? "~/.legion");
 }
 
 // the turns snapshotted here, by agent, repo and turn (one each), and the

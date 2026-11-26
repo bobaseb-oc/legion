@@ -86,7 +86,7 @@ export type State = {
   timers?   : Timer[];       // the agents' pending timers (Routines.ts)
   drafts?   : Draft[];       // the timesheet's drafts (K5: Tools.timesheet)
   pins?     : Pin[];         // the user's pins (Memory.pin), oldest first
-  notebook? : Note[];        // Unii's notes (Notes.ts), newest first
+  notebook? : Note[];        // Legion's notes (Notes.ts), newest first
   assigned? : Assignment[];  // what agents need the user to do (Tools.assign), oldest first
   decided?  : Decided[];     // super auto's answers for the user (Tools.question), oldest first
   tallies?  : Partial<Record<AskKind, Tally>>; // the user's record per question kind (super auto: Modes.unlocked)
@@ -133,11 +133,11 @@ export type AgentHit = { name: string; title?: string; state: Status | "archived
 export type Lookup = { q: string; hits: AgentHit[] | null };
 
 // an agent of the chat, at work or done (till dismissed): who started it
-// ("main": Unii), what it is, its model, how it is, since when its run
+// ("main": Legion), what it is, its model, how it is, since when its run
 // began (ms since 1970)
 export type Crew = { name: string; parent: string; tier: "manager" | "worker" | "computer" | "claude"; model: string; status: Status; since: number; title?: string; repos?: string[]; todo?: Todo[]; spent?: number; files?: string[] }; // spent: est. USD (Tools.spent); files: touched, newest first (Tools.touched)
 // a shell command running (B2), an agent's call or the user's !command (who
-// "user"; Unii's "main"; an agent's name): its job, its background
+// "user"; Legion's "main"; an agent's name): its job, its background
 // number (null: in the foreground, its caller waiting), its device and
 // command, since when (ms), its last lines as printed (drawn cleaned:
 // Paint, Html's esc); a background one ended: when, and whether it failed
@@ -147,7 +147,7 @@ export type Shell = { job: string; n: number | null; who: string; device: string
 export type Waiting = { id: number; who: string; tool: string; what: string };
 
 // a device's report for the status line (Device.device_status): its
-// name, the folder Unii works in there, its branch, today's spend (stale)
+// name, the folder Legion works in there, its branch, today's spend (stale)
 export type DeviceStatus = { device: string; dir: string; branch: string | null; spend: number | null; stale: boolean; week?: number | null }; // week: the last 7 days' (Cost.cost_week)
 
 // a question the orchestrator asked the user (Tools.question), open till
@@ -190,7 +190,7 @@ export type Alert = { key: string; title: string; body: string; name: string | n
 // agent's status
 export type Heard = { busy: boolean; status: Map<string, Status> };
 
-// a crew row as drawn: its agent, how deep under Unii, its text
+// a crew row as drawn: its agent, how deep under Legion, its text
 export type CrewRow = Crew & { depth: number; text: string };
 
 // a row of the web's Crew tree: how many are under it, them by status
@@ -205,7 +205,7 @@ export type Mode = "chat" | "crew" | Deck;
 export const PAGES = ["home", "inbox", "todo", "tracks", "routines", "digest", "transcripts", "files", "timesheet", "memory"] as const;
 export type Deck = (typeof PAGES)[number];
 
-// a tile of the Crew grid: an agent Unii started, a dot per agent under
+// a tile of the Crew grid: an agent Legion started, a dot per agent under
 // it (any depth), them by status
 export type Tile = Crew & { dots: { name: string; status: Status }[]; rollup: string };
 export type Route = { mode: Mode; name: string | null };
@@ -365,7 +365,7 @@ export type Client =
   | { $: "plan"; yes: boolean; mode?: Perm; text?: string } // the plan waiting: approved (then this mode), or sent back with feedback
   | { $: "pin"; i: number; on: boolean } // a view: message i pinned, or unpinned (the user's only: Memory.pin)
   | { $: "pace"; pace: Pace } // a view: how GChat posts are paced (the user's only: Chat.paced)
-  | { $: "note"; name: string; text?: string; drop?: boolean } // a view: one of Unii's notes edited, or dropped (the user's only: Chat.noted)
+  | { $: "note"; name: string; text?: string; drop?: boolean } // a view: one of Legion's notes edited, or dropped (the user's only: Chat.noted)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "assignment"; n: number; done: boolean } // a view: todo n done, or dropped (the user's only: Chat.assignment)
   | { $: "explain"; q: string } // a view: a question about the Tracks page (the user's only: Chat.explain), answered there
@@ -437,7 +437,7 @@ export type Act =
   | { $: "Bang"; command: string; dir: string }  // a command run in a folder (the Files page's box)
   | { $: "Timesheet"; op: "submit" | "drop"; ns: number[] } // timesheet drafts submitted to Harvest, or dropped (K5)
   | { $: "Pin"; i: number }                     // a chat message pinned, or unpinned if it is (its pin button, the Memory page)
-  | { $: "Note"; name: string; text?: string; drop?: boolean } // one of Unii's notes edited, or dropped (the Memory page)
+  | { $: "Note"; name: string; text?: string; drop?: boolean } // one of Legion's notes edited, or dropped (the Memory page)
   | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
   | { $: "Assignment"; n: number; done: boolean } // a todo ticked Done, or dropped (the Todo page)
   | { $: "Roots" }                              // the tree's roots asked (the Memory page's map)
@@ -479,7 +479,7 @@ export type Day = { date: string; what: string; usd: number };
 export const MAIN = "Legion";
 
 // Legion's turn, as a stop names it among the agents at work
-export const TURN = "Unii's turn";
+export const TURN = "Legion's turn";
 
 // the messages' version, in a view's query; one more for each change an
 // older view would misread
@@ -507,7 +507,7 @@ export const SHELL_HINT = "shell mode: a command run on your device, as you · B
 
 // the disclosure both views show (EU AI Act art. 50, California SB 243,
 // New York GBL art. 47, Anthropic's usage policy)
-export const AI = "Unii is an AI, not a person, and can make mistakes.";
+export const AI = "Legion is an AI, not a person, and can make mistakes.";
 
 // the AI notice's period (ms)
 const NOTICE = 3 * 60 * 60 * 1000;
@@ -826,7 +826,7 @@ export function view_hear(v: View, msg: Server): Client[] {
       return [];
     }
     default: {
-      // a kind newer than this view: a unii runs the release it was
+      // a kind newer than this view: a legion runs the release it was
       // installed with (Term.ts), behind the server's
       return [];
     }
@@ -1290,7 +1290,7 @@ export function view_bg_lines(v: View, now: number): string[] {
 // the last code block of Legion's newest message that has one (/copy);
 // null: none
 export function view_code(v: View): string | null {
-  const said = [...v.whole].filter(([, e]) => e.kind === "unii").sort(([a], [b]) => b - a);
+  const said = [...v.whole].filter(([, e]) => e.kind === "legion").sort(([a], [b]) => b - a);
   for (const [, e] of said) {
     const code = Md.md_parse(e.text).filter((b): b is Extract<Md.Block, { $: "Code" }> => b.$ === "Code").at(-1);
     if (code !== undefined) {
@@ -1442,7 +1442,7 @@ export type Mark = { k: number | null; at: number; kind: "told" | "tool" | "word
 
 // a gap past STALL ms with nothing in it is a stall
 const STALL = 120000;
-const LANE: Partial<Record<Kind, Mark["kind"]>> = { user: "told", tool: "tool", unii: "words", work: "words", note: "note", echo: "note" };
+const LANE: Partial<Record<Kind, Mark["kind"]>> = { user: "told", tool: "tool", legion: "words", work: "words", note: "note", echo: "note" };
 
 // the lane of the agent in focus: its messages with a date (thoughts
 // left out), the agents it started, a stall per quiet gap; one at work
@@ -1480,7 +1480,7 @@ export function view_watch(v: View, tiles: string[] = []): string[] {
   return [...new Set([...(v.page === null ? [] : [v.page.name]), ...tiles])].slice(0, WATCH);
 }
 
-// the Crew grid: a tile per agent Unii started, in the tree's order
+// the Crew grid: a tile per agent Legion started, in the tree's order
 export function view_tiles(v: View, now: number): Tile[] {
   const rows = view_crew(v, now);
   return rows.flatMap((r, i) => {
@@ -1510,7 +1510,7 @@ export function view_pill(v: View): string {
 }
 
 // what the status line says (as Claude Code's), in the terminal and on
-// the web: offline first, the folder Unii works in and its branch, its
+// the web: offline first, the folder Legion works in and its branch, its
 // model, the agents at work, today's LiteLLM spend (Cost.ts; * stale),
 // the mode, the orchestrator's questions open
 // budget: the gateway's for this member (Gateway.ts); busy: the AI
@@ -1672,7 +1672,7 @@ function view_open_note(v: View): string {
 // the terminal's /routines: each with its number, when, tier, on or off;
 // one an agent proposed marked so, its name and why quoted as the agent's
 // words, then its whole task, which turning it on approves
-const PROPOSER = (by: string) => (by === "main" ? "Unii" : by);
+const PROPOSER = (by: string) => (by === "main" ? "Legion" : by);
 export function view_routines_note(v: View): string {
   const rs = v.routines ?? [];
   if (rs.length === 0) {
@@ -1719,7 +1719,7 @@ export function view_timers_note(v: View): string {
   if (ts.length === 0) {
     return "";
   }
-  const line = (t: Timer) => t.id + ". " + (t.who === "main" ? "Unii" : t.who) + " · at " + new Date(t.at).toTimeString().slice(0, 5) + " · " + t.note;
+  const line = (t: Timer) => t.id + ". " + (t.who === "main" ? "Legion" : t.who) + " · at " + new Date(t.at).toTimeString().slice(0, 5) + " · " + t.note;
   return ["Timers pending (each wakes its agent):", ...ts.map(line), "Close one on the web's Routines page; Stop (all) clears them all."].join("\n");
 }
 
@@ -2031,7 +2031,7 @@ function view_learn(v: View, pack: Pack): void {
   }
 }
 
-// a message: on its agent's page, in Unii's chat, or, a thought (not
+// a message: on its agent's page, in Legion's chat, or, a thought (not
 // logged), after the last message
 function view_entry(v: View, msg: Server & { $: "entry" }): void {
   const { $, agent, id, ...entry } = msg;
@@ -2173,7 +2173,7 @@ function part_window(v: View, [id, n]: Part): number {
 
 // t: the turn; talk: whether talk opens by itself (not in Fold all). Open:
 // the person's choice (Open, Shut) if made, else a message of the user or
-// Unii (tool calls, reports and the rest stay folded)
+// Legion (tool calls, reports and the rest stay folded)
 function part_rows(v: View, id: number, n: number, t: number, talk: boolean): Row[] {
   const key   = id + "+" + n;
   const entry = v.whole.get(id);
@@ -2183,7 +2183,7 @@ function part_rows(v: View, id: number, n: number, t: number, talk: boolean): Ro
     const after = minds.flatMap((x) => entry_rows(null, "mind", x));
     return [...whole_rows(id, entry), ...after];
   }
-  const open  = talk && n === 1 && ["user", "unii"].includes(entry?.kind ?? "");
+  const open  = talk && n === 1 && ["user", "legion"].includes(entry?.kind ?? "");
   if (!(v.open.get(key) ?? open)) {
     return sum_rows(id, n, v.nodes.get(key));
   }

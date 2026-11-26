@@ -70,10 +70,10 @@ How it works
   nothing (Red Zone
   draft). On with config
   `gchat_space` (`spaces/...`), `gchat_user` (your id, as in
-  `~/.unii/users/<id>`: only that chat is bridged; unset, none is) and the
+  `~/.legion/users/<id>`: only that chat is bridged; unset, none is) and the
   webhook's URL in the login
   Keychain (service `GCHAT_WEBHOOK_URL`), a key (never logged): the
-  server `legion` starts reads it there itself (`UNII_GCHAT_KEYCHAIN=1`,
+  server `legion` starts reads it there itself (`LEGION_GCHAT_KEYCHAIN=1`,
   set by the launcher), so it is never in the server's environment, which
   any process of yours could read (`ps -wwE`); don't export it. Keep it
   there from the clipboard (copy the URL from the space's Apps &
@@ -98,7 +98,7 @@ How it works
   call). `!cmd` runs a shell command yourself,
   as Claude Code's `!`: a `!` typed first puts the box in shell mode (a
   `! shell` badge, another color; Backspace over the `!` leaves it), and
-  the command runs as you, in Unii's folder on your device (`!@name`: that
+  the command runs as you, in Legion's folder on your device (`!@name`: that
   one), past the hooks, the reviewer and Legion's gating, stopped after
   10 minutes; its command and output (30,000 characters at most) join the
   chat as a note Legion reads. Only what speaks for you may send it (the
@@ -137,8 +137,8 @@ How it works
   boss's appeal cut by a restart closes as a no (Red Zone draft).
   Everything that reaches Legion goes through one inbox: your consents,
   your GChat replies, and events a device posts (the `event` act: a note
-  or work for Unii, one per source and key, at most 50 waiting). A
-  device's event waits until a view is open and reaches Unii fenced as
+  or work for Legion, one per source and key, at most 50 waiting). A
+  device's event waits until a view is open and reaches Legion fenced as
   untrusted; it can never answer an approval. After a restart nothing
   read back from disk counts as yours: an undelivered event waits for a
   view and arrives fenced, a half-done approval or reply is closed, and
@@ -150,15 +150,15 @@ How it works
   palette (⌘K). A device reads the inbox with your own `gh`, `acli` and
   `git`, read-only, every 5 minutes. Its repos (spaces) are found: git
   repos under `/Volumes/dev/git` and `~/.claude`, and the home repo
-  (`UNII_SPACES`, comma-separated folders, changes the roots). Review or Fix on an
+  (`LEGION_SPACES`, comma-separated folders, changes the roots). Review or Fix on an
   inbox row starts a native Legion agent per PR (Claude Code workers if
   you tick it); nothing is posted to GitHub or Jira. Routines start an
   agent daily, every N hours, or on each new review request.
 - **Agents wait and set timers.** Any agent can `wait` up to 10 minutes
   within a call, or set a `timer` (1 minute to a day) and end its turn:
-  it is woken with a `[Timer n]` message, Unii by a turn of its own.
-  Timers are kept across restarts and checked once a minute. Unii can
-  also propose a routine: it is added off, marked "proposed by Unii"
+  it is woken with a `[Timer n]` message, Legion by a turn of its own.
+  Timers are kept across restarts and checked once a minute. Legion can
+  also propose a routine: it is added off, marked "proposed by Legion"
   with its reason, and runs only once you turn it on (web Routines page
   or `/routine on <n>`). Routines change only from a view, never from a
   device's socket.
@@ -170,18 +170,18 @@ How it works
   the 128 KB; only you can pin, from the web). The Memory page
   (#memory) walks the tree from its roots down to each message, and
   searches the whole chat word for word on the server (no model call,
-  50 hits, newest first). It also lists Unii's notes: facts about you and
-  your work that Unii keeps across runs (up to 32, 4 KB each, redacted,
-  in ~/.unii/users/<id>/notes/). Their index reaches Unii fenced, as
-  something Legion wrote, not as instructions, on every call; only Unii
+  50 hits, newest first). It also lists Legion's notes: facts about you and
+  your work that Legion keeps across runs (up to 32, 4 KB each, redacted,
+  in ~/.legion/users/<id>/notes/). Their index reaches Legion fenced, as
+  something Legion wrote, not as instructions, on every call; only Legion
   writes them, and you edit or drop each one on the web.
-- **Unii checks its own replies.** A reply that ends asking you something,
+- **Legion checks its own replies.** A reply that ends asking you something,
   with no question filed in your questions pane, gets one nudge to file
-  it with `ask`. If Unii keeps a note named `directives` (its standing
-  orders, which Unii writes itself), that note reaches every call whole,
+  it with `ask`. If Legion keeps a note named `directives` (its standing
+  orders, which Legion writes itself), that note reaches every call whole,
   so a compaction never squashes it, and a checker (`checker` in config,
   Haiku by default, no tools) judges each reply against it. If the
-  checker says a directive was skipped, Unii gets one nudge, labelled as
+  checker says a directive was skipped, Legion gets one nudge, labelled as
   the checker's and not yours. A nudged turn is never checked again. A
   failed check shows "No directives check" in the chat.
 - **PRs and branches carry a Jira key.** An agent's `gh pr create` or
@@ -218,7 +218,7 @@ Run it
 You need [Bun](https://bun.sh), the gateway's `LITELLM_API_BASE` and
 `LITELLM_API_KEY` in your environment, and optionally Docker (for web
 search through a local SearXNG). The launcher hands the server the key
-on fd 3 (`UNII_ANTHROPIC_KEY_FD=3`), never in its environment, which any
+on fd 3 (`LEGION_ANTHROPIC_KEY_FD=3`), never in its environment, which any
 process of yours can read (`ps -wwE`); so no workers then. A server run
 by hand (`bun Server.ts`) reads `ANTHROPIC_API_KEY` instead.
 
@@ -227,22 +227,22 @@ by hand (`bun Server.ts`) reads `ANTHROPIC_API_KEY` instead.
     local/legion stop         # stops the server and SearXNG
     local/legion log          # the server's log (no sign-in link prints there)
 
-The header of local/unii-local.sh lists the rest (device, knowledge,
+The header of local/legion lists the rest (device, knowledge,
 mcp-login). Symlink it onto your PATH as `legion`. The server only
 listens on 127.0.0.1:8788 (the browser and the iOS app) and on
-~/.unii/server.sock ($UNII_DIR/server.sock: 0600, in a 0700 dir). The
+~/.legion/server.sock ($LEGION_DIR/server.sock: 0600, in a 0700 dir). The
 terminal and `legion device` reach it only over that socket, never over
 TCP, so a process that took the port first never gets their session.
 A server with `workers` above 0 (the hosted setup) opens no socket, so
 devices on that computer can't connect; run local devices against a lone
 server.
-One server runs per user on a computer, whatever its `$UNII_DIR`: a second
-one ends, naming the one that runs (pid, port, dir). `UNII_ANOTHER=1` runs
+One server runs per user on a computer, whatever its `$LEGION_DIR`: a second
+one ends, naming the one that runs (pid, port, dir). `LEGION_ANOTHER=1` runs
 one beside it on its own dir (the tests do).
 
 Signing in (`legion login`, or `legion` the first time) makes two keys
 with the one code the browser asks for. The device key is a file
-(~/.unii/<host>/token): jobs, `legion device` and the launchd device run
+(~/.legion/<host>/token): jobs, `legion device` and the launchd device run
 on it, and since an agent's shell can read it, its acts that are the
 user's say (mode, plan, approvals, answers, routines, timers, todos,
 pins, notes, decisions) are refused. The terminal key is kept only in the
@@ -256,7 +256,7 @@ the Keychain item.
 legion-key (local/legion-key/main.swift; draft, awaiting sign-off) is
 the one program the terminal key's and the sign-in secret's Keychain
 items trust. The launcher builds it with `swiftc` into
-~/.unii/bin/legion-key (0700, ad hoc signed, hardened runtime) before
+~/.legion/bin/legion-key (0700, ad hoc signed, hardened runtime) before
 `legion`, `legion login` and `legion web` run, and again only when its
 source changes. Before every read it asks for Touch ID (or your login
 password), with nothing remembered: once per `legion` start, `legion
@@ -279,11 +279,11 @@ itself, knowing its code). There `legion login` confirms the sign-in
 itself, with the code and the sign-in secret: a token kept only in the
 Keychain (service `legion-signin-<host>`, read by legion-key after Touch
 ID), sent over the server's socket. The server keeps only
-its sha256, in ~/.unii/signin-hash ($UNII_DIR, 0600). The first
+its sha256, in ~/.legion/signin-hash ($LEGION_DIR, 0600). The first
 `legion login` makes it and writes the hash itself (the server never
 registers one: no request can); after that a sign-in without it is
 refused. To start over (a new Mac, a lost Keychain item),
-delete ~/.unii/signin-hash yourself, then run `legion login`. A browser
+delete ~/.legion/signin-hash yourself, then run `legion login`. A browser
 signs in there by `legion web`, which prints a one-use link to click (it
 opens nothing: the link is in no command's arguments); a server with a mail key mails links as
 before. Agents' tools refuse Legion's trust state (cloud.db and its
@@ -307,14 +307,43 @@ or a Touch ID request comes and you didn't just start Legion, Deny it.
     bun run test              # the tests, each file on its own
     bun run web               # rebuilds web/app.js from web/src
 
-Your chat lives in ~/.unii/users/<id>, one JSON line per message
+Your chat lives in ~/.legion/users/<id>, one JSON line per message
 (main/) and per summary (tree/). That is the memory: back it up.
+
+### Renamed from Unii
+
+Legion was UniiChat, its AI Unii, its data in ~/.unii and its settings
+`UNII_*`. If you ran it before the rename, move the data once. Until
+then the launcher starts nothing (only the commands below run):
+
+    local/legion stop                 # the old server and SearXNG
+    local/legion device --uninstall   # if you installed them
+    local/legion server --uninstall
+    local/legion rename --dry         # what would change; writes nothing
+    local/legion rename               # the move
+    docker rm unii-searxng            # the old SearXNG's container
+
+`legion rename` (local/rename.ts) refuses while a server or a launchd
+job runs. It copies users/ to ~/.unii/users.bak-rename, marks the old
+replies as Legion's, drops the history indexes (rebuilt at the next
+start) and the browsers' sessions, then moves ~/.unii to ~/.legion and
+~/.unii-prime to ~/.legion-prime. Each old name stays as a link, and
+Legion guards its trust state under both names. A second run changes
+nothing. Then:
+
+- rename `UNII_*` settings in your shell to `LEGION_*` (for example
+  `UNII_HOME_REPO`), and drop any `unii` alias;
+- run `local/legion device --install` and `local/legion server
+  --install` again, if you use them (the old plists name the old
+  launcher);
+- sign in the browser again with `local/legion web` (the cookie's name
+  changed).
 
 Config
 ------
 
-`~/.unii/config.json` (optional; the dir is `$UNII_DIR`). Each key can
-also be set as `UNII_<KEY>`. The ones that matter here:
+`~/.legion/config.json` (optional; the dir is `$LEGION_DIR`). Each key can
+also be set as `LEGION_<KEY>`. The ones that matter here:
 
 - `anthropic_url`: the Claude API origin (local/legion points it at
   the gateway).
@@ -323,7 +352,7 @@ also be set as `UNII_<KEY>`. The ones that matter here:
 - `compactor`: what writes the summaries and reviews auto-mode changes
   (default `claude-api:haiku-5.5:high:slow`).
 - `agents`: what sub-agents run on (default: the chat's pick).
-- `work`: the agents' working dirs (default ~/.unii/work).
+- `work`: the agents' working dirs (default ~/.legion/work).
 - `rules`: a file appended to every system prompt; local/rules.md
   imports your ~/.claude/CLAUDE.md, ~/.claude/rules/ (`@dir/` loads a
   folder's .md files) and the skills index. Imports resolve from a
@@ -337,12 +366,12 @@ also be set as `UNII_<KEY>`. The ones that matter here:
   (local/mcp.ts makes one; `legion mcp-login atlassian` keeps the
   OAuth grant in the Keychain). It includes `okf-wiki`
   (local/okf-wiki.ts): search and read the OnCorps Knowledge Framework
-  wiki, and `record_gap` for what it lacks (~/.unii/okf-gaps.jsonl, never
+  wiki, and `record_gap` for what it lacks (~/.legion/okf-gaps.jsonl, never
   sent anywhere), and `okf` (local/okf-mcp.sh): OKF's own read-only
-  ontology server, from the checkout of `0.x` that ~/.unii/okf links to (or
+  ontology server, from the checkout of `0.x` that ~/.legion/okf links to (or
   $OKF_CHECKOUT); it rebuilds the internal dataset when the checkout moves.
   Claude Code can use the same one (`claude mcp add okf -s user --
-  <uniichat>/local/okf-mcp.sh`); a name Claude Code has, Legion takes from
+  <legion>/local/okf-mcp.sh`); a name Claude Code has, Legion takes from
   it. To trust their lookups (agents cannot: config.json is refused to
   their write and edit), list them in `mcp_reads`, and auto mode skips
   their review and plan mode runs them; record_gap stays reviewed.
@@ -354,7 +383,7 @@ also be set as `UNII_<KEY>`. The ones that matter here:
   Every other MCP call is reviewed; a shipped list covers Atlassian,
   Playwright and Chrome DevTools reads (Modes.MCP_READS). A malformed
   entry stops the server.
-- `UNII_PROXY=1`: the server sits behind a reverse proxy, so the client's
+- `LEGION_PROXY=1`: the server sits behind a reverse proxy, so the client's
   address is the last `X-Forwarded-For` entry. Off (the default), the
   header is ignored, since a client reaching the server directly could
   write it. A hosted deploy behind a proxy needs it, or sign-in rate
@@ -417,7 +446,7 @@ What is known not to work, or not checked yet:
   gateway's bill; the 7-day spend sums the daily cost caches present.
   Routines run while the server runs: a chat with a routine on by the
   clock stays open with no tab or terminal, and one missed while the
-  Mac slept runs once on waking. `UNII_KEY_HELPER=<absolute path to a
+  Mac slept runs once on waking. `LEGION_KEY_HELPER=<absolute path to a
   program that prints the gateway key> legion server --install` keeps
   the server running at login (`--uninstall` removes it). Google
   (calendar, transcripts, Gmail, Chat, read-only) needs `legion
@@ -440,7 +469,7 @@ What is known not to work, or not checked yet:
 - **Tracks edit notes wait up to 10 s in server memory.** If the server
   restarts or the chat moves process in that window, the pin is kept but
   the agent gets no note (it still sees the pin in its `todo` result).
-- **The directives check is advice from a model.** Unii writes its own
+- **The directives check is advice from a model.** Legion writes its own
   directives, so text an agent read can end up in them, and the checker
   can misjudge. Its nudge only names what was skipped and orders
   nothing. A turn whose chat moves process while the checker runs gets
@@ -455,9 +484,9 @@ What is known not to work, or not checked yet:
 - **Three tests fail** (`link_ask` and two `logs` tests) and have done
   so since before the OnCorps work. `tsc` reports only missing Bun type
   definitions.
-- **Upstream names stay in the data and code.** ~/.unii, `UNII_*`
-  settings, the package name `uniichat`, the AI's own name "Unii" in its
-  prompt, and the `unii` command (an alias of `legion`).
+- **~/.unii stays as a link** to ~/.legion after `legion rename` (see
+  "Renamed from Unii"). Legion guards its trust state under both names;
+  delete the link only when nothing names the old path any more.
 - **ios/ isn't built or used.** Phones are off by default and the app
   still points at upstream's hosted service.
 - Upstream's hosted-service parts are still in the code but not used
@@ -467,9 +496,14 @@ What is known not to work, or not checked yet:
 Origin
 ------
 
-Legion is a fork of [uniichat](https://github.com/VictorTaelin/uniichat)
-by Higher Order Company, used under the Apache License 2.0. The OnCorps
-changes, on top of upstream's main:
+Legion started as a fork of
+[uniichat](https://github.com/VictorTaelin/uniichat) by Higher Order
+Company (Victor Taelin), used under the Apache License 2.0. It no longer
+follows upstream. Many of its later features were reimplemented
+clean-room (from how the tools behave and from their public docs, with
+no code copied) after Claude Code and Herdr. Its ideas also came from
+Sebastian Bobadilla Suarez and Ryan Fortin, and from Anthropic's posts
+on always-on agents. The OnCorps changes:
 
 - runs on the LiteLLM gateway, loopback-only, with no telemetry,
   installer or self-update;
@@ -481,7 +515,7 @@ changes, on top of upstream's main:
 - Claude Code hooks on device tools, glob and grep, `!cmd`, plan, auto
   and full permission modes, notifications with their own sound, and
   the web status line;
-- renamed UniiChat to Legion.
+- renamed UniiChat, and its AI Unii, to Legion.
 
 `git log` has the details; tasks/todo.md has the plan and proof of each
 step.

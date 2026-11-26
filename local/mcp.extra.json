@@ -1,13 +1,13 @@
 {
   "playwright": {
     "command": "local/tools/node_modules/.bin/playwright-mcp",
-    "args": ["--browser", "chrome", "--user-data-dir", "~/.unii/browser/playwright", "--output-dir", "~/.unii/browser/playwright-out"],
+    "args": ["--browser", "chrome", "--user-data-dir", "~/.legion/browser/playwright", "--output-dir", "~/.legion/browser/playwright-out"],
     "allowed_origins": ["http://localhost:*", "http://127.0.0.1:*"]
   },
   "chrome-devtools": {
     "command": "local/tools/node_modules/.bin/chrome-devtools-mcp",
     "args": [
-      "--channel", "stable", "--userDataDir", "~/.unii/browser/chrome",
+      "--channel", "stable", "--userDataDir", "~/.legion/browser/chrome",
       "--allowedUrlPattern", "http://localhost:*/*", "--allowedUrlPattern", "http://127.0.0.1:*/*",
       "--no-usage-statistics", "--no-performance-crux"
     ]
@@ -17,7 +17,7 @@
   },
   "okf": {
     "command": "local/okf-mcp.sh",
-    "env": { "OKF_CHECKOUT": "/Volumes/dev/git/oncorps-knowledge-framework-worktrees/okf-local-loop-v0", "OKF_AUDIT_IRI_DIR": "/Users/sebastianbobadillasuarez/.unii/okf-audit" }
+    "env": { "OKF_CHECKOUT": "/Volumes/dev/git/oncorps-knowledge-framework-worktrees/okf-local-loop-v0", "OKF_AUDIT_IRI_DIR": "/Users/sebastianbobadillasuarez/.legion/okf-audit" }
   },
   "atlassian": {
     "url": "https://mcp.atlassian.com/v2/mcp",

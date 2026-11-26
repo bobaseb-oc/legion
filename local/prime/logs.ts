@@ -2,8 +2,8 @@
 // ====
 // `bun local/prime/logs.ts`. Claude Code's logs (~/.claude/projects, top
 // level: no subagents') staged again as redact.ts stages them, at each
-// start of `unii` (local/unii-local.sh), so its import, asked at once
-// (Term.ts UNII_IMPORT_ASK), finds what was said since: a log new or
+// start of `legion` (local/legion), so its import, asked at once
+// (Term.ts LEGION_IMPORT_ASK), finds what was said since: a log new or
 // newer than its staged copy is copied again, one unchanged is kept. The
 // projects the manifest leaves out ("-", collect.ts) and claude-mem's
 // own sessions are never copied. The importer itself brings only the
@@ -52,5 +52,5 @@ if (import.meta.main) {
   const manifest = fs.existsSync(OUT + "/manifest.txt") ? fs.readFileSync(OUT + "/manifest.txt", "utf8") : "";
   const run = logs_sync(os.homedir() + "/.claude/projects", OUT + "/claude/projects", logs_skip(manifest), env_secrets(process.env));
   const hits = Object.entries(run.hits).map(([k, n]) => k + "=" + n).join(" ");
-  console.error("unii: Claude Code logs: " + run.updated + " staged anew, " + run.kept + " unchanged" + (hits === "" ? "" : ", redacted " + hits));
+  console.error("legion: Claude Code logs: " + run.updated + " staged anew, " + run.kept + " unchanged" + (hits === "" ? "" : ", redacted " + hits));
 }

@@ -35,7 +35,7 @@ type Read = { sessions: Import.Session[]; moved: number };
 // =========
 
 // the iOS app's bridge (ios/), in its web view only
-const APP = (window as any).webkit?.messageHandlers?.unii ?? null;
+const APP = (window as any).webkit?.messageHandlers?.legion ?? null;
 
 // a page with a hover has a keyboard of its own; on a touch screen,
 // Enter types a new line (the arrow sends), and the page never focuses
@@ -59,7 +59,7 @@ const PAYING = "Waiting for your payment in the new tab…";
 
 // an import's payment, its tab back from checkout (?paid=tab), tells the
 // import's tab at once (a hidden tab's timers may wait a minute)
-const PAID = new BroadcastChannel("unii.paid");
+const PAID = new BroadcastChannel("legion.paid");
 
 // the intro's scenes: two lines, then the logo above the name
 const SCENES = `
@@ -150,7 +150,7 @@ function $<T extends HTMLElement>(sel: string): T {
 // reload or a top-up's trip to Stripe keeps it); "welcomed", offered the
 // import; "risked", the risk accepted
 function kept(fact: string): string {
-  return "unii." + fact + "." + P.id;
+  return "legion." + fact + "." + P.id;
 }
 
 // Boot
@@ -166,7 +166,7 @@ async function boot(): Promise<void> {
     return;
   }
   if (q.has("deleted")) {
-    solo("Your account was deleted.", `Your chat and Unii's memory are erased. <a href="/">Back to Legion</a>`);
+    solo("Your account was deleted.", `Your chat and Legion's memory are erased. <a href="/">Back to Legion</a>`);
     return;
   }
   if (q.get("paid") === "tab") {
@@ -251,7 +251,7 @@ async function guest_send(text: string): Promise<void> {
 }
 
 function guest_say(text: string): void {
-  v.live.push({ kind: "unii", text });
+  v.live.push({ kind: "legion", text });
   draw(true);
 }
 
@@ -1327,8 +1327,8 @@ function shell_keys(ev: KeyboardEvent): void {
 // focus and the tree, and the log the focus's session (its page). Keys:
 // g c, the Crew; g m, the chat (not while typing).
 
-// the hash's focus put on screen: in the Crew, its page (none: Unii's);
-// to the chat, Unii's
+// the hash's focus put on screen: in the Crew, its page (none: Legion's);
+// to the chat, Legion's
 function crew_route(): void {
   const r = View.view_route(location.hash);
   const at = v.page?.name ?? null;
@@ -2225,10 +2225,10 @@ function toast(text: string): void {
 
 function intro_play(): Promise<void> {
   const skip = new URLSearchParams(location.search).has("skip");
-  if (localStorage.getItem("unii.intro") !== null || skip) {
+  if (localStorage.getItem("legion.intro") !== null || skip) {
     return Promise.resolve();
   }
-  localStorage.setItem("unii.intro", "1");
+  localStorage.setItem("legion.intro", "1");
   const el = document.createElement("div");
   return new Promise((gone) => {
     function end(): void {

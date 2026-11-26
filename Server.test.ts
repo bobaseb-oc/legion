@@ -12,10 +12,10 @@ import * as os from "node:os";
 // `./Server.ts <port>` on a fresh dir, with `env`: its answer to `path`,
 // read whole, once it answers
 async function server_get(port: number, env: Record<string, string>, path: string): Promise<Response> {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const site = "http://127.0.0.1:" + port;
   const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], {
-    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site, UNII_ANOTHER: "1", ...env },
+    env    : { ...process.env, LEGION_DIR: dir, LEGION_SITE: site, LEGION_ANOTHER: "1", ...env },
     stdout : "ignore",
     stderr : "inherit",
   });
@@ -41,8 +41,8 @@ test("Server.ts alone serves the page", async () => {
 });
 
 test("with workers, Server.ts routes to them", async () => {
-  const res = await server_get(9471, { UNII_WORKERS: "2" }, "/");
-  expect(res.headers.get("x-unii-worker")).toMatch(/^127\.0\.0\.1:947[23]$/);
+  const res = await server_get(9471, { LEGION_WORKERS: "2" }, "/");
+  expect(res.headers.get("x-legion-worker")).toMatch(/^127\.0\.0\.1:947[23]$/);
   expect(await res.text()).toBe("");
 });
 
@@ -52,7 +52,7 @@ test("with workers, Server.ts routes to them", async () => {
 async function server_sock(port: number, dir: string): Promise<{ code: number | null; err: string; answers: boolean }> {
   const site = "http://127.0.0.1:" + port;
   const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], {
-    env    : { ...process.env, UNII_DIR: dir, UNII_SITE: site, UNII_ANOTHER: "1" },
+    env    : { ...process.env, LEGION_DIR: dir, LEGION_SITE: site, LEGION_ANOTHER: "1" },
     stdout : "ignore",
     stderr : "pipe",
   });
@@ -68,7 +68,7 @@ async function server_sock(port: number, dir: string): Promise<{ code: number | 
 }
 
 test("the server takes a stale socket of this user (nothing answers), its dir made 0700", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-sock-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-sock-");
   const sock = dir + "/server.sock";
   // a socket a killed process left
   const left = Bun.spawn([process.execPath, "-e", `Bun.listen({ unix: ${JSON.stringify(sock)}, socket: { data() {} } }); setInterval(() => {}, 1000)`]);
@@ -83,7 +83,7 @@ test("the server takes a stale socket of this user (nothing answers), its dir ma
 }, 15_000);
 
 test("the server refuses a server.sock that is not a socket, or one something answers on", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-sock-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-sock-");
   const sock = dir + "/server.sock";
   fs.writeFileSync(sock, "not a socket");
   const file = await server_sock(9492, dir);
@@ -116,15 +116,15 @@ test("a free server bills nothing: it says so, and shows no prices or terms", as
   expect((await server_get(9483, {}, "/terms.html")).status).toBe(404);
 });
 
-// one server at a time for this user (HOME's ~/.unii/lock), whatever its
-// UNII_DIR: a second ends, naming the one that runs, unless UNII_ANOTHER=1.
+// one server at a time for this user (HOME's ~/.legion/lock), whatever its
+// LEGION_DIR: a second ends, naming the one that runs, unless LEGION_ANOTHER=1.
 // Deleting the first's dir (as a test run's cleanup does) frees nothing
-test("one server per user: a second on another dir ends naming the first; UNII_ANOTHER=1 runs one beside it", async () => {
-  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
-  const first = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+test("one server per user: a second on another dir ends naming the first; LEGION_ANOTHER=1 runs one beside it", async () => {
+  const home = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
+  const first = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const site = "http://127.0.0.1:9501";
   const holder = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9501"], {
-    env    : { ...process.env, HOME: home, UNII_DIR: first, UNII_SITE: site, UNII_ANOTHER: "" },
+    env    : { ...process.env, HOME: home, LEGION_DIR: first, LEGION_SITE: site, LEGION_ANOTHER: "" },
     stdout : "ignore",
     stderr : "inherit",
   });
@@ -134,7 +134,7 @@ test("one server per user: a second on another dir ends naming the first; UNII_A
     }
     fs.rmSync(first, { recursive: true, force: true });
     const second = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9502"], {
-      env    : { ...process.env, HOME: home, UNII_DIR: fs.mkdtempSync(os.tmpdir() + "/unii-server-"), UNII_SITE: "http://127.0.0.1:9502", UNII_ANOTHER: "" },
+      env    : { ...process.env, HOME: home, LEGION_DIR: fs.mkdtempSync(os.tmpdir() + "/legion-server-"), LEGION_SITE: "http://127.0.0.1:9502", LEGION_ANOTHER: "" },
       stdout : "ignore",
       stderr : "pipe",
     });
@@ -142,7 +142,7 @@ test("one server per user: a second on another dir ends naming the first; UNII_A
     const said = await new Response(second.stderr).text();
     expect(said).toContain("pid " + holder.pid);
     expect(said).toContain("port 9501");
-    expect(said).toContain("UNII_ANOTHER=1");
+    expect(said).toContain("LEGION_ANOTHER=1");
     expect((await fetch("http://127.0.0.1:9502/api/hello").catch(() => null))).toBeNull();
     const beside = await server_get(9503, { HOME: home }, "/api/hello");
     expect(beside.status).toBe(200);
@@ -155,17 +155,17 @@ test("one server per user: a second on another dir ends naming the first; UNII_A
 // only a lock nothing listens on is taken: anything else there (not a
 // socket) is left, and the server ends
 test("a lock that is not a socket is left alone: the server ends", async () => {
-  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
-  fs.mkdirSync(home + "/.unii");
-  fs.writeFileSync(home + "/.unii/lock", "not a socket");
+  const home = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
+  fs.mkdirSync(home + "/.legion");
+  fs.writeFileSync(home + "/.legion/lock", "not a socket");
   const proc = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", "9504"], {
-    env    : { ...process.env, HOME: home, UNII_DIR: fs.mkdtempSync(os.tmpdir() + "/unii-server-"), UNII_SITE: "http://127.0.0.1:9504", UNII_ANOTHER: "" },
+    env    : { ...process.env, HOME: home, LEGION_DIR: fs.mkdtempSync(os.tmpdir() + "/legion-server-"), LEGION_SITE: "http://127.0.0.1:9504", LEGION_ANOTHER: "" },
     stdout : "ignore",
     stderr : "pipe",
   });
   expect(await proc.exited).not.toBe(0);
-  expect(await new Response(proc.stderr).text()).toContain("UNII_ANOTHER=1");
-  expect(fs.readFileSync(home + "/.unii/lock", "utf8")).toBe("not a socket");
+  expect(await new Response(proc.stderr).text()).toContain("LEGION_ANOTHER=1");
+  expect(fs.readFileSync(home + "/.legion/lock", "utf8")).toBe("not a socket");
 }, 30_000);
 
 // L6: two starts at once on a stale lock (a holder killed -9 left its
@@ -184,9 +184,9 @@ process.exit(0);
 `;
 
 test("two starts at once on a stale lock: one takes it, the other finds it held", async () => {
-  const home = fs.mkdtempSync(os.tmpdir() + "/unii-home-");
-  fs.mkdirSync(home + "/.unii");
-  const lock = home + "/.unii/lock";
+  const home = fs.mkdtempSync(os.tmpdir() + "/legion-home-");
+  fs.mkdirSync(home + "/.legion");
+  const lock = home + "/.legion/lock";
   const dead = Bun.spawn([process.execPath, "-e", "Bun.listen({ unix: " + JSON.stringify(lock) + ", socket: { data() {} } }); console.log('up'); setInterval(() => {}, 1e3);"], { stdout: "pipe" });
   for await (const _ of dead.stdout) break;
   dead.kill("SIGKILL");
@@ -194,9 +194,9 @@ test("two starts at once on a stale lock: one takes it, the other finds it held"
   expect(fs.lstatSync(lock).isSocket()).toBe(true);
   // and its take of the lock, left as it died
   fs.writeFileSync(lock + ".take", String(dead.pid));
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/race.ts", RACE);
-  const proc = Bun.spawn([process.execPath, dir + "/race.ts"], { env: { ...process.env, HOME: home, UNII_DIR: dir, UNII_ANOTHER: "" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/race.ts"], { env: { ...process.env, HOME: home, LEGION_DIR: dir, LEGION_ANOTHER: "" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.won).toBe(1);
 });
@@ -222,9 +222,9 @@ process.exit(0);
 `;
 
 test("a turn's wait names the model it runs on, not one picked since", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/turn.ts", TURN);
-  const proc = Bun.spawn([process.execPath, dir + "/turn.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/turn.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.model).toMatch(/\w/);
   expect(out.to).not.toBe(out.model);
@@ -278,9 +278,9 @@ process.exit(0);
 `;
 
 test("a person's agent reports without a turn; the AI's takes one", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/spawn.ts", SPAWN);
-  const proc = Bun.spawn([process.execPath, dir + "/spawn.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/spawn.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.acted).toEqual({});
   expect(out.started).toHaveLength(1);
@@ -325,9 +325,9 @@ process.exit(0);
 `;
 
 test("a turn past ROLL tokens rolls over: asked again from the tree, the user's words and its steps kept", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/roll.ts", ROLL);
-  const proc = Bun.spawn([process.execPath, dir + "/roll.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/roll.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ again: true, busy: true, words: true, echo: true, rolled: true });
 });
@@ -364,7 +364,7 @@ await until(() => asks.length === 1);
 Chat.ask(chat, a, { $: "agent", name });
 got.a.length = 0;
 got.b.length = 0;
-Chat.push(chat, chat.tools.agents.get(name), "unii", "agent words");
+Chat.push(chat, chat.tools.agents.get(name), "legion", "agent words");
 Chat.push(chat, null, "note", "chat words");
 const seen = (k, text) => got[k].some((m) => m.$ === "entry" && m.text === text);
 const told = await Chat.act(chat, "t1", { $: "tell", name, text: "one more thing" }, "");
@@ -448,7 +448,7 @@ process.exit(0);
 `;
 
 // RED ZONE (PLP-2946, DRAFT awaiting the user's sign-off): a !command
-// that ends while Unii's turn runs goes into that call too, as a note
+// that ends while Legion's turn runs goes into that call too, as a note
 // ("note: The user ran on ..."), never a new message or a turn; with no
 // call running it is only logged, for the next turn's view
 const BANG_TURN = `
@@ -565,7 +565,7 @@ const posted = await Chat.act(chat, "s2", { $: "shell", op: "bg", job }, "api");
 const kept = ids.mac.length;
 const bg = await Chat.act(chat, "s3", { $: "shell", op: "bg", job }, "mac", true);
 const n = Chat.state(chat).shells[0].n;
-// an agent's call (Unii's), sent away from a view; then the user's Stop
+// an agent's call (Legion's), sent away from a view; then the user's Stop
 // from a device key: the agents stop, not what runs in the background
 const agent = Tools.job(chat.tools, "pc", { name: "shell", input: { command: "sleep 9" }, cwd: "main" }, new AbortController().signal, "a1");
 const sent = await Chat.act(chat, "s4", { $: "shell", op: "bg", job: "a1" }, "");
@@ -590,23 +590,23 @@ const chat = Chat.open({ id: "u1", name: "a@b.c" });
 Chat.chats.set("u1", chat);
 const none = Chat.state(chat).status;
 const web = await Chat.act(chat, "s0", { $: "status", dir: "x", branch: null, spend: null, stale: false }, "");
-const ok = await Chat.act(chat, "s1", { $: "status", dir: "uniichat", branch: "main", spend: 0.25, stale: false, junk: 1 }, "mac");
+const ok = await Chat.act(chat, "s1", { $: "status", dir: "legion", branch: "main", spend: 0.25, stale: false, junk: 1 }, "mac");
 const kept = Chat.state(chat).status;
 const bad = await Chat.act(chat, "s2", { $: "status", dir: 5, branch: "main", spend: "lots", stale: false }, "mac");
 const after = Chat.state(chat).status;
-const weekly = await Chat.act(chat, "s3", { $: "status", dir: "uniichat", branch: "main", spend: 0.25, stale: false, week: 12.5 }, "mac");
+const weekly = await Chat.act(chat, "s3", { $: "status", dir: "legion", branch: "main", spend: 0.25, stale: false, week: 12.5 }, "mac");
 const week = Chat.state(chat).status.week;
-const badweek = await Chat.act(chat, "s4", { $: "status", dir: "uniichat", branch: "main", spend: 0.25, stale: false, week: "lots" }, "mac");
+const badweek = await Chat.act(chat, "s4", { $: "status", dir: "legion", branch: "main", spend: 0.25, stale: false, week: "lots" }, "mac");
 console.log(JSON.stringify({ none, web: "error" in web, ok, kept, bad: "error" in bad, after, weekly, week, badweek: "error" in badweek }));
 process.exit(0);
 `;
 
 test("a device's status is kept and told in the state; only a device's, its fields checked", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/status.ts", STATUS);
-  const proc = Bun.spawn([process.execPath, dir + "/status.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/status.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
-  const mac = { device: "mac", dir: "uniichat", branch: "main", spend: 0.25, stale: false };
+  const mac = { device: "mac", dir: "legion", branch: "main", spend: 0.25, stale: false };
   expect(out).toEqual({ none: null, web: true, ok: {}, kept: mac, bad: true, after: mac, weekly: {}, week: 12.5, badweek: true });
 });
 
@@ -633,9 +633,9 @@ process.exit(0);
 `;
 
 test("a device's inbox is checked, kept and told every view; a view's fetch asks the devices", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/inbox.ts", INBOX);
-  const proc = Bun.spawn([process.execPath, dir + "/inbox.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/inbox.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   const kept = { at: 1, login: "me", reviews: [], mine: [], merged: 2, today: 0, tickets: null, clean: [], notes: [], errors: [], digest: null, spaces: [], google: null };
   expect(out.none).toMatch(/legion device/);
@@ -702,9 +702,9 @@ process.exit(0);
 `;
 
 test("a view's look goes to the devices; a device's answer, once, to the views", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/look.ts", LOOK);
-  const proc = Bun.spawn([process.execPath, dir + "/look.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/look.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.none).toMatch(/legion device/);
   expect(out).toMatchObject({
@@ -755,9 +755,9 @@ process.exit(0);
 `;
 
 test("Undo and Open in Claude Code go to one terminal of the agent's device; its answer, once, is a note", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/crew.ts", CREW_OPS);
-  const proc = Bun.spawn([process.execPath, dir + "/crew.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/crew.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.none).toMatch(/No agent/);
   expect(out.busy).toMatch(/at work/);
@@ -804,9 +804,9 @@ process.exit(0);
 `;
 
 test("timesheet: Submit sends the user's drafts to one device; its answer marks them; drop removes unsent ones", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/harvest.ts", HARVEST);
-  const proc = Bun.spawn([process.execPath, dir + "/harvest.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/harvest.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.none).toMatch(/legion device/);
   expect(out.bad).toMatch(/No draft/);
@@ -848,9 +848,9 @@ process.exit(0);
 `;
 
 test("inbox PRs reviewed or fixed: a native worker each (a manager with a Claude Code worker if asked); only the inbox's", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/review.ts", REVIEW);
-  const proc = Bun.spawn([process.execPath, dir + "/review.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/review.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toMatchObject({ unknown: true, odd: true, many: true, review: {}, fix: {} });
   expect(out.crew).toEqual([
@@ -913,9 +913,9 @@ process.exit(0);
 `;
 
 test("routines: added and checked, run now, run by the tick once when due, off, dropped; review routines start reviews of new requests; kept", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/routine.ts", ROUTINE);
-  const proc = Bun.spawn([process.execPath, dir + "/routine.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/routine.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toMatchObject({ ok: {}, bad: true, listed: [{ id: 1, name: "Sweep", on: true }], run: {}, ran: 1, early: 0, due: 1, again: 0, off: {}, offdue: 0, unknown: true, seeded: 0, drop: {}, full: true });
   expect(out.first).toEqual({ tier: "worker", task: "clean the worktrees", user: true, title: "routine: Sweep", plan: false });
@@ -977,9 +977,9 @@ process.exit(0);
 `;
 
 test("routines with no view: a chat with one on by the clock is kept open and woken after a restart; missed for a day, it runs once", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/unviewed.ts", UNVIEWED);
-  const proc = Bun.spawn([process.execPath, dir + "/unviewed.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/unviewed.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ kept: true, dropped: true, ended: true, woken: true, unwoken: true, off: true, woke: 1, after: 0 });
 });
@@ -1014,9 +1014,9 @@ process.exit(0);
 `;
 
 test("the digest's themes: one compactor call, its JSON checked, asked again only for a new digest", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/themes.ts", THEMES);
-  const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toMatchObject({ none: true, ok: {}, cached: {}, bad: true });
   expect(out.asks.length).toBe(2);
@@ -1069,9 +1069,9 @@ process.exit(0);
 `;
 
 test("a transcript summarized: only a listed Doc, read by a device when asked, summarized, the summary kept (not the text)", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/transcript.ts", TRANSCRIPT);
-  const proc = Bun.spawn([process.execPath, dir + "/transcript.ts"], { env: { ...process.env, UNII_DIR: dir, UNII_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/transcript.ts"], { env: { ...process.env, LEGION_DIR: dir, LEGION_WORK: dir + "/work" }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toMatchObject({ unknown: true, unasked: true, ask: {}, read: [{ $: "read", id: "doc_1234567890" }], viewtext: true, reply: {}, again: {}, stored: false });
   expect(out.asks.length).toBe(1);
@@ -1101,9 +1101,9 @@ process.exit(0);
 `;
 
 test("a call waiting for the user is in the state; their yes answers it", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/consent.ts", CONSENT);
-  const proc = Bun.spawn([process.execPath, dir + "/consent.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/consent.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({
     listed: [{ id: 1, who: "Wkr", tool: "shell", what: "make deploy (on mac)" }], unknown: { error: "No call 9 waits for you." }, yes: {}, answered: true, after: [],
@@ -1168,9 +1168,9 @@ process.exit(0);
 `;
 
 test("the user switches the mode, and approves or rejects the orchestrator's plan", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/mode.ts", MODE);
-  const proc = Bun.spawn([process.execPath, dir + "/mode.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/mode.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({
     first: "super", bad: true, none: { error: "No plan is waiting for approval." },
@@ -1216,9 +1216,9 @@ process.exit(0);
 `;
 
 test("the mode, the plan, a call's or a worker's yes, an answer: a view's acts only, refused from a device", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/views.ts", VIEW_ONLY);
-  const proc = Bun.spawn([process.execPath, dir + "/views.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/views.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.refused).toHaveLength(5);
   for (const why of out.refused) {
@@ -1253,9 +1253,9 @@ process.exit(0);
 `;
 
 test("the goal, an agent the person starts, a tell, a dismiss: the user's say, refused from a device's key", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/n2.ts", SAYS_N2);
-  const proc = Bun.spawn([process.execPath, dir + "/n2.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/n2.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.refused).toHaveLength(4);
   for (const why of out.refused) {
@@ -1319,9 +1319,9 @@ process.exit(0);
 `;
 
 test("a terminal-key socket speaks for the user: every act refused a device's is done from it; its device key's stays refused", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/term.ts", TERMINAL_KEY);
-  const proc = Bun.spawn([process.execPath, dir + "/term.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/term.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.pairs).toHaveLength(13);
   for (const [act, dev, term] of out.pairs) {
@@ -1374,9 +1374,9 @@ process.exit(0);
 `;
 
 test("an answer from the question backlog is a message quoting it, and a turn; no text dismisses it (a note, silently)", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/answer.ts", ANSWER);
-  const proc = Bun.spawn([process.execPath, dir + "/answer.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/answer.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({
     listed: [1, 2], unknown: { error: "No open question 9." }, answered: {},
@@ -1386,9 +1386,9 @@ test("an answer from the question backlog is a message quoting it, and a turn; n
 });
 
 test("!command: the user's own, from a view only, run ungated on the device named; its output a note (capped), no turn", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/bang.ts", BANG);
-  const proc = Bun.spawn([process.execPath, dir + "/bang.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/bang.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   const yours = "Only you run a !command: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you.";
   expect(out).toEqual({
@@ -1406,34 +1406,34 @@ test("!command: the user's own, from a view only, run ungated on the device name
 });
 
 test("!command: a killed device's dead link is not open; the command runs on the live one", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/bang-live.ts", BANG_LIVE);
-  const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/bang-live.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ alone: "No device is open: run legion (or legion device) on one.", ran: {}, dead: 0, live: ["ls"] });
 });
 
-test("!command: one that ends amid Unii's turn goes into the running call as a note; none runs, only logged", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+test("!command: one that ends amid Legion's turn goes into the running call as a note; none runs, only logged", async () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/bang-turn.ts", BANG_TURN);
-  const proc = Bun.spawn([process.execPath, dir + "/bang-turn.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/bang-turn.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   const text = "The user ran on mac:\n$ git status\nclean\n(exit 0 in 0.0 s)";
   expect(out).toEqual({ idle: { asks: 0, busy: false, sent: 0 }, live: [{ text: "note: " + text, imgs: [] }], logged: text, asks: 1, wait: 0 });
 });
 
 test("a look to every device waits only for live links: the live one's refusal is told at once", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/look-live.ts", LOOK_LIVE);
-  const proc = Bun.spawn([process.execPath, dir + "/look-live.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/look-live.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ told: [{ $: "looked", id: "l1", kind: "file", error: "not under" }] });
 });
 
 test("shell commands: their last lines told the views; background and stop only the user's, a device key's refused; the user's Stop ends them all", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/shell.ts", SHELL);
-  const proc = Bun.spawn([process.execPath, dir + "/shell.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/shell.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   const yours = "Only you send a command to the background or stop it: from the web, or legion signed in with its own key (legion login). A device's key is within an agent's reach, so it can't speak for you.";
   expect(out).toEqual({
@@ -1444,9 +1444,9 @@ test("shell commands: their last lines told the views; background and stop only 
 });
 
 test("an agent's events go only to views on its page; a view's tell and dismiss reach it", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/watch.ts", WATCH);
-  const proc = Bun.spawn([process.execPath, dir + "/watch.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/watch.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ a: [true, true], b: [false, true], told: {}, sent: ["one more thing"], crewed: true, dismissed: {}, after: false });
 });
@@ -1486,7 +1486,7 @@ asks[0].sink.end({ ok: true, text: "done", left: [] });
 await until(() => !chat.tools.agents.get(name).runs);
 await Chat.act(chat, "d1", { $: "dismiss", name }, "");
 fs.mkdirSync(chat.mem.dir + "/docs/agent", { recursive: true });
-fs.writeFileSync(chat.mem.dir + "/docs/agent/Old-Finder.jsonl", JSON.stringify({ i: 0, kind: "note", text: "worker of Unii", date: "2026-01-01T00:00:00.000Z" }) + "\\n" + JSON.stringify({ i: 1, kind: "user", text: "an old task", date: "2026-01-01T00:00:01.000Z" }) + "\\n");
+fs.writeFileSync(chat.mem.dir + "/docs/agent/Old-Finder.jsonl", JSON.stringify({ i: 0, kind: "note", text: "worker of Legion", date: "2026-01-01T00:00:00.000Z" }) + "\\n" + JSON.stringify({ i: 1, kind: "user", text: "an old task", date: "2026-01-01T00:00:01.000Z" }) + "\\n");
 got.a.length = 0;
 got.b.length = 0;
 const answered = Chat.ask(chat, a, { $: "agents", q: " FIND " });
@@ -1505,15 +1505,15 @@ process.exit(0);
 `;
 
 test("PLP-2915: a view searches the agents, archived and past ones too; a hit opens read-only", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/find.ts", AGENTS_FIND);
-  const proc = Bun.spawn([process.execPath, dir + "/find.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/find.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({
     answered: {}, empty: true, long: true,
     found: [["FIND", [["it", "archived", "Find the flaky test"], ["Old-Finder", "past", "An old task"]]]],
     b: 0,
-    opened: [true], entries: ["worker of Unii", "an old task"],
+    opened: [true], entries: ["worker of Legion", "an old task"],
   });
 }, 30_000);
 
@@ -1565,9 +1565,9 @@ process.exit(0);
 `;
 
 test("every view hears an agent's pulse, a burst as one; a view's watch replaces what it watches", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/pulse.ts", PULSE);
-  const proc = Bun.spawn([process.execPath, dir + "/pulse.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/pulse.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.watched).toHaveLength(1);
   expect(out.pa).toBe(1);
@@ -1610,17 +1610,17 @@ process.exit(0);
 `;
 
 test("the gateway's budget, read every 10 minutes through the gateway, and busy go to the views", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/gw.ts", GATEWAY);
   const run = async (env: Record<string, string>) => {
-    const proc = Bun.spawn([process.execPath, dir + "/gw.ts"], { env: { ...process.env, UNII_DIR: dir, ...env }, stdout: "pipe", stderr: "inherit" });
+    const proc = Bun.spawn([process.execPath, dir + "/gw.ts"], { env: { ...process.env, LEGION_DIR: dir, ...env }, stdout: "pipe", stderr: "inherit" });
     return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   };
-  const gw = await run({ UNII_ANTHROPIC_URL: "https://gw.test", ANTHROPIC_API_KEY: "k-test" });
+  const gw = await run({ LEGION_ANTHROPIC_URL: "https://gw.test", ANTHROPIC_API_KEY: "k-test" });
   expect(gw.reads).toEqual(["https://gw.test true", "https://gw.test true"]);
   expect(gw.sent).toHaveLength(3);
   expect(gw.sent[0]).toEqual({ $: "gateway", budget: { spend: 1, max: 800, reset: null }, busy: 42 });
-  const own = await run({ UNII_ANTHROPIC_URL: "https://api.anthropic.com", ANTHROPIC_API_KEY: "k-test" });
+  const own = await run({ LEGION_ANTHROPIC_URL: "https://api.anthropic.com", ANTHROPIC_API_KEY: "k-test" });
   expect(own.reads).toEqual([]);
   expect(own.sent[0]).toEqual({ $: "gateway", budget: null, busy: 42 });
 });
@@ -1651,12 +1651,12 @@ process.exit(0);
 `;
 
 test("the GChat bridge opens on and posts from the chat of the user gchat_user names only; none named, none", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/bridged.ts", BRIDGED);
   const space = "spaces/TESTSPACE";
   const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
   const run = async (user: string | null) => {
-    const env: Record<string, string | undefined> = { ...process.env, UNII_DIR: fs.mkdtempSync(dir + "/d-"), UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_USER: user ?? undefined };
+    const env: Record<string, string | undefined> = { ...process.env, LEGION_DIR: fs.mkdtempSync(dir + "/d-"), LEGION_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, LEGION_GCHAT_USER: user ?? undefined };
     const proc = Bun.spawn([process.execPath, dir + "/bridged.ts"], { env, stdout: "pipe", stderr: "inherit" });
     return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}").bridged;
   };
@@ -1666,7 +1666,7 @@ test("the GChat bridge opens on and posts from the chat of the user gchat_user n
   expect(await run("")).toEqual([none, none]);
 });
 
-// Notes: Unii's notes index reaches its turn fenced, in one
+// Notes: Legion's notes index reaches its turn fenced, in one
 // block of its own; a view edits or drops a note (the `note` act), a
 // device's socket can't; a note planted by hand is in the state. One
 // spawned process, its parts read by the tests below
@@ -1697,7 +1697,7 @@ const note = (args, id) => within(Tools.call(chat.tools, "main", "notes", args, 
 const file = chat.mem.dir + "/notes/plan.md";
 const disk = () => (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null);
 const names = () => (Chat.state(chat).notebook ?? null)?.map((n) => n.name) ?? null;
-// a turn of Unii's: its blocks' texts, then it ends
+// a turn of Legion's: its blocks' texts, then it ends
 const turn = async (text) => {
   const n = main().length;
   Chat.take(chat, Chat.push(chat, null, "user", text));
@@ -1735,15 +1735,15 @@ process.exit(0);
 
 let noting: Promise<any> | null = null;
 const notes_run = (): Promise<any> => (noting ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/notes.ts", NOTES);
-  const proc = Bun.spawn([process.execPath, dir + "/notes.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/notes.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
 })());
 
 const FENCE = '<untrusted source="notes">';
 
-test("L2-AC1: Unii's blocks hold one block starting <untrusted source=\"notes\"> with both notes' index lines", async () => {
+test("L2-AC1: Legion's blocks hold one block starting <untrusted source=\"notes\"> with both notes' index lines", async () => {
   const out = await notes_run();
   expect(out.wrote.map((w: any) => w.fail)).toEqual([false, false, false]);
   const fenced = out.first.filter((t: string) => t.startsWith(FENCE));
@@ -1761,7 +1761,7 @@ test("L2-AC11: a device socket's note edit is refused with an error; the file is
   expect(out.after).toBe(out.before);
 }, 30_000);
 
-test("L2-AC12: a view's edit is written to the file, and Unii's next blocks show the new line", async () => {
+test("L2-AC12: a view's edit is written to the file, and Legion's next blocks show the new line", async () => {
   const out = await notes_run();
   expect(out.edited.error).toBeUndefined();
   expect(out.edit).toMatch(/\n---\n\nnew\n$/); // the body is the new text, the old one gone
@@ -1786,7 +1786,7 @@ test("L2-AC10: a view's drop of plan: Chat.state(chat).notebook no longer lists 
   expect(out.left).toEqual(expect.arrayContaining(["a", "b", "hand-made"]));
 }, 30_000);
 
-test("L2: a view cannot make a note: a note act with a new name is refused, no file made (only Unii writes notes)", async () => {
+test("L2: a view cannot make a note: a note act with a new name is refused, no file made (only Legion writes notes)", async () => {
   const out = await notes_run();
   expect(typeof out.fresh.error).toBe("string");
   expect(out.freshed).toBe(false);
@@ -1825,7 +1825,7 @@ const run = async (id, directives, replies, judge) => {
   Chat.take(chat, Chat.push(chat, null, "user", "the user's ask"));
   for (let k = 0; k < replies.length; k++) {
     if (!(await until(() => main().length === k + 1))) break;
-    Chat.push(chat, null, "unii", replies[k]);
+    Chat.push(chat, null, "legion", replies[k]);
     main()[k].sink.end({ ok: true, text: "", left: [], });
     if (directives !== null && (await until(() => checks().length === k + 1))) checks()[k].sink.end(judge[k] ?? { ok: true, text: "ok", left: [] });
   }
@@ -1847,9 +1847,9 @@ process.exit(0);
 `;
 
 test("directives check: the ask-guard and the checker nudge a turn once, never the nudged turn; a failed check only notes", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/direct.ts", DIRECT);
-  const proc = Bun.spawn([process.execPath, dir + "/direct.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/direct.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.guard).toMatchObject({ mains: 2, checks: 0, nudged: true, busy: false });
   expect(out.quiet).toMatchObject({ mains: 1, checks: 0, busy: false });
@@ -1862,7 +1862,7 @@ test("directives check: the ask-guard and the checker nudge a turn once, never t
 // RED ZONE (L1 durable approvals, R4, ADR 1; DRAFT awaiting the user's
 // sign-off): a call waiting for the user outlives its process. A opens a
 // chat in auto mode, two calls wait for the user (the reviewer's reply is
-// no verdict), and the chat ends; B, a new process on the same UNII_DIR,
+// no verdict), and the chat ends; B, a new process on the same LEGION_DIR,
 // shows them again. A device's yes is refused and grants nothing; a
 // view's yes grants one re-issue of the identical call (no review); the
 // next, or a changed one, waits again. The stub answers a review (an ask
@@ -1938,10 +1938,10 @@ process.exit(0);
 
 let approving: Promise<{ a: any; b: any }> | null = null;
 const approve_run = (): Promise<{ a: any; b: any }> => (approving ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const run = async (name: string, script: string) => {
     fs.writeFileSync(dir + "/" + name + ".ts", script);
-    const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+    const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
     return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   };
   const a = await run("approve-a", APPROVE_A);
@@ -1984,9 +1984,9 @@ process.exit(0);
 
 let forging: Promise<any> | null = null;
 const forged_run = (): Promise<any> => (forging ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/forged.ts", APPROVE_FORGED);
-  const proc = Bun.spawn([process.execPath, dir + "/forged.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/forged.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
 })());
 
@@ -2081,9 +2081,9 @@ process.exit(0);
 `;
 
 test("L1-AC14/P10: the exit path's Chat.quit keeps an open consent open on disk (a SIGTERM restart erases nothing)", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/halt.ts", APPROVE_HALT);
-  const proc = Bun.spawn([process.execPath, dir + "/halt.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/halt.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect((out.disk ?? []).map((p: any) => p.state)).toEqual(["open"]);
 }, 30_000);
@@ -2108,9 +2108,9 @@ process.exit(0);
 `;
 
 test("P6: the tick expires a re-shown consent past its until, and saves it", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/tick.ts", APPROVE_TICK);
-  const proc = Bun.spawn([process.execPath, dir + "/tick.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/tick.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.before).toEqual([1]);
   expect(out.state).toBe("expired");
@@ -2130,9 +2130,9 @@ process.exit(0);
 `;
 
 test("PLP-2921: Chat.ticked at t + GRANT_MS + 1 ms prunes a grant made at t; at t + GRANT_MS - 1 ms it stays", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/grant.ts", GRANT_TICK);
-  const proc = Bun.spawn([process.execPath, dir + "/grant.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/grant.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.early).toEqual([{ who: "main", until: expect.any(Number) }]);
   expect(out.late).toEqual([]);
@@ -2174,9 +2174,9 @@ const event_run = (name: string, script: string): Promise<any> => {
   let run = event_runs.get(name);
   if (run === undefined) {
     run = (async () => {
-      const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+      const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
       fs.writeFileSync(dir + "/" + name + ".ts", script);
-      const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+      const proc = Bun.spawn([process.execPath, dir + "/" + name + ".ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
       return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
     })();
     event_runs.set(name, run);
@@ -2359,7 +2359,7 @@ process.exit(0);
 
 // one GChat reply seen by two bridge passes (AC14): fetch stubbed as in
 // Gchat.test.ts (no network); STEP "post" posts the question, "reply" (a
-// restart on the same UNII_DIR) reads the user's reply twice
+// restart on the same LEGION_DIR) reads the user's reply twice
 const EVENT_GCHAT = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
 const { AskAI } = await import(${JSON.stringify(import.meta.dir + "/AskAI.ts")});
@@ -2563,12 +2563,12 @@ test("E2, L3: Chat.drain never delivers an approval event: one new in the inbox 
 }, 30_000);
 
 test("L3-AC14, E5: one GChat reply seen by two bridge passes: one gchat reply event for that message", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/gchat.ts", EVENT_GCHAT);
   const space = "spaces/TESTSPACE";
   const hook = "https://chat.googleapis.com/v1/" + space + "/messages?key=FAKEKEY&token=FAKETOKEN-not-real";
   const step = async (s: string) => {
-    const env = { ...process.env, UNII_DIR: dir, UNII_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1", STEP: s };
+    const env = { ...process.env, LEGION_DIR: dir, LEGION_GCHAT_SPACE: space, GCHAT_WEBHOOK_URL: hook, LEGION_GCHAT_KEYCHAIN: "", LEGION_GCHAT_USER: "u1", STEP: s };
     const proc = Bun.spawn([process.execPath, dir + "/gchat.ts"], { env, stdout: "pipe", stderr: "inherit" });
     return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   };
@@ -2580,7 +2580,7 @@ test("L3-AC14, E5: one GChat reply seen by two bridge passes: one gchat reply ev
   expect(b.replies).toEqual([space + "/messages/r1"]);
 }, 30_000);
 
-// an event in the inbox addressed to anyone but Unii (only a hand-written
+// an event in the inbox addressed to anyone but Legion (only a hand-written
 // view.json holds one): a view open, Chat.drain fails it, with a note, and
 // pushes nothing holding its body
 const EVENT_TO = EVENT_HEAD + `
@@ -2600,7 +2600,7 @@ test("L3: an event not for main, a view open: failed, one note naming its key, i
   expect(out.viewed).toBe(true);
   expect(out.held).toBe(0);
   expect(out.state).toBe("failed");
-  expect(out.notes).toEqual(["Event k-to from view is not for Unii; dropped."]);
+  expect(out.notes).toEqual(["Event k-to from view is not for Legion; dropped."]);
 }, 30_000);
 
 // RED ZONE (R4, DRAFT awaiting the user's sign-off): a drain whose chat is
@@ -2645,9 +2645,9 @@ test("L3, E4: a timer's event is fenced as event:timer and said to come from a t
 }, 30_000);
 
 // a /goal (Chat.check, Chat.checked): the checker answers "yes: <its
-// evidence>" or "no: <what is missing>", and is told Unii's own words are
+// evidence>" or "no: <what is missing>", and is told Legion's own words are
 // no proof; an unmet check's nudge carries its reason, tagged as not the
-// user's; GOAL_TRIES unmet in a row drop the goal and ask Unii for a brief
+// user's; GOAL_TRIES unmet in a row drop the goal and ask Legion for a brief
 // to the user; a yes notes its evidence; a new goal counts from 0
 const GOAL = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
@@ -2709,11 +2709,11 @@ process.exit(0);
 `;
 
 test("a /goal: unmet checks nudge with their reason, at most GOAL_TRIES, then a brief; a yes notes its evidence", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/goal.ts", GOAL);
-  const proc = Bun.spawn([process.execPath, dir + "/goal.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/goal.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
-  // the checker needs a tool's output, not Unii's word, and gives its why
+  // the checker needs a tool's output, not Legion's word, and gives its why
   expect(out.system).toContain("never proof");
   expect(out.system).toMatch(/yes: /);
   expect(out.system).toMatch(/no: /);
@@ -2832,7 +2832,7 @@ console.log(JSON.stringify(out));
 process.exit(0);
 `;
 
-const OUT_ENV = { UNII_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/TESTSPACE/messages?key=FAKEKEY&token=FAKETOKEN-not-real", UNII_GCHAT_KEYCHAIN: "", UNII_GCHAT_USER: "u1" };
+const OUT_ENV = { LEGION_GCHAT_SPACE: "spaces/TESTSPACE", GCHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/TESTSPACE/messages?key=FAKEKEY&token=FAKETOKEN-not-real", LEGION_GCHAT_KEYCHAIN: "", LEGION_GCHAT_USER: "u1" };
 const out_runs = new Map<string, Promise<any>>();
 // one spawned process per script (and per dir, for two steps on one dir)
 const out_run = (name: string, script: string, dir?: string, env: Record<string, string> = {}): Promise<any> => {
@@ -2840,9 +2840,9 @@ const out_run = (name: string, script: string, dir?: string, env: Record<string,
   let run = out_runs.get(id);
   if (run === undefined) {
     run = (async () => {
-      const d = dir ?? fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+      const d = dir ?? fs.mkdtempSync(os.tmpdir() + "/legion-server-");
       fs.writeFileSync(d + "/" + name + ".ts", script);
-      const proc = Bun.spawn([process.execPath, d + "/" + name + ".ts"], { env: { ...process.env, UNII_DIR: d, UNII_WORK: d + "/work", ...OUT_ENV, ...env }, stdout: "pipe", stderr: "inherit" });
+      const proc = Bun.spawn([process.execPath, d + "/" + name + ".ts"], { env: { ...process.env, LEGION_DIR: d, LEGION_WORK: d + "/work", ...OUT_ENV, ...env }, stdout: "pipe", stderr: "inherit" });
       return JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
     })();
     out_runs.set(id, run);
@@ -3041,12 +3041,12 @@ test("L4-AC25, O9: a counted yes: one approval event from gchat, keyed by that m
 }, 30_000);
 
 // "Re-shown": process A opens one consent per case and ends; process B
-// (a restart, same UNII_DIR) lists them, posts them to GChat, reads the
+// (a restart, same LEGION_DIR) lists them, posts them to GChat, reads the
 // replies, and the agent re-issues each identical call
 const CASES = [28, 15, 17, 18, 19, 20, 21, 22, 23, 24, 27, 30, 31];
 // RED ZONE (user's decision, 2026-11-23): which record a GChat thread
 // answers is kept in memory, for posts of this process only. Process A
-// posts each consent, ends; process B (a restart, same UNII_DIR) posts
+// posts each consent, ends; process B (a restart, same LEGION_DIR) posts
 // each open record again in a NEW thread; only a reply in that new thread
 // may answer. A's threads (OLD) answer nothing (AC27), even when view.json
 // is edited to point one at another record (forged thread)
@@ -3125,7 +3125,7 @@ process.exit(0);
 
 let showing: Promise<{ a: any; b: any }> | null = null;
 const shown_run = (): Promise<{ a: any; b: any }> => (showing ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const a = await out_run("out-shown-a", OUT_SHOWN_A, dir);
   const b = await out_run("out-shown-b", OUT_SHOWN_B, dir, { OLD: JSON.stringify(a.old ?? {}) });
   return { a, b };
@@ -3273,7 +3273,7 @@ test("L4, O8: a GChat yes (with its fp) to a record past its until or answered n
 // memory for every kind, as L4 did for approvals. Process A posts
 // questions qA, qB and qC, a note, a todo and a super auto decision, then
 // ends; view.json is edited so qA's thread names qB and the note's names
-// the decision. Process B (a restart, same UNII_DIR) posts each open item
+// the decision. Process B (a restart, same LEGION_DIR) posts each open item
 // again in a NEW thread; replies in A's threads, read in B's first pass,
 // answer nothing
 const OUT_THREADS_A = OUT_HEAD + `
@@ -3348,7 +3348,7 @@ process.exit(0);
 
 let threading: Promise<{ a: any; b: any }> | null = null;
 const threads_run = (): Promise<{ a: any; b: any }> => (threading ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const a = await out_run("out-threads-a", OUT_THREADS_A, dir);
   const b = await out_run("out-threads-b", OUT_THREADS_B, dir, { OLD: JSON.stringify(a.old ?? {}), K: JSON.stringify(a.K ?? {}) });
   return { a, b };
@@ -3400,7 +3400,7 @@ test("PLP-2922: view.json edited so a note's thread names a decision, undo there
 // gchat.posted), only gchat.acted. Process A posts one question (AC1),
 // passes again (AC5), posts a todo and acts on one reply in its thread
 // (one not understood: the thread is told, the todo stays open), ends.
-// Process B (a restart on A's view.json, same UNII_DIR) posts the todo
+// Process B (a restart on A's view.json, same LEGION_DIR) posts the todo
 // again, then sees A's reply again in B's thread (AC4: only gchat.acted
 // stops a second act), ends, and writes the previous version's records
 // into view.json. Process C (a restart) loads and saves (AC2)
@@ -3481,7 +3481,7 @@ process.exit(0);
 
 let recording: Promise<{ a: any; b: any; c: any }> | null = null;
 const records_run = (): Promise<{ a: any; b: any; c: any }> => (recording ??= (async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   const a = await out_run("out-records-a", OUT_RECORDS_A, dir);
   const b = await out_run("out-records-b", OUT_RECORDS_B, dir, { A: JSON.stringify(a) });
   const c = await out_run("out-records-c", OUT_RECORDS_C, dir, { B: JSON.stringify(b) });
@@ -3516,7 +3516,7 @@ test("PLP-2924 AC5: one process, two bridge passes with the same open question: 
 }, 60_000);
 
 // RED ZONE (security review 4 N3, signed off by the user 2026-11-25): a
-// device's tidy report reaches the chat (Unii reads it) fenced as the
+// device's tidy report reaches the chat (Legion reads it) fenced as the
 // device's data, each path and why cut: never as Legion's own words
 const TIDIED_N3 = `
 const { Chat } = await import(${JSON.stringify(import.meta.dir + "/Server.ts")});
@@ -3534,9 +3534,9 @@ process.exit(0);
 `;
 
 test("a device's tidy report is fenced as the device's data, each path and why cut", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/n3.ts", TIDIED_N3);
-  const proc = Bun.spawn([process.execPath, dir + "/n3.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/n3.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.note.startsWith('<untrusted source="device:mac">')).toBe(true);
   expect(out.note.endsWith("</untrusted>")).toBe(true);
@@ -3574,9 +3574,9 @@ process.exit(0);
 `;
 
 test("a tidy is the user's say in a view, of a safe row only; the devices are asked; only a device tells what it removed", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/tidy.ts", TIDY);
-  const proc = Bun.spawn([process.execPath, dir + "/tidy.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/tidy.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.byDevice).toMatch(/user's say/);
   expect(out.unsafe).toMatch(/not safe/i);

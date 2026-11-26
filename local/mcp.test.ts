@@ -15,7 +15,7 @@ const SECRET = "ctx7sk-0123456789abcdef";
 const OTHER = "env-secret-987";
 
 function home(local: object | null = null): { home: string; root: string } {
-  const h = fs.mkdtempSync(os.tmpdir() + "/unii-mcp-config-");
+  const h = fs.mkdtempSync(os.tmpdir() + "/legion-mcp-config-");
   const root = h + "/repo";
   fs.mkdirSync(root + "/local/tools/node_modules/.bin", { recursive: true });
   fs.writeFileSync(root + "/local/tools/node_modules/.bin/browse", "");
@@ -26,13 +26,13 @@ function home(local: object | null = null): { home: string; root: string } {
     "old"        : { type: "sse", url: "https://old.test/sse" },
   } }));
   fs.writeFileSync(root + "/local/mcp.extra.json", JSON.stringify({
-    browse  : { command: "local/tools/node_modules/.bin/browse", args: ["--user-data-dir", "~/.unii/browser/b"], allowed_origins: ["http://localhost", "http://127.0.0.1"] },
+    browse  : { command: "local/tools/node_modules/.bin/browse", args: ["--user-data-dir", "~/.legion/browser/b"], allowed_origins: ["http://localhost", "http://127.0.0.1"] },
     missing : { command: "local/tools/node_modules/.bin/missing" },
     remote  : { url: "https://mcp.example.test/v2/mcp", oauth: true },
   }));
   if (local !== null) {
-    fs.mkdirSync(h + "/.unii", { recursive: true });
-    fs.writeFileSync(h + "/.unii/mcp.local.json", JSON.stringify(local));
+    fs.mkdirSync(h + "/.legion", { recursive: true });
+    fs.writeFileSync(h + "/.legion/mcp.local.json", JSON.stringify(local));
   }
   return { home: h, root };
 }
@@ -67,7 +67,7 @@ test("excluded (claude-mem), unsupported (SSE) and uninstalled servers are left 
 test("an extra server: its program from the repo, ~/ paths made whole, its allowed origins passed", () => {
   const h = home();
   const browse = mcp_config(h.home, h.root).servers.find((s) => s.name === "browse")!;
-  expect(browse).toEqual({ name: "browse", command: h.root + "/local/tools/node_modules/.bin/browse", args: ["--user-data-dir", h.home + "/.unii/browser/b", "--allowed-origins", "http://localhost;http://127.0.0.1"] });
+  expect(browse).toEqual({ name: "browse", command: h.root + "/local/tools/node_modules/.bin/browse", args: ["--user-data-dir", h.home + "/.legion/browser/b", "--allowed-origins", "http://localhost;http://127.0.0.1"] });
 });
 
 test("mcp.local.json turns a server off, limits its tools, sets its origins", () => {
@@ -80,7 +80,7 @@ test("mcp.local.json turns a server off, limits its tools, sets its origins", ()
 });
 
 test("no ~/.claude.json, no extras: no servers, no failure", () => {
-  const h = fs.mkdtempSync(os.tmpdir() + "/unii-mcp-none-");
+  const h = fs.mkdtempSync(os.tmpdir() + "/legion-mcp-none-");
   expect(mcp_config(h, h).servers).toEqual([]);
 });
 

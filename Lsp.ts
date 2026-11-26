@@ -1,7 +1,7 @@
 // Lsp
 // ===
 // The `lsp` tool (Tools.ts): code intelligence from a language server of
-// this computer, the one unii's server runs on (mcp.json "lsp", made by
+// this computer, the one legion's server runs on (mcp.json "lsp", made by
 // local/mcp.ts): pyright for Python, TypeScript's own (tsc --lsp) for
 // TypeScript and JavaScript. One server runs per project root (the
 // nearest folder up with .git, pyproject.toml, package.json or
@@ -239,7 +239,7 @@ export namespace Lsp {
     srv.docs.clear();
     srv.diags.clear();
     try {
-      const init = await link.ask("initialize", { processId: process.pid, clientInfo: { name: "unii" }, rootUri: folder.uri, workspaceFolders: [folder], capabilities: CAPS }, signal);
+      const init = await link.ask("initialize", { processId: process.pid, clientInfo: { name: "legion" }, rootUri: folder.uri, workspaceFolders: [folder], capabilities: CAPS }, signal);
       srv.caps = init?.capabilities ?? {};
       await link.tell("initialized", {});
       return link;

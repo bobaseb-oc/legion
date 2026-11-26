@@ -2,7 +2,7 @@
 // =========
 // `bun test Term.test.ts`. RED ZONE (security review U1, DRAFT awaiting
 // the user's sign-off): `legion device` and `legion login` reach their
-// server only over its unix socket (<UNII_DIR>/server.sock, in a 0700
+// server only over its unix socket (<LEGION_DIR>/server.sock, in a 0700
 // dir), never over TCP: a process that took the port first (one relaying
 // the real server, the old proof's hole) gets no Bearer and no new
 // session's key, the real server's socket does.
@@ -42,7 +42,7 @@ function real(dir: string, seen: Seen) {
   });
 }
 
-// the server's dir (UNII_DIR), 0700, and a home with this port's token
+// the server's dir (LEGION_DIR), 0700, and a home with this port's token
 function dirs(port: number, token: boolean) {
   const dir = fs.mkdtempSync(os.tmpdir() + "/legion-keys-");
   fs.chmodSync(dir, 0o700);
@@ -63,7 +63,7 @@ async function legion(args: string[], port: number, dir: string, home: string, m
 // RED ZONE (K1, K2, T1, DRAFT awaiting the user's sign-off): the terminal
 // key. The Keychain is a stub in every run here, never the real one: the
 // items legion-key keeps (keychain.json in the test's home), read by a
-// fake legion-key in <UNII_DIR>/bin (HELPER: it asks no Touch ID;
+// fake legion-key in <LEGION_DIR>/bin (HELPER: it asks no Touch ID;
 // FAKE_REFUSE in keychain.json's dir refuses as if not given), and the
 // items made the old way, by `security` (keychain-old.json: Auth.security
 // replaced before Term.ts loads). Every call of either is logged
@@ -116,7 +116,7 @@ process.exit(verb === "delete" && !had ? 44 : 0);
 // `legion <args>` through the Keychain stub, its stdin `stdin` (left
 // open: open), its output after ms or once it ends; the stub's items
 // (legion-key's, and the old ones) and the calls it got. NO_HELPER: no
-// legion-key in <UNII_DIR>/bin (local/legion could not build it)
+// legion-key in <LEGION_DIR>/bin (local/legion could not build it)
 async function stubbed(args: string[], port: number, dir: string, home: string, ms: number, stdin: string, env: Record<string, string> = {}, open = true) {
   const stub = home + "/stub.ts";
   fs.writeFileSync(stub, STUB);
@@ -130,8 +130,8 @@ async function stubbed(args: string[], port: number, dir: string, home: string, 
   if (env.FAKE_REFUSE === "1") {
     fs.writeFileSync(keychain + ".refuse", "");
   }
-  const { UNII_URL, ...rest } = process.env;
-  const all = { ...rest, UNII_HOME: home, UNII_DIR: dir, UNII_WORK: home + "/work", UNII_SPACES: home, UNII_NO_TELEMETRY: "1", FAKE_KEYCHAIN: keychain, FAKE_OLD: home + "/keychain-old.json", ...env };
+  const { LEGION_URL, ...rest } = process.env;
+  const all = { ...rest, LEGION_HOME: home, LEGION_DIR: dir, LEGION_WORK: home + "/work", LEGION_SPACES: home, LEGION_NO_TELEMETRY: "1", FAKE_KEYCHAIN: keychain, FAKE_OLD: home + "/keychain-old.json", ...env };
   const proc = Bun.spawn([process.execPath, stub, ...args, "http://127.0.0.1:" + port], { env: all, stdin: open ? "pipe" : new Blob([stdin]), stdout: "pipe", stderr: "pipe" });
   if (open) {
     (proc.stdin as Bun.FileSink).write(stdin);
@@ -427,7 +427,7 @@ test("legion login on a local Legion: the sign-in secret registered once, then r
   const port = 39516;
   const { dir, home } = dirs(port, false);
   const { RESEND_API_KEY, ...env } = process.env;
-  const srv = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], { env: { ...env, UNII_DIR: dir, UNII_SITE: "http://127.0.0.1:" + port, UNII_WORK: dir + "/work", UNII_ANOTHER: "1" }, stdout: "pipe", stderr: "pipe" });
+  const srv = Bun.spawn([process.execPath, import.meta.dir + "/Server.ts", String(port)], { env: { ...env, LEGION_DIR: dir, LEGION_SITE: "http://127.0.0.1:" + port, LEGION_WORK: dir + "/work", LEGION_ANOTHER: "1" }, stdout: "pipe", stderr: "pipe" });
   const item = "legion-signin-127.0.0.1:" + port;
   const token = home + "/127.0.0.1:" + port + "/token";
   try {

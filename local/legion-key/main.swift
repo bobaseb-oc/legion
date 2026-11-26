@@ -11,7 +11,7 @@
 // gets a prompt, never the value; and "Always Allow" on this program's
 // own prompt trusts only it, which still asks for Touch ID each time.
 // Built from this source by local/legion (swiftc -O, codesign -s - -o
-// runtime) into ~/.unii/bin/legion-key, mode 0700.
+// runtime) into ~/.legion/bin/legion-key, mode 0700.
 //
 //   legion-key get <service> <account>     the value on stdout, after Touch ID
 //   legion-key set <service> <account>     the value from stdin (never argv)

@@ -16,9 +16,9 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-rough-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-rough-");
 
-process.env.UNII_DIR = DIR;
+process.env.LEGION_DIR = DIR;
 
 const config = await import("./Config.ts");
 config.KEYS.anthropic = "test";
@@ -32,7 +32,7 @@ const BUDGET = "Budget has been exceeded! Current cost: 800.6046641950002, Max b
 
 // messages too long to be their own summary, each opening with a sentence
 const COUNT = 16;
-const MSGS  = Array.from({ length: COUNT }, (_, k) => ({ kind: "unii" as const, text: "Point " + k + " is made here.\n  Then   " + "word ".repeat(200) }));
+const MSGS  = Array.from({ length: COUNT }, (_, k) => ({ kind: "legion" as const, text: "Point " + k + " is made here.\n  Then   " + "word ".repeat(200) }));
 const NODES = 2 * COUNT - 1;
 
 const real = { setTimeout, fetch, error: console.error };
@@ -114,18 +114,18 @@ test("the budget spent: every node rough, with no call past the first; the view 
     expect(text!.startsWith("(rough) ")).toBe(true);
     expect(bytes(text!)).toBeLessThanOrEqual(512);
     if (l === 0) {
-      expect(text).toBe("(rough) unii: Point " + i + " is made here.");
+      expect(text).toBe("(rough) legion: Point " + i + " is made here.");
     }
   }
   // a merge whose halves fit is them, as ever (rough over rough halves);
   // one that doesn't, its halves' first parts
-  expect(Memory.node(mem, { l: 1, i: 0 })).toBe("(rough) unii: Point 0 is made here.\n(rough) unii: Point 1 is made here.");
-  const long = "(rough) unii: Point 0 is made here. " + "x".repeat(600) + "\nunii: The other half. " + "y".repeat(600);
-  expect(Memory.roughly(3, long)).toBe("(rough) unii: Point 0 is made here. / unii: The other half.");
+  expect(Memory.node(mem, { l: 1, i: 0 })).toBe("(rough) legion: Point 0 is made here.\n(rough) legion: Point 1 is made here.");
+  const long = "(rough) legion: Point 0 is made here. " + "x".repeat(600) + "\nlegion: The other half. " + "y".repeat(600);
+  expect(Memory.roughly(3, long)).toBe("(rough) legion: Point 0 is made here. / legion: The other half.");
   expect(bytes(Memory.roughly(3, "z".repeat(900) + "\n" + "w".repeat(900)))).toBeLessThanOrEqual(512);
   expect(mem.rough.size).toBe(NODES);
   expect(mem.trouble).toContain("spending limit");
-  expect(Memory.view(mem).map((b) => b.text).join("")).toContain("|(rough) unii: Point");
+  expect(Memory.view(mem).map((b) => b.text).join("")).toContain("|(rough) legion: Point");
   // no call more as the chat goes on, till a probe
   Memory.push(mem, [MSGS[0], MSGS[1]]);
   await until(() => Memory.node(mem, { l: 1, i: COUNT / 2 }) !== null);

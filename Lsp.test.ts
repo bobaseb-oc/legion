@@ -13,7 +13,7 @@ import * as os from "node:os";
 import { Lsp } from "./Lsp.ts";
 import { Mcp } from "./Mcp.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-lsp-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-lsp-");
 Mcp.sweep(DIR + "/children.pids");
 
 const FAKE = DIR + "/fake.ts";
@@ -129,7 +129,7 @@ test("a project's root: the nearest folder up with .git, pyproject.toml, package
   fs.writeFileSync(PROJ + "/pkg/package.json", "{}");
   expect(Lsp.root(PROJ + "/pkg/src/x.ts")).toBe(PROJ + "/pkg");
   expect(Lsp.root(A)).toBe(PROJ);
-  expect(Lsp.root("/no-such-dir-unii/x.py")).toBe("/no-such-dir-unii");
+  expect(Lsp.root("/no-such-dir-legion/x.py")).toBe("/no-such-dir-legion");
 });
 
 test("bad input fails in a line: unknown language, relative or missing file, unknown operation, no position", async () => {
@@ -176,8 +176,8 @@ test("Tools: lsp is offered to the chat and its subagents when mcp.json names a 
     Mcp.end();
     process.exit(0);
   `;
-  const { UNII_MCP, ...rest } = process.env;
-  const run = (mcp: string) => JSON.parse(Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, UNII_DIR: DIR, UNII_MCP: mcp } }).stdout.toString());
+  const { LEGION_MCP, ...rest } = process.env;
+  const run = (mcp: string) => JSON.parse(Bun.spawnSync([process.execPath, "-e", code], { cwd: import.meta.dir, env: { ...rest, LEGION_DIR: DIR, LEGION_MCP: mcp } }).stdout.toString());
   expect(run(file)).toEqual({ main: true, sub: true, hands: false, call: "Outer (class) line 1\n  inner (method) line 2", refused: "No tool lsp." });
   expect(run(DIR + "/none.json")).toEqual({ main: false, sub: false, hands: false, call: "No tool lsp.", refused: "No tool lsp." });
 });

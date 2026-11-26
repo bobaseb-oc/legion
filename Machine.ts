@@ -5,8 +5,8 @@
 // read-only: Harvest.ts) (TOOLS) and computer
 // (Computer.ts), run by a terminal (Term.ts) as Jobs, each in
 // its agent's dir under the device's work dir. A stop kills the job's
-// shell and its process group. As this unii quits, end() kills every
-// shell's group (SHELLS), and any process marked UNII_RUN that left it.
+// shell and its process group. As this legion quits, end() kills every
+// shell's group (SHELLS), and any process marked LEGION_RUN that left it.
 // A file changed (write over one, edit) answers as a unified diff (Diff),
 // which both views draw as one (Md.ts).
 // This side imports nothing of the server's (whose Config.ts would take
@@ -55,7 +55,7 @@ type Box = [number, number, number, number];
 
 const SHELL = process.env.SHELL ?? "/bin/sh";
 
-// this unii's mark, set as UNII_RUN on every process its shells start
+// this legion's mark, set as LEGION_RUN on every process its shells start
 // (each child inherits it), and how to list this user's processes with
 // their environment, to find those that left their shell's group
 const RUN = crypto.randomUUID();
@@ -63,13 +63,13 @@ const UID = String(process.getuid?.() ?? "");
 const PS  = process.platform === "darwin" ? ["ps", "-wwE", "-U", UID, "-o", "pid=,command="] : ["ps", "-wwe", "-u", UID, "-o", "pid=,args=", "e"];
 
 // RED ZONE (security review SB, DRAFT awaiting the user's sign-off) M2:
-// what of this unii's environment a job gets: these
+// what of this legion's environment a job gets: these
 // names only, never a secret (LiteLLM's key, the vendors', a token); a
 // claude worker the gateway's address too (its key is Claude Code's own,
 // by its apiKeyHelper, never this environment's); the proxies and CA
 // bundles to reach the network, and Claude Code's config dir (a proxy's
 // URL may hold its login: kept, as the job needs it to get out)
-export const ENV = /^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|TZ|SSH_AUTH_SOCK|UNII_RUN|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_(FILE|DIR)|REQUESTS_CA_BUNDLE|CLAUDE_CONFIG_DIR)$/;
+export const ENV = /^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|TZ|SSH_AUTH_SOCK|LEGION_RUN|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_(FILE|DIR)|REQUESTS_CA_BUNDLE|CLAUDE_CONFIG_DIR)$/;
 const CLAUDE_ENV = /^ANTHROPIC_BASE_URL$/;
 
 // RED ZONE (security review SB, DRAFT awaiting the user's sign-off) M3:
@@ -81,7 +81,7 @@ const CLAUDE_ENV = /^ANTHROPIC_BASE_URL$/;
 const GATING = /(^|\/)\.claude\/settings[^/]*\.json$/;
 
 // RED ZONE (K, DRAFT awaiting the user's sign-off): Legion's own config,
-// in ~/.unii or $UNII_DIR: config.json holds mcp_reads (the MCP tools auto
+// in ~/.legion or $LEGION_DIR: config.json holds mcp_reads (the MCP tools auto
 // mode skips and plan mode runs), mcp.json and mcp.local.json the MCP
 // servers started; write and edit refuse them as GATING (Machine.gating)
 const LEGION_CONFIG = ["config.json", "mcp.json", "mcp.local.json"];
@@ -98,7 +98,7 @@ const LEGION_SHARED = "/shared-skills";
 // off), tallies (what super auto decides for the user) and timers
 // RED ZONE (security review 4 N1, signed off by the user 2026-11-25):
 // and its notes (users/<id>/notes/: the standing directives and index read
-// into every turn, the checker holds Unii to)
+// into every turn, the checker holds Legion to)
 const LEGION_CHAT = /^\/users\/[^/]+\/(view\.json|notes(\/.*)?)$/;
 // RED ZONE (security review 4 F2, G5, signed off by the user 2026-11-25):
 // the live checkout the server and launcher run (this file's dir): its
@@ -108,14 +108,15 @@ const LEGION_CHAT = /^\/users\/[^/]+\/(view\.json|notes(\/.*)?)$/;
 const LIVE = import.meta.dir;
 
 // RED ZONE (S1c, DRAFT awaiting the user's sign-off): a shell command
-// naming Legion's trust state (Modes.ts TRUST) by its path in ~/.unii or
-// $UNII_DIR / $UNII_HOME, or the launcher's `legion log` (server.log):
+// naming Legion's trust state (Modes.ts TRUST) by its path in ~/.legion or
+// $LEGION_DIR / $LEGION_HOME (or ~/.unii, its name before the rename), or the
+// launcher's `legion log` (server.log):
 // refused in every mode (Machine.trust_named; one naming the dir only, or
 // such a file elsewhere, goes to auto mode's reviewer: Modes SECRETS).
 // Residual: an agent's shell runs as the user, so a disguised command
 // (cd, a variable, a script) in full mode still reaches them; the gates
 // (the reviewer, hooks, these) are the boundary, not the disk
-const TRUST_SHELL = /(\.unii|\$\{?UNII_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|bin\/|[^/\s'"`;|&<>()]+\/token\b)|\b(legion|unii-local\.sh)\s+log\b/i;
+const TRUST_SHELL = /(\.(legion|unii)|\$\{?LEGION_(DIR|HOME)\}?)\/+(cloud\.db|signin-hash|server\.log|bin\/|[^/\s'"`;|&<>()]+\/token\b)|\blegion\s+log\b/i;
 
 // RED ZONE (DRAFT awaiting the user's sign-off): the job of the user's
 // own !command (Chat.bang makes it, only from what speaks for the user:
@@ -144,7 +145,7 @@ export const INT = { type: "integer" };
 const EDIT = { type: "object", properties: { path: STR, old: STR, new: STR, all: { type: "boolean" } }, required: ["path", "old", "new"] };
 
 export const TOOLS: Spec[] = [
-  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. The user may send a call still running to the background (Ctrl+B): it then answers at once with its number, and shell_output reads it. Background jobs live only while unii is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
+  spec("shell", "Run a command with the device's shell ($SHELL -c), stdout and stderr together, and return its output, then its exit code and time, as (exit 0 in 0.4 s); output past " + CAP + " characters keeps its head and tail. Each call is a new shell. The call waits until the command and everything holding its output end, so give background jobs their own output file. The user may send a call still running to the background (Ctrl+B): it then answers at once with its number, and shell_output reads it. Background jobs live only while legion is open on the device: closing it kills every process the calls started.", { command: STR }, ["command"]),
   spec("read", "Read a text file. offset: the first line to show (from 1); limit: how many lines; at: the character of the first line to start from. It ends saying the lines shown, as [lines 4-7 of 15]; output past " + CAP + " characters comes in pages, saying where to go on.", { path: STR, offset: INT, limit: INT, at: INT }, ["path"]),
   spec("write", "Write a whole file, making its directories. Answers a unified diff of what changed (a new file: all its lines added).", { path: STR, content: STR }, ["path", "content"]),
   spec("glob", "Find files by a glob pattern (\"**/*.ts\", \"src/**/test_*.py\") under path (a dir; by default the agent's), newest first, as paths from path; hidden files and node_modules are left out.", { pattern: STR, path: STR }, ["pattern"]),
@@ -209,7 +210,7 @@ export function spec(name: string, info: string, fields: object, need: string[])
 
 export namespace Machine {
 
-  // in <work>/<its caller>, Unii's (main) in the home repo if there is one
+  // in <work>/<its caller>, Legion's (main) in the home repo if there is one
   // (hooks: the settings files whose Claude Code hooks gate it, Hooks.ts;
   // by default Claude Code's own for the dir's project); the user's own
   // !command (USER_SHELL) asks none
@@ -248,7 +249,7 @@ export namespace Machine {
     }
   }
 
-  // a job's dir: <work>/<its caller>, Unii's (main) the home repo if any
+  // a job's dir: <work>/<its caller>, Legion's (main) the home repo if any
   export function dir(job: Job, work: string, home?: string): string {
     const tilde = (p: string) => (p.startsWith("~/") ? os.homedir() + p.slice(1) : p);
     return job.cwd === "main" && home ? tilde(home) : path.join(tilde(work), path.basename(job.cwd));
@@ -272,8 +273,8 @@ export namespace Machine {
   }
 
   // RED ZONE (S1c, DRAFT awaiting the user's sign-off): whether a path is
-  // Legion's trust state (Modes.ts TRUST) in its dir (~/.unii, $UNII_DIR,
-  // $UNII_HOME), by its path or its real one, in any case: secret (no
+  // Legion's trust state (Modes.ts TRUST) in its dir (~/.legion, $LEGION_DIR,
+  // $LEGION_HOME), by its path or its real one, in any case: secret (no
   // read, grep, glob) and gating (no write, edit)
   export function trust(p: string): boolean {
     const fold = (q: string) => q.normalize("NFKC").toLowerCase();
@@ -290,11 +291,17 @@ export namespace Machine {
     return TRUST_SHELL.test(q) || Machine.trust_dirs().some((d) => after(d).some((rest) => TRUST.test(rest)));
   }
 
-  // Legion's dirs, as named and real: the server's (~/.unii, $UNII_DIR)
-  // and a terminal's ($UNII_HOME, its token files)
+  // RED ZONE (rename, DRAFT awaiting the user's sign-off): Legion's dir in
+  // the home, by its name now and before the rename: the migration
+  // (local/rename.ts) leaves ~/.unii a link to ~/.legion, so a path or a
+  // command naming the old one reaches the same trust state
+  export const HOME_DIRS = ["/.legion", "/.unii"];
+
+  // Legion's dirs, as named and real: the server's (~/.legion, $LEGION_DIR)
+  // and a terminal's ($LEGION_HOME, its token files)
   export function trust_dirs(): string[] {
-    const env = [process.env.UNII_DIR, process.env.UNII_HOME].filter((d): d is string => !!d);
-    return [os.homedir() + "/.unii", ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
+    const env = [process.env.LEGION_DIR, process.env.LEGION_HOME].filter((d): d is string => !!d);
+    return [...Machine.HOME_DIRS.map((d) => os.homedir() + d), ...env].flatMap((d) => [path.resolve(d), Machine.real(path.resolve(d))]);
   }
 
   // a path's real path: its symlinks followed as far as it exists
@@ -327,7 +334,7 @@ export namespace Machine {
     const at = path.resolve(p);
     const fold = (q: string) => q.normalize("NFKC").toLowerCase(); // the disk folds case and lookalikes
     const homes = [os.homedir() + "/.claude", Hooks.home()].flatMap((h) => [h, Machine.real(h)]).map(fold);
-    const dirs = [os.homedir() + "/.unii", ...(process.env.UNII_DIR ? [process.env.UNII_DIR] : [])];
+    const dirs = [...Machine.HOME_DIRS.map((d) => os.homedir() + d), ...(process.env.LEGION_DIR ? [process.env.LEGION_DIR] : [])];
     const legion = [...dirs.flatMap((d) => LEGION_CONFIG.map((f) => d + "/" + f)), LEGION_EXTRA, CONF].flatMap((f) => [f, Machine.real(f)]).map(fold);
     const chats = dirs.flatMap((d) => [d, Machine.real(d)]).map(fold);
     const shared = chats.map((d) => d + LEGION_SHARED);
@@ -337,11 +344,11 @@ export namespace Machine {
     return [at, Machine.real(at)].map(fold).some((q) => GATING.test(q) || homes.some((h) => under(q, h)) || shared.some((d) => under(q, d)) || legion.includes(q) || lives(q) || chats.some((d) => q.startsWith(d + "/") && LEGION_CHAT.test(q.slice(d.length)))) || Machine.trust(at);
   }
 
-  // this unii's environment for a job (ENV; also: a worker's more), marked
-  // UNII_RUN
+  // this legion's environment for a job (ENV; also: a worker's more), marked
+  // LEGION_RUN
   function job_env(also?: RegExp): Record<string, string> {
     const kept = Object.entries(process.env).filter(([k, v]) => v !== undefined && (ENV.test(k) || also?.test(k) === true));
-    return { ...Object.fromEntries(kept) as Record<string, string>, UNII_RUN: RUN };
+    return { ...Object.fromEntries(kept) as Record<string, string>, LEGION_RUN: RUN };
   }
 
   // runs a job's tool, ungated
@@ -449,14 +456,14 @@ export namespace Machine {
     }
   }
 
-  // an event as a transcript line: Claude's words (unii), its tool calls
+  // an event as a transcript line: Claude's words (legion), its tool calls
   // (tool), their results (echo); none for the rest
   export function claude_line(ev: any): string | null {
     const content: any[] = Array.isArray(ev?.message?.content) ? ev.message.content : [];
     const text = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map(text).join("") : typeof c?.text === "string" ? c.text : "");
     const lines = content.flatMap((c): string[] => {
       if (ev.type === "assistant" && c.type === "text" && c.text.trim() !== "") {
-        return ["unii: " + c.text.trim()];
+        return ["legion: " + c.text.trim()];
       }
       if (ev.type === "assistant" && c.type === "tool_use") {
         return ["tool: " + c.name + "(" + JSON.stringify(c.input ?? {}).slice(0, CLAUDE_CALL) + ")"];
@@ -482,7 +489,7 @@ export namespace Machine {
   }
 
   // runs a command, in its own process group (detached), every process
-  // marked UNII_RUN, its output decoded as one stream (a char split over
+  // marked LEGION_RUN, its output decoded as one stream (a char split over
   // reads stays whole; a broken one at its end shows) and cut as it
   // comes. A stop kills the group and ends the wait at once, whatever
   // still holds its output. Sent `away` (the person's Ctrl+B), it answers
@@ -570,8 +577,8 @@ export namespace Machine {
     } catch {}
   }
 
-  // as this unii quits: kills every shell's process group (a job still in
-  // it dies), then any process that left its group (UNII_RUN), so none is
+  // as this legion quits: kills every shell's process group (a job still in
+  // it dies), then any process that left its group (LEGION_RUN), so none is
   // left orphaned
   export function end(): void {
     for (const proc of SHELLS) {
@@ -581,7 +588,7 @@ export namespace Machine {
     }
     const ps = Bun.spawnSync(PS).stdout.toString();
     for (const line of ps.split("\n")) {
-      if (line.includes("UNII_RUN=" + RUN)) {
+      if (line.includes("LEGION_RUN=" + RUN)) {
         Machine.kill(Number(line.trim().split(" ")[0]));
       }
     }

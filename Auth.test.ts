@@ -4,7 +4,7 @@
 // zone: tasks/atlassian-oauth.md, invariants I1-I9): a fake authorization
 // server and protected MCP resource on 127.0.0.1 (http allowed only by the
 // test option), tokens in a store in memory. The real Keychain is used
-// only with UNII_TEST_KEYCHAIN=1, on a throwaway service.
+// only with LEGION_TEST_KEYCHAIN=1, on a throwaway service.
 
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -230,13 +230,13 @@ test("an oauth server gets its bearer token on every request; without one it is 
   }
 });
 
-test("logout deletes the grant; the Keychain store round-trips (UNII_TEST_KEYCHAIN=1 only, a throwaway service) (I1)", async () => {
+test("logout deletes the grant; the Keychain store round-trips (LEGION_TEST_KEYCHAIN=1 only, a throwaway service) (I1)", async () => {
   const store = memory();
   await store.set("web", "{}");
   expect(await Auth.logout("web", store)).toBe(true);
   expect(store.all.size).toBe(0);
-  if (process.env.UNII_TEST_KEYCHAIN === "1") {
-    const kc = Auth.keychain("unii-test-" + crypto.randomUUID());
+  if (process.env.LEGION_TEST_KEYCHAIN === "1") {
+    const kc = Auth.keychain("legion-test-" + crypto.randomUUID());
     await kc.set("web", "secret-value");
     expect(await kc.get("web")).toBe("secret-value");
     expect(await kc.delete("web")).toBe(true);

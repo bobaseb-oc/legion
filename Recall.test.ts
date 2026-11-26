@@ -78,7 +78,7 @@ test("search: the query trimmed and capped, asked of the server; its hits drawn 
   View.view_act(v, { $: "Search", q: "needle" });
   View.view_hear(v, { $: "recalled", q: "other", hits: [{ i: 1, kind: "user", date: DATE, text: "stale" }], more: false });
   expect(v.recall?.hits).toBeNull(); // an older search's answer
-  View.view_hear(v, { $: "recalled", q: "needle", hits: [{ i: 7, kind: "unii", date: DATE, text: "…a <img src=x onerror=alert(1)> NEEDLE & more…" }], more: true });
+  View.view_hear(v, { $: "recalled", q: "needle", hits: [{ i: 7, kind: "legion", date: DATE, text: "…a <img src=x onerror=alert(1)> NEEDLE & more…" }], more: true });
   const html = Pages.memory_html(v).join("");
   expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; <mark>NEEDLE</mark> &amp; more");
   expect(html).not.toContain("<img");

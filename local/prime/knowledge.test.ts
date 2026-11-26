@@ -25,7 +25,7 @@ function git(dir: string, ...args: string[]): string {
 // a repo with a default branch "main" (as origin/HEAD), a feature branch
 // checked out, and its files
 function repo(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-know-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-know-");
   git(dir, "init", "-q", "-b", "main");
   git(dir, "config", "user.email", "t@example.invalid");
   git(dir, "config", "user.name", "T");
@@ -56,7 +56,7 @@ test("OKF: the branch's markdown under src and plans, dated by its commit, not t
 });
 
 test("graphify: its guides by name, never its security audits or bulk", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-graphify-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-graphify-");
   for (const f of ["AGENT_GUIDE_RECON.md", "ONBOARDING.md", "ONBOARDING_AO.md", "PROCESS.md", "SEMANTIC_REPOS.md", "STUB_REPOS.md", "SECURITY_AUDIT_RECON.md", "GRAPH_REPORT.md"]) {
     fs.writeFileSync(dir + "/" + f, "# " + f);
   }

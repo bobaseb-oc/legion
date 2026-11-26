@@ -153,9 +153,9 @@ process.exit(0);
 `;
 
 test("the server: written on the tick only once changed and EVERY apart, and only with a view open, with no tools; asked from a view only, answered on the page, never in the chat; kept", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/explain.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/explain.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/explain.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.empty).toBe(0);
   expect(out.unseen).toBe(0);
@@ -338,9 +338,9 @@ process.exit(0);
 `;
 
 test("the server: a reply that matches no track is an error on the page, and the cards before stay", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/unmatched.ts", UNMATCHED);
-  const proc = Bun.spawn([process.execPath, dir + "/unmatched.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/unmatched.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out).toEqual({ cards: [{ track: "Owl", title: "Earlier", what: "w", why: "y", status: "s", watch: "n" }], error: "The page couldn't be written: no card matched a track." });
 });
@@ -457,9 +457,9 @@ process.exit(0);
 `;
 
 test("the server: themes fixed across runs, a new agent joins one; the report asked only when due and agents are at work; nothing asked when nothing changed; themes and report kept in view.json", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/themes.ts", THEMED_RUN);
-  const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/themes.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.one).toEqual({ themes: { Owl: "Tracks page", Ant: "Tracks page" }, cards: ["Tracks page:One page for all"], report: "Both agents build the Tracks page.", asked: true, system: Explain.OBSERVE });
   expect(out.brief).toContain("- Tracks page: Owl, Ant");

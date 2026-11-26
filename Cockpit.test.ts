@@ -149,7 +149,7 @@ test("home: the stat cards: agents, reviews for you, your PRs to fix, merged thi
   expect(none).toEqual(["0", "–", "–", "–", "–"]);
 });
 
-test("home: agent cards (Unii's own), working then done; their repo, ticket, PR, estimated cost; Archive all takes the done", () => {
+test("home: agent cards (Legion's own), working then done; their repo, ticket, PR, estimated cost; Archive all takes the done", () => {
   const v = View.view_new();
   v.crew = [
     agent("A", "working", { title: "review o/r#5 for AO-10852", repos: ["r"], spent: 2.437 }),
@@ -179,7 +179,7 @@ test("home: the apps' lines and the activity, newest first", () => {
 // Sidebar, bar, palette
 // ---------------------
 
-test("the sidebar's agents: Unii's own, grouped by their ticket (none last), each with how many under it", () => {
+test("the sidebar's agents: Legion's own, grouped by their ticket (none last), each with how many under it", () => {
   const v = View.view_new();
   v.crew = [
     agent("A", "working", { title: "review o/r#5 AO-10852" }), agent("B", "done", { title: "AO-10852 docs" }),
@@ -227,7 +227,7 @@ test("the palette: pages, commands, agents and inbox PRs; the words typed filter
 });
 
 // While you were away (Cockpit.away): away at least AWAY since the last
-// look and something happened since: the agents done (Unii's own) or
+// look and something happened since: the agents done (Legion's own) or
 // failed (any, its last line why), the routines run, new open questions
 // and notes only counted (their text is the Questions pane's), the inbox's
 // rows changed; lists capped; else nothing to show

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ios.sh: builds UniiChat for iOS, on a Mac with Xcode and xcodegen (CI:
+# ios.sh: builds Legion for iOS, on a Mac with Xcode and xcodegen (CI:
 # .github/workflows/ios.yml, on GitHub's macOS runners).
 #
 #   ios.sh shots <dir>   a simulator build, run on the App Store's two
@@ -14,20 +14,22 @@
 # Xcode make the certificate, the bundle ids and the profiles it needs.
 set -euo pipefail
 cd "$(dirname "$0")"
+# the server the app is a view of (Info.plist LegionSite): no default
+: "${LEGION_SITE:?set LEGION_SITE to your Legion server (https://...)}"
 xcodegen generate --quiet
 
 case "$1" in
   shots)
     mkdir -p "$2"
-    xcodebuild -quiet -project UniiChat.xcodeproj -scheme UniiChat -sdk iphonesimulator \
+    xcodebuild -quiet LEGION_SITE="$LEGION_SITE" -project Legion.xcodeproj -scheme Legion -sdk iphonesimulator \
       -destination "generic/platform=iOS Simulator" -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
     for name in "iPhone 17 Pro Max" "iPad Pro 13-inch (M5)"; do
       dev=$(xcrun simctl list devices available | grep -F "$name (" | head -1 | grep -oE '[0-9A-F-]{36}')
       xcrun simctl boot "$dev"
       xcrun simctl bootstatus "$dev" > /dev/null
       xcrun simctl status_bar "$dev" override --time 9:41 --batteryState charged --batteryLevel 100
-      xcrun simctl install "$dev" build/Build/Products/Debug-iphonesimulator/UniiChat.app
-      xcrun simctl launch "$dev" com.higherorderco.uniichat
+      xcrun simctl install "$dev" build/Build/Products/Debug-iphonesimulator/Legion.app
+      xcrun simctl launch "$dev" com.oncorps.legion
       for t in $(seq 1 20); do
         sleep 0.5
         xcrun simctl io "$dev" screenshot "$2/${name// /_}-$t.png" > /dev/null
@@ -39,8 +41,8 @@ case "$1" in
     key="$(mktemp -d)/AuthKey_$ASC_KEY_ID.p8"
     printf '%s\n' "$ASC_KEY" > "$key"
     auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
-    xcodebuild -quiet -project UniiChat.xcodeproj -scheme UniiChat -destination generic/platform=iOS \
-      -archivePath build/UniiChat.xcarchive DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="$BUILD" "${auth[@]}" archive
+    xcodebuild -quiet LEGION_SITE="$LEGION_SITE" -project Legion.xcodeproj -scheme Legion -destination generic/platform=iOS \
+      -archivePath build/Legion.xcarchive DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="$BUILD" "${auth[@]}" archive
     cat > build/export.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -53,7 +55,7 @@ case "$1" in
 </dict>
 </plist>
 EOF
-    xcodebuild -quiet -exportArchive -archivePath build/UniiChat.xcarchive -exportOptionsPlist build/export.plist \
+    xcodebuild -quiet -exportArchive -archivePath build/Legion.xcarchive -exportOptionsPlist build/export.plist \
       -exportPath build/export "${auth[@]}"
     ;;
 esac

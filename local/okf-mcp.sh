@@ -3,15 +3,15 @@
 # ==========================================================
 # Starts the OnCorps Knowledge Framework's own read-only MCP server
 # (src/scripts/okf_mcp_server.py, stdio) from an OKF checkout of 0.x:
-# $OKF_CHECKOUT, else ~/.unii/okf (a link to the checkout). Before it starts,
+# $OKF_CHECKOUT, else ~/.legion/okf (a link to the checkout). Before it starts,
 # it (re)builds the internal dataset when the manifest is missing or was
 # built from another commit, so the agents read the checkout's current
 # ontology. stdout is the MCP stream only: everything else goes to stderr.
 set -euo pipefail
 
-okf="${OKF_CHECKOUT:-$HOME/.unii/okf}"
+okf="${OKF_CHECKOUT:-$HOME/.legion/okf}"
 if [[ ! -f "$okf/src/scripts/okf_mcp_server.py" ]]; then
-  echo "okf-mcp: no OKF checkout at $okf (set OKF_CHECKOUT, or link ~/.unii/okf to a checkout of 0.x)" >&2
+  echo "okf-mcp: no OKF checkout at $okf (set OKF_CHECKOUT, or link ~/.legion/okf to a checkout of 0.x)" >&2
   exit 1
 fi
 if ! command -v uv >/dev/null 2>&1; then

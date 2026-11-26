@@ -17,7 +17,7 @@ function skill(dir: string, head: string): void {
 }
 
 function home(): string {
-  const h = fs.mkdtempSync(os.tmpdir() + "/unii-skills-");
+  const h = fs.mkdtempSync(os.tmpdir() + "/legion-skills-");
   const cache = h + "/.claude/plugins/cache";
   skill(h + "/.claude/skills/mine", "name: mine\ndescription: My own skill.");
   skill(h + "/shared/linked", 'name: linked\ndescription: "A linked one: quoted."');
@@ -76,7 +76,7 @@ test("the index says how to use a skill and lists each with its path, descriptio
 // of the same name (a link into a clone) is not listed twice; without a
 // checkout, Claude Code's stay
 function shared(h: string): string {
-  const dir = h + "/.unii/shared-skills";
+  const dir = h + "/.legion/shared-skills";
   fs.mkdirSync(dir + "/.claude-plugin", { recursive: true });
   fs.writeFileSync(dir + "/.claude-plugin/marketplace.json", JSON.stringify({ name: "oncorps-shared-skills", plugins: [
     { name: "oc", source: "./skills/oc" },

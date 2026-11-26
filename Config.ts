@@ -1,11 +1,11 @@
 // Config
 // ======
-// The server's settings. Its DIR ($UNII_DIR, default ~/.unii) holds
+// The server's settings. Its DIR ($LEGION_DIR, default ~/.legion) holds
 // config.json, the lock and users/<id>. Each key of config.json (README)
-// may be set as UNII_<KEY> instead; a path may start with "~/". The keys
+// may be set as LEGION_<KEY> instead; a path may start with "~/". The keys
 // are read from the environment and removed from it, so no program an
 // agent runs inherits them, and put back for the workers. Behind a reverse
-// proxy set UNII_PROXY=1 (PROXY), else X-Forwarded-For is ignored.
+// proxy set LEGION_PROXY=1 (PROXY), else X-Forwarded-For is ignored.
 
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -17,7 +17,7 @@ import { LABELS, VENDORS, Pick, type Offer } from "./Pick.ts";
 // Constants
 // =========
 
-export const DIR = config_path(process.env.UNII_DIR ?? "~/.unii");
+export const DIR = config_path(process.env.LEGION_DIR ?? "~/.legion");
 
 const PATH = DIR + "/config.json";
 const FILE: Record<string, string> = fs.existsSync(PATH) ? JSON.parse(fs.readFileSync(PATH, "utf8")) : {};
@@ -25,7 +25,7 @@ const FILE: Record<string, string> = fs.existsSync(PATH) ? JSON.parse(fs.readFil
 export const SITE    = config_get("site", "http://127.0.0.1:8788").replace(/\/$/, "");
 
 // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): a
-// reverse proxy in front (UNII_PROXY=1), whose X-Forwarded-For entry is
+// reverse proxy in front (LEGION_PROXY=1), whose X-Forwarded-For entry is
 // the client's address the sign-in limits count (Cloud.ip); off, the
 // default, the socket's, as a client reaching the server itself may
 // write the header
@@ -50,7 +50,7 @@ export const PICK       = config_run("pick", config_get("pick", "claude-api:opus
 export const COMPACTOR  = config_run("compactor", config_get("compactor", "claude-api:haiku:high:slow"));
 // what writes the Tracks page's cards and answers questions about them (Explain.ts)
 export const OBSERVER   = config_run("observer", config_get("observer", "claude-api:haiku:high:slow"));
-// what checks each reply against Unii's standing directives (Directives.ts)
+// what checks each reply against Legion's standing directives (Directives.ts)
 export const CHECKER    = config_run("checker", config_get("checker", "claude-api:haiku:high:slow"));
 // what agents run on by tier, below the chat's pick (Tools.ts): a
 // manager splits its task among workers; `agents` sets both (older)
@@ -85,9 +85,9 @@ export const MCP        = config_path(config_get("mcp", ""));
 export const MCP_READS  = config_reads(config_get("mcp_reads", ""));
 
 // the iOS app (ios/, Cloud.ts): its App ID, the team's then the bundle's
-// ("TEAM.com.example.uniichat"), whose app sign-in links open; and
+// ("TEAM.com.example.legion"), whose app sign-in links open; and
 // the id of the key its pushes are signed with (APNS_KEY holds the key)
-// phones at all (UNII_PHONE=1): off, as phones aren't allowed at work;
+// phones at all (LEGION_PHONE=1): off, as phones aren't allowed at work;
 // then no pushes, push tokens or AASA, whatever APPLE and APNS say
 export const PHONE      = config_get("phone", "") === "1";
 export const APPLE      = config_get("apple", "");
@@ -110,20 +110,20 @@ export const GCHAT_SPACE = config_get("gchat_space", "");
 // server from the login Keychain itself (service GCHAT_WEBHOOK_URL, the
 // README's), never from its environment, which any process of this user
 // reads (`ps -wwE`; deleting it from process.env hides it from JS only).
-// On with UNII_GCHAT_KEYCHAIN=1 (the launcher's server_exec sets it; the
+// On with LEGION_GCHAT_KEYCHAIN=1 (the launcher's server_exec sets it; the
 // environment's only, never config.json, so no test reads the user's
 // item) and a gchat_space; then a GCHAT_WEBHOOK_URL in the environment
 // is not used. Off (tests, a server run by hand), GCHAT_WEBHOOK_URL is
 // read like the other keys. None kept, or refused: "" (the bridge off),
 // said without a key
-const GCHAT_KEYCHAIN = process.env.UNII_GCHAT_KEYCHAIN === "1";
+const GCHAT_KEYCHAIN = process.env.LEGION_GCHAT_KEYCHAIN === "1";
 
 // RED ZONE (R8, signed off by the user 2026-11-19): the one user whose
 // chat it bridges (their id, as in users/<id>); none: no one's
 export const GCHAT_USER  = config_get("gchat_user", "");
 // RED ZONE (security review 3 G1, DRAFT awaiting the user's sign-off):
 // the gateway's key (KEYS.anthropic) read once, here, from the file
-// descriptor UNII_ANTHROPIC_KEY_FD names (3-9; the launcher's server_exec
+// descriptor LEGION_ANTHROPIC_KEY_FD names (3-9; the launcher's server_exec
 // sets 3, a pipe its printf builtin writes the key into), then the fd
 // closed, so it is in neither this server's environment nor its arguments
 // (`ps -wwE` shows both to any process of this user). Then an
@@ -132,8 +132,8 @@ export const GCHAT_USER  = config_get("gchat_user", "");
 // refuse to start. Unset (tests, `bun Server.ts` by hand), ANTHROPIC_API_KEY
 // is read like the other keys. No key on it, or no such fd: no start,
 // said without a key
-const KEY_FD = process.env.UNII_ANTHROPIC_KEY_FD;
-delete process.env.UNII_ANTHROPIC_KEY_FD;
+const KEY_FD = process.env.LEGION_ANTHROPIC_KEY_FD;
+delete process.env.LEGION_ANTHROPIC_KEY_FD;
 
 export const KEYS: Record<string, string> = Object.fromEntries(Object.entries(VARS).map(([name, v]) => [name, config_key(v)]));
 if (GCHAT_KEYCHAIN && GCHAT_SPACE !== "") {
@@ -142,7 +142,7 @@ if (GCHAT_KEYCHAIN && GCHAT_SPACE !== "") {
 if (KEY_FD !== undefined) {
   KEYS.anthropic = config_fd(KEY_FD);
   if (WORKERS > 0) {
-    throw new Error("config: workers get the keys in their environment, and the gateway's key came on a file descriptor (UNII_ANTHROPIC_KEY_FD): run with no workers");
+    throw new Error("config: workers get the keys in their environment, and the gateway's key came on a file descriptor (LEGION_ANTHROPIC_KEY_FD): run with no workers");
   }
 }
 
@@ -150,7 +150,7 @@ if (KEY_FD !== undefined) {
 // ======
 
 export function config_get(key: string, def: string): string {
-  return process.env["UNII_" + key.toUpperCase()] ?? FILE[key] ?? def;
+  return process.env["LEGION_" + key.toUpperCase()] ?? FILE[key] ?? def;
 }
 
 function config_path(path: string): string {
@@ -222,7 +222,7 @@ function config_key(name: string): string {
 // closed; refused (thrown, never with the key) if none is on it
 function config_fd(text: string): string {
   if (!/^[3-9]$/.test(text)) {
-    throw new Error("config: UNII_ANTHROPIC_KEY_FD is no file descriptor 3-9");
+    throw new Error("config: LEGION_ANTHROPIC_KEY_FD is no file descriptor 3-9");
   }
   const fd = Number(text);
   let key = "";
@@ -256,7 +256,7 @@ async function config_keychain(name: string): Promise<string> {
 
 // the environment a worker of this server starts with: this one, with
 // the keys back (the GChat webhook not, read from the Keychain: a worker
-// reads it again, with UNII_GCHAT_KEYCHAIN; nor the gateway's, if it came
+// reads it again, with LEGION_GCHAT_KEYCHAIN; nor the gateway's, if it came
 // on a file descriptor: no workers then)
 export function config_env(): Record<string, string | undefined> {
   const keys = Object.entries(VARS).filter(([name]) => !(GCHAT_KEYCHAIN && name === "gchat") && !(KEY_FD !== undefined && name === "anthropic")).map(([name, v]) => [v, KEYS[name]]);

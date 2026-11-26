@@ -2,7 +2,7 @@
 // ======
 // `bun local/skills.ts [out]`. An index of the skills Claude Code loads,
 // for the agent's rules (local/rules.md imports it; the wrapper makes it
-// at each start, to ~/.unii/skills.md): the user's (~/.claude/skills,
+// at each start, to ~/.legion/skills.md): the user's (~/.claude/skills,
 // links followed) and those of the plugins enabled for the user
 // (settings.json enabledPlugins), at their installed version
 // (installed_plugins.json), never a disabled or excluded one, one local to a
@@ -138,7 +138,7 @@ export function skills_index(list: Skill[]): string {
 }
 
 if (import.meta.main) {
-  const out = process.argv[2] ?? os.homedir() + "/.unii/skills.md";
+  const out = process.argv[2] ?? os.homedir() + "/.legion/skills.md";
   const list = skills(os.homedir());
   const text = skills_index(list);
   fs.writeFileSync(out, text);

@@ -6,7 +6,7 @@
 // from the wiki's MkDocs search index (every page's text, one file), fetched
 // once a process, at most an hour old, from one pinned https host, size
 // capped. record_gap appends what an agent looked for and did not find (or
-// found stale) to ~/.unii/okf-gaps.jsonl, redacted, owner-only; that file
+// found stale) to ~/.legion/okf-gaps.jsonl, redacted, owner-only; that file
 // never leaves this computer by itself: turning gaps into an OKF pull
 // request is a separate step, which a human merges (tasks/todo.md K5).
 // OKF_WIKI_INDEX_FILE reads the index from a file instead (tests, offline).
@@ -147,7 +147,7 @@ async function answer(w: Wiki, name: string, args: any): Promise<string> {
     return (await Wiki.page(w, String(args?.location ?? ""))) ?? "No such OKF wiki page.";
   }
   if (name === "record_gap") {
-    const dir = os.homedir() + "/.unii";
+    const dir = os.homedir() + "/.legion";
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     Wiki.gap(dir + "/okf-gaps.jsonl", args ?? {});
     return "Gap recorded.";

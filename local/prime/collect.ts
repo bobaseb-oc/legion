@@ -1,7 +1,7 @@
 // Collect
 // =======
 // `bun local/prime/collect.ts`. What primes the memory tree, as a
-// manifest to review (~/.unii-prime/manifest.txt): one line per source,
+// manifest to review (~/.legion-prime/manifest.txt): one line per source,
 // "+" taken, "-" left out (edit the sign to change it). Kinds:
 // instructions (AGENTS/CLAUDE files, deduplicated by content; left out
 // by default, as local/rules.md loads them live), memory
@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 
 const HOME = os.homedir();
 
-export const OUT = HOME + "/.unii-prime";
+export const OUT = HOME + "/.legion-prime";
 
 const GIT = "/Volumes/dev/git";
 

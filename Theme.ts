@@ -2,11 +2,11 @@
 // =====
 // The colors and glyphs of both views: black ink on white paper, the
 // same look in both. What the machine wrote is filled, what a person or
-// Unii said is framed: a block (a summary) and a tool call sit on the
+// Legion said is framed: a block (a summary) and a tool call sit on the
 // `block` gray; every result is a file's lines (a read's, a write's or
 // edit's diff, any other output's): framed, its name on the top edge,
 // each line numbered; the user's message and
-// a report sit in a frame; Unii's answer, its thinking and a note are bare.
+// a report sit in a frame; Legion's answer, its thinking and a note are bare.
 // A call is named by its tool, a report or note by WHO; thinking
 // is unnamed, told by its faint italic. Every tool
 // is in ink, its emoji telling it at a glance (TOOL); a diff's lines are
@@ -39,13 +39,13 @@ export const HL = { k: "5", s: "2", n: "3" };
 
 // what a message is, named on its top (a report's frame edge, a note's
 // first line; a result names itself on its frame's edge; a report: its agent's name, else this; a
-// call: its tool). The user's words (framed) and Unii's (bare) need none
+// call: its tool). The user's words (framed) and Legion's (bare) need none
 export const WHO: Record<string, string> = { work: "Report", note: "Note" };
 
 export const KIND: Record<Kind, Look> = {
   user : { dim: false, it: false },
   work : { dim: false, it: false },
-  unii : { dim: false, it: false },
+  legion : { dim: false, it: false },
   tool : { dim: true, it: false },
   echo : { dim: true, it: false },
   note : { dim: true, it: true },
@@ -53,7 +53,7 @@ export const KIND: Record<Kind, Look> = {
 };
 
 // the kinds filled (the machine's); framed (the user's, an agent's); the
-// rest (Unii's, thinking, notes) bare, any name over it
+// rest (Legion's, thinking, notes) bare, any name over it
 export const FILLED: Kind[] = ["tool"];
 export const FRAMED: Kind[] = ["user", "work"];
 

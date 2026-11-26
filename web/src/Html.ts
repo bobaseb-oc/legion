@@ -279,7 +279,7 @@ function questions_open_html(v: View.View): string[] {
 }
 
 // the agent in focus, over its session (the log): its name, what it
-// is, how it is, its actions; none: Unii's chat. One the crew no longer
+// is, how it is, its actions; none: Legion's chat. One the crew no longer
 // tells (dismissed) shows its name only
 export function focus_html(v: View.View): string {
   const name = v.page?.name ?? null;

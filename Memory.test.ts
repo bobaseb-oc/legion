@@ -17,7 +17,7 @@ const good = { id: 1, name: "Morning", task: "Triage", when: DAY, tier: "worker"
 const timer = { id: 1, who: "main", at: 5, note: "poll the job", made: 1 };
 
 function loaded(saved: object) {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [], ...saved }));
   return Memory.load(dir, () => ({}) as any);
 }
@@ -81,7 +81,7 @@ test("view.json's lists, not lists, load as none", () => {
 const track = { pins: [{ n: 1, text: "Write the migration", status: "pending", at: 5 }, { n: 3, text: "Ship it", status: "doing", at: 6, since: 6 }], next: 3, dropped: ["old item"] };
 
 test("AC11a: saved pins round-trip through Memory.load", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   const mem = Memory.load(dir, () => ({}) as any);
   (mem as any).tracks = { Alpha: track };
   Memory.save(mem);
@@ -133,7 +133,7 @@ test("AC11b (pinned): a saved pin numbered above the track's next is dropped, so
 });
 
 test("AC11b (pinned): a saved __proto__ track is no track and leaves the tracks object's prototype alone", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   // written as raw JSON: an object literal's __proto__ would set the prototype, not a key
   fs.writeFileSync(dir + "/view.json", '{"parts":[],"tracks":{"__proto__":{"pins":[{"n":1,"text":"evil","status":"pending","at":1}],"next":1,"dropped":[]},"Ok":{"pins":[],"next":0,"dropped":[]}}}');
   const mem = Memory.load(dir, () => ({}) as any) as any;
@@ -190,7 +190,7 @@ test("PLP-2920 AC1, AC2: view.json with 55 closed then 5 open records loads all 
 });
 
 test("L1-AC16: view.json's pended (the last approval id) survives a save and a load; not an integer, 0", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
   const mem: any = Memory.load(dir, () => ({}) as any);
   mem.pended = 7;
@@ -245,7 +245,7 @@ test("E2, L3 load guard: an approval event from a device in view.json is dropped
 });
 
 test("L3: view.json's evented (the last event id) and events survive a save and a load; evented not an integer, 0", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
   const mem: any = Memory.load(dir, () => ({}) as any);
   mem.evented = 9;
@@ -259,7 +259,7 @@ test("L3: view.json's evented (the last event id) and events survive a save and 
 });
 
 test("view.json's goaled (a goal's unmet checks in a row) survives a save and a load; not a non-negative integer, 0", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
   const mem: any = Memory.load(dir, () => ({}) as any);
   expect(mem.goaled).toBe(0);
@@ -282,7 +282,7 @@ const item = (text: string, status = "pending") => ({ text, status });
 
 test("checklists: an agent's list survives a save and a load; an old view.json without them loads empty", () => {
   expect((loaded({}) as any).checklists).toEqual({});
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-memory-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-memory-");
   fs.writeFileSync(dir + "/view.json", JSON.stringify({ parts: [] }));
   const mem: any = Memory.load(dir, () => ({}) as any);
   mem.checklists = { Alpha: [item("write tests"), { text: "fix it", status: "doing", since: 5 }] };

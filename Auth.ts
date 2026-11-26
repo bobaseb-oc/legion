@@ -228,7 +228,7 @@ export namespace Auth {
   // (else at its well-known path), checked (I2-I4)
   export async function discover(resource: string, o: Opts): Promise<Meta> {
     const res = Auth.safe(resource, o);
-    const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "unii", version: "1" } } };
+    const init = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "legion", version: "1" } } };
     let named: string | undefined;
     try {
       const probe = await fetch(res, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(init), redirect: "error", signal: AbortSignal.timeout(ASK) });
@@ -283,7 +283,7 @@ export namespace Auth {
           return new Response("The sign-in failed: " + why, { status: 400 });
         }
         back.resolve(q.get("code")!);
-        return new Response("Signed in to " + name + " for unii. You can close this tab.");
+        return new Response("Signed in to " + name + " for legion. You can close this tab.");
       },
     });
     const redirect = "http://127.0.0.1:" + srv.port + "/callback";
@@ -292,7 +292,7 @@ export namespace Auth {
     try {
       const json = { "content-type": "application/json" };
       const client = await Auth.ask(new URL(meta.registration_endpoint), "registration", { method: "POST", headers: json, body: JSON.stringify({
-        client_name                : "unii (local)",
+        client_name                : "legion (local)",
         redirect_uris              : [redirect],
         grant_types                : ["authorization_code", "refresh_token"],
         response_types             : ["code"],

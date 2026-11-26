@@ -11,7 +11,7 @@ import * as os from "node:os";
 import * as Cost from "./Cost.ts";
 import * as Paint from "./Paint.ts";
 
-const DIR = fs.mkdtempSync(os.tmpdir() + "/unii-cost-");
+const DIR = fs.mkdtempSync(os.tmpdir() + "/legion-cost-");
 const NOW = Date.parse("2026-11-11T13:00:00Z");
 const put = (body: string) => fs.writeFileSync(DIR + "/litellm-2026-11-11.json", body);
 
@@ -43,7 +43,7 @@ test("the status line: offline first, the folder, branch, model, agents at work,
 // the last 7 days' spend (the cockpit's Agent spend): the daily caches
 // that are there, summed; how many days that is; none: no spend
 test("the week's spend: the daily caches there summed, and how many", () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-week-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-week-");
   const day = (d: string, spend: unknown) => fs.writeFileSync(dir + "/litellm-" + d + ".json", JSON.stringify({ spend, fetched_at: NOW }));
   expect(Cost.cost_week(dir, NOW)).toEqual({ spend: null, days: 0 });
   day("2026-11-11", 4.5);

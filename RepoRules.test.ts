@@ -10,13 +10,13 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-process.env.UNII_DIR = fs.mkdtempSync(os.tmpdir() + "/unii-repo-rules-");
+process.env.LEGION_DIR = fs.mkdtempSync(os.tmpdir() + "/legion-repo-rules-");
 
 const { Tools } = await import("./Tools.ts");
 
 function chat(): { tools: any; jobs: any[] } {
   const jobs: any[] = [];
-  const tools: any = Tools.serve({ agents: new Map(), dir: process.env.UNII_DIR + "/" } as any, { note: () => {} } as any);
+  const tools: any = Tools.serve({ agents: new Map(), dir: process.env.LEGION_DIR + "/" } as any, { note: () => {} } as any);
   Tools.attach(tools, "t1", "mac", "u", { send: (m: any) => (m.$ === "job" ? jobs.push(m) : 0), live: () => true, computer: false, work: "~/w" });
   return { tools, jobs };
 }

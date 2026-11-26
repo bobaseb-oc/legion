@@ -13,7 +13,7 @@
 // link for its own account. A terminal signs in two keys with one code:
 // its device key (a file: jobs, `legion device`) and its terminal key
 // (the Keychain, every read asked), whose session speaks for the user.
-// Tokens are kept as hashes. With phones on (UNII_PHONE=1), the iOS app's
+// Tokens are kept as hashes. With phones on (LEGION_PHONE=1), the iOS app's
 // links open it (AASA), its phones get each turn's last message (APNs).
 
 import type { Database } from "bun:sqlite";
@@ -59,7 +59,9 @@ export type Cloud = {
 // Constants
 // =========
 
-const COOKIE = "unii";
+// RED ZONE (rename, DRAFT awaiting the user's sign-off): "unii" before the
+// rename; a browser with only that cookie signs in again (legion web)
+const COOKIE = "legion";
 
 // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): a
 // session lasts AGE from its sign-in (a terminal's Bearer one, TERM), and
@@ -242,7 +244,7 @@ export namespace Cloud {
   }
 
   // RED ZONE (security review SC, DRAFT awaiting the user's sign-off): the
-  // client's address: behind a proxy (UNII_PROXY=1), the last
+  // client's address: behind a proxy (LEGION_PROXY=1), the last
   // X-Forwarded-For entry, the one it appended (those before it the client
   // may have written); with none, or no proxy (the client may write the
   // header itself: a server on 127.0.0.1), the socket's, `addr`
@@ -779,7 +781,7 @@ export namespace Cloud {
   // RED ZONE (S1a, DRAFT awaiting the user's sign-off): only a server with
   // a mail key mails (cloud.local: none); a link is never printed
   export async function mail(cloud: Cloud, to: string, link: string, terminal: boolean): Promise<void> {
-    const ignore = terminal ? "This link signs a unii terminal into your account. If you didn't just start one, ignore this email." : "If you didn't ask for it, ignore this email.";
+    const ignore = terminal ? "This link signs a legion terminal into your account. If you didn't just start one, ignore this email." : "If you didn't ask for it, ignore this email.";
     const { consent, ...reply } = cloud.billing.mail;
     const text = ["Sign in to Legion:", link, consent, ignore].filter((p) => p !== "").join("\n\n");
     const from = "Legion <noreply@" + new URL(config.SITE).hostname + ">";

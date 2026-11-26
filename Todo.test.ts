@@ -62,9 +62,9 @@ process.exit(0);
 `;
 
 test("the server: any agent assigns; Done or Drop from a view only; Done tells the filer once and starts a turn, Drop a note; close only your own; capped, kept", async () => {
-  const dir = fs.mkdtempSync(os.tmpdir() + "/unii-server-");
+  const dir = fs.mkdtempSync(os.tmpdir() + "/legion-server-");
   fs.writeFileSync(dir + "/todo.ts", SERVER);
-  const proc = Bun.spawn([process.execPath, dir + "/todo.ts"], { env: { ...process.env, UNII_DIR: dir }, stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn([process.execPath, dir + "/todo.ts"], { env: { ...process.env, LEGION_DIR: dir }, stdout: "pipe", stderr: "inherit" });
   const out = JSON.parse((await new Response(proc.stdout).text()).trim().split("\n").at(-1) ?? "{}");
   expect(out.filed).toMatchObject({ fail: false, text: expect.stringContaining("todo 1") });
   expect(out.sub).toMatchObject({ fail: false });
