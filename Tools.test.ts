@@ -959,6 +959,23 @@ test("refusal cache: a repeat of a refused call is refused at once, with no revi
   });
 });
 
+// a refusal is the mode's: in super mode a medium one goes to the boss,
+// so one kept in auto is asked again once the user switches the mode
+test("refusal cache: a refusal kept in one mode is asked again in another", async () => {
+  await reviewer(async (told, set) => {
+    const { tools } = risky("auto");
+    working(tools, "Wkr");
+    set(refuse("medium"));
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "a");
+    await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "b");
+    expect(told.length).toBe(1);
+    tools.mem.mode = "super";
+    set('{"allow": true}');
+    expect((await Tools.call(tools, "Wkr", "shell", { device: "mac", command: "make x" }, go(), "c")).text).not.toContain("Refused");
+    expect(told.length).toBe(2);
+  });
+});
+
 test("refusal cache: an allow, a low refusal or a reviewer with no answer is never kept", async () => {
   await reviewer(async (told, set) => {
     const { tools } = risky("auto");
