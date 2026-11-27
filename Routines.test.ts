@@ -260,3 +260,26 @@ test("no managers: a routine has no tier; an older one's manager tier is dropped
   expect(Routines.routine_parse("daily 09:00 Morning: look")).toEqual({ name: "Morning", task: "look", when: { $: "daily", at: "09:00" } });
   expect(Routines.routine_parse("daily 09:00 x")).not.toContain("manager");
 });
+
+// user's report 2026-11-27: "next Fri 09:00" read as today when the next
+// run was a week on; the card names the date
+test("a routine card's next run names its date, not only the weekday", async () => {
+  const View = await import("./View.ts");
+  const Pages = await import("./web/src/Pages.ts");
+  const v = View.view_new();
+  // made Friday 13 Nov at 10:52, after its 09:00 slot: next is Friday 20 Nov
+  v.routines = [routine({ $: "weekly", day: 5, at: "09:00" }, { id: 5, name: "Timesheet drafts", made: at(10, 52, 13) })];
+  const html = Pages.routines_html(v, at(11, 0, 13)).join("");
+  expect(html).toMatch(/next [^<]*(Nov 20|20 Nov)/);
+});
+
+// user's report 2026-11-27: Run now seemed to do nothing; its result is
+// said where it was pressed (main.ts toasts it), an error word for word
+test("Run now's answer said: started, or the server's error", async () => {
+  const Pages = await import("./web/src/Pages.ts");
+  expect(Pages.routine_said({ $: "Routine", op: "run", n: 5 }, {})).toContain("started");
+  expect(Pages.routine_said({ $: "Routine", op: "run", n: 5 }, { error: "No routine 5." })).toBe("No routine 5.");
+  expect(Pages.routine_said({ $: "Routine", op: "toggle", n: 5, on: false }, {})).toBeNull();
+  expect(Pages.routine_said({ $: "Routine", op: "toggle", n: 5, on: false }, { error: "x" })).toBe("x");
+  expect(Pages.routine_said({ $: "Pin", i: 1 } as any, { error: "x" })).toBeNull();
+});

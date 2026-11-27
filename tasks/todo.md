@@ -1449,3 +1449,20 @@ User: Tracks shows no agent todo lists and no summaries; Digest's title is a bol
 - [x] Digest: title "Digest: last 7 days", repos as a plain line; Chat.themes matches authors in any case and without "@", a reply naming none is an error; the web toasts while it summarizes. Red tests cac8bba, fix 15675ef.
 
 Review: Explain, Cockpit, Pages, Tracks, Server, Html suites green (215 pass). Not checked in a browser (Chrome remote debugging off). Older agents under old managers stay off Tracks until they finish (they keep their old parent, see "No managers").
+
+## Routines, Tracks and directives (2026-11-27)
+
+User: the Timesheet routine didn't run at 09:00, and the 10:52 "trigger" did nothing; the Timesheet tab lost its buttons; Tracks still shows no agent todo lists; wants an editable list of Legion's standing directives on the Memory page.
+
+Causes found (live data, read-only):
+- The Timesheet tab's "Draft weekly, Fridays at 09:00" adds the routine, it doesn't run it. Pressed at 10:52 it made routine 5 after today's 09:00 slot, so its first run is Fri 4 Dec. The button then hides (the routine exists); Submit shows only with open drafts.
+- Routine cards say "next Fri 09:00" with no date: reads as today.
+- Act errors (a refused Run now) show only as a chat note, not where the user clicked.
+- 0 of 75 workers started since PR #76 called `todo`: the tool says "3 or more steps" and nothing else asks for it.
+
+Plan (one branch, red test first each):
+- [ ] A. Routine card "next …" carries the date (Pages.routines_html) → verify: Routines.test.ts
+- [ ] B. Run now says what happened on the page: a toast on send and on an error (web/src/main.ts) → verify: bundle builds; manual
+- [ ] C. Timesheet tab: with the routine on, its next run and a "Draft now" (Routine run) button (Pages.timesheet_html) → verify: Pages.test.ts
+- [ ] D. Workers set a checklist first for a task of 2+ steps (Tools.ts TODO description) → verify: Tools.test.ts
+- [ ] E. Memory page: "Standing directives" section, one row per line of the directives note, Edit/Delete each, Add one; saved as the whole note through the existing Note act (Pages.ts, main.ts) → verify: Pages.test.ts
