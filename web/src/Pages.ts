@@ -8,6 +8,7 @@
 // rest main.ts reads (data-open-picks, data-drop-picks, data-claude).
 
 import * as Cockpit from "../../Cockpit.ts";
+import { Directives } from "../../Directives.ts";
 import * as Explain from "../../Explain.ts";
 import type { Inbox } from "../../Inbox.ts";
 import type { Note } from "../../Notes.ts";
@@ -255,10 +256,9 @@ export function palette_html(items: Cockpit.Item[], sel: number): string[] {
 // requests"), the last; Run now, On/Off, Delete; then the form
 // to add one (main.ts reads it: form.radd)
 export function routines_html(v: View.View, now: number): string[] {
-  const time = (ms: number) => new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const rows = (v.routines ?? []).map((r) => {
     const next = Routines.routine_next(r, now);
-    const when = `<span class="meta">${esc(Routines.when_text(r.when))}${!r.on ? " · off" : next === null ? "" : " · next " + esc(time(next))}${r.last === null ? "" : " · last " + esc(Cockpit.age(now - r.last)) + " ago"}</span>`;
+    const when = `<span class="meta">${esc(Routines.when_text(r.when))}${!r.on ? " · off" : next === null ? "" : " · next " + esc(when_at(next))}${r.last === null ? "" : " · last " + esc(Cockpit.age(now - r.last)) + " ago"}</span>`;
     const run = r.when.$ === "review" ? "" : `<button class="pbtn"${act_html({ $: "Routine", op: "run", n: r.id })}>Run now</button>`;
     const flip = `<button class="pbtn"${act_html({ $: "Routine", op: "toggle", n: r.id, on: !r.on })}>${r.on ? "Turn off" : "Turn on"}</button>`;
     const drop = `<button class="pbtn"${act_html({ $: "Routine", op: "drop", n: r.id })}>Delete</button>`;
@@ -281,6 +281,20 @@ export function routines_html(v: View.View, now: number): string[] {
     + `</div>`
     + `<textarea name="task" rows="3" placeholder="The task (a review routine: what to look at besides the review)" maxlength="${Routines.TASK}"></textarea><button class="pbtn">Add</button></form>`;
   return [head, ...(rows.length === 0 ? [`<p class="meta">No routines yet.</p>`] : rows), form];
+}
+
+// what a routine act's answer says where it was pressed (main.ts toasts
+// it; user's report 2026-11-27: Run now seemed to do nothing, its errors
+// only a note in the chat): an error word for word, a run started; null:
+// nothing to say
+export function routine_said(a: View.Act, out: View.Answer): string | null {
+  if (a.$ !== "Routine") {
+    return null;
+  }
+  if (out.error !== undefined) {
+    return out.error;
+  }
+  return a.op === "run" ? "Routine started: its agent reports in the chat." : null;
 }
 
 // the agents' pending timers, under the routines (security review R4: the
@@ -590,12 +604,32 @@ function tracks_line(v: View.View): string {
   return n === 0 ? "each agent's work, and why" : n + (n === 1 ? " track" : " tracks");
 }
 
-export function timesheet_html(v: View.View): string[] {
+// when a routine runs next, as its card and the Timesheet tab say it: the
+// weekday and the date (user's report 2026-11-27: "next Fri 09:00" read as
+// today when it was a week on)
+export function when_at(ms: number): string {
+  return new Date(ms).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+// the Timesheet tab's routine: not kept, Draft weekly adds it; kept, when
+// it drafts next and a Draft now that runs it (user's report 2026-11-27:
+// once added, the tab had no button, and adding it ran nothing)
+function sheet_routine(v: View.View, now: number): string {
+  const r = (v.routines ?? []).find((x) => x.name === TIMESHEET_ROUTINE.name);
+  if (r === undefined) {
+    return `<button class="pbtn"${act_html({ $: "Routine", op: "add", routine: TIMESHEET_ROUTINE })} title="a worker drafts the week on Friday mornings; you submit">Draft weekly, Fridays at 09:00</button>`;
+  }
+  const next = Routines.routine_next(r, now);
+  const when = !r.on ? "the weekly draft is off (the Routines page turns it on)" : next === null ? "" : "next draft " + when_at(next);
+  const run = r.when.$ === "review" ? "" : `<button class="pbtn"${act_html({ $: "Routine", op: "run", n: r.id })} title="a worker drafts this week now; you submit">Draft now</button>`;
+  return `${run}<span class="meta">${esc(when)}</span>`;
+}
+
+export function timesheet_html(v: View.View, now = Date.now()): string[] {
   const drafts = v.drafts ?? [];
   const open = drafts.filter((d) => d.state === "draft" || d.state === "failed").map((d) => d.n);
   const submit = open.length === 0 ? "" : `<button class="pbtn go"${act_html({ $: "Timesheet", op: "submit", ns: open })} title="posts them to Harvest from your device">Submit ${open.length} to Harvest</button>`;
-  const routine = (v.routines ?? []).some((r) => r.name === TIMESHEET_ROUTINE.name) ? "" : `<button class="pbtn"${act_html({ $: "Routine", op: "add", routine: TIMESHEET_ROUTINE })} title="a worker drafts the week on Friday mornings; you submit">Draft weekly, Fridays at 09:00</button>`;
-  const head = `<div class="phead"><h2>Timesheet</h2><p class="meta">Drafts for Harvest: nothing is sent until you submit</p>${submit}${routine}</div>`;
+  const head = `<div class="phead"><h2>Timesheet</h2><p class="meta">Drafts for Harvest: nothing is sent until you submit</p>${submit}${sheet_routine(v, now)}</div>`;
   if (drafts.length === 0) {
     return [head, `<p class="meta">No drafts yet. Agents draft with the timesheet tool (they need legion harvest-login on your device): ask in the chat, or add the routine.</p>`];
   }
@@ -623,7 +657,67 @@ export function timesheet_html(v: View.View): string[] {
 export function memory_html(v: View.View): string[] {
   const head = `<div class="phead"><h2>Memory</h2><p class="meta">What Legion remembers: search it, pin what every call should see whole, walk its tree</p></div>`;
   const form = `<form class="msearch"><input name="q" maxlength="${FIND}" value="${esc(v.recall?.q ?? "")}" placeholder="Search your chat, every message word for word" aria-label="search your chat" autocomplete="off"></form>`;
-  return [head, form + hits_html(v.recall), pins_html(v.pins ?? []), notes_html(v.notebook ?? []), map_html(v)];
+  const notes = v.notebook ?? [];
+  return [head, form + hits_html(v.recall), directives_html(notes.find((n) => n.name === Directives.NAME)), pins_html(v.pins ?? []), notes_html(notes.filter((n) => n.name !== Directives.NAME)), map_html(v)];
+}
+
+// Standing directives
+// -------------------
+// Legion's standing orders: the note Directives.NAME, a line each (its
+// "- " lines), listed on the Memory page (user's ask 2026-11-27), each an
+// edit box (emptied, it drops) and a Delete, then an Add box. main.ts
+// (directive_edit) saves the whole note through the Note act, as the
+// Notes section's Edit; only Legion makes a note (Chat.noted), so with
+// none kept there's nothing to add to
+
+const BULLET = /^- /;
+
+// the note's directives: its "- " lines, their text
+export function directive_lines(text: string): string[] {
+  return text.split("\n").filter((l) => BULLET.test(l)).map((l) => l.slice(2));
+}
+
+// the note's text with one directive edited (emptied: dropped), dropped
+// or added (after the last); one line each; the other lines kept as
+// they are; an edit of no line, or an empty add, changes nothing
+export type DirectiveOp = { n: number; text: string } | { n: number; drop: true } | { add: string };
+export function directives_edit(text: string, op: DirectiveOp): string {
+  const lines = text.split("\n");
+  const at = lines.flatMap((l, k) => (BULLET.test(l) ? [k] : []));
+  const one = (t: string) => t.replace(/\s+/g, " ").trim();
+  if ("add" in op) {
+    const t = one(op.add);
+    if (t === "") {
+      return text;
+    }
+    if (at.length === 0) {
+      return (text.trim() === "" ? "" : text.replace(/\n*$/, "\n")) + "- " + t + "\n";
+    }
+    lines.splice(at[at.length - 1] + 1, 0, "- " + t);
+    return lines.join("\n");
+  }
+  const k = at[op.n];
+  if (k === undefined) {
+    return text;
+  }
+  const t = "drop" in op ? "" : one(op.text);
+  if (t === "") {
+    lines.splice(k, 1);
+  } else {
+    lines[k] = "- " + t;
+  }
+  return lines.join("\n");
+}
+
+function directives_html(note: Note | undefined): string {
+  const head = `<h3>Standing directives</h3><p class="meta">The orders Legion keeps for every turn, and its checker holds it to: edit, delete or add one.</p>`;
+  if (note === undefined) {
+    return `<section class="mdirs">${head}<p class="meta">None kept yet: tell Legion in the chat to keep one as a standing directive.</p></section>`;
+  }
+  const rows = directive_lines(note.text).map((d, k) => `<form class="mdir" data-n="${k}"><input name="d" value="${esc(d)}" aria-label="directive ${k + 1}">`
+    + `<button type="submit" class="pbtn">Save</button><button type="submit" name="drop" value="1" class="pbtn">Delete</button></form>`).join("");
+  const add = `<form class="mdir-add"><input name="d" placeholder="A new standing directive" aria-label="a new standing directive"><button type="submit" class="pbtn">Add</button></form>`;
+  return `<section class="mdirs">${head}${rows || `<p class="meta">No directives in the note.</p>`}${add}</section>`;
 }
 
 // a text escaped, the first match of q in it marked

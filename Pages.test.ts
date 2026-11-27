@@ -316,6 +316,21 @@ test("timesheet: drafts by day, totals, Submit only the unsent, sent and failed 
   expect(typeof Routines.routine_check(Pages.TIMESHEET_ROUTINE)).toBe("object");
 });
 
+// user's report 2026-11-27: the tab's only routine button adds it, so
+// once added the tab had none; with it, its next run and a Draft now
+test("timesheet: with the routine kept, its next run and a Draft now that runs it", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  v.routines = [{ id: 5, ...Pages.TIMESHEET_ROUTINE, on: true, last: null, made: NOW }];
+  const html = Pages.timesheet_html(v, NOW).join("");
+  expect(html).toContain(act({ $: "Routine", op: "run", n: 5 }));
+  expect(html).toContain("Draft now");
+  expect(html).toMatch(/[Nn]ext draft/);
+  expect(html).not.toContain(act({ $: "Routine", op: "add", routine: Pages.TIMESHEET_ROUTINE }));
+  v.routines[0].on = false;
+  expect(Pages.timesheet_html(v, NOW).join("")).toContain("off");
+});
+
 // every page has a link on screen (user's report 2026-11-13: Files and
 // Timesheet had none): the sidebar's pages and Home's Apps list each name
 // all of View.PAGES; Files counts the agents with files, Timesheet the
@@ -726,4 +741,45 @@ test("To clean up: one Remove all of the safe rows only; a kept row is tagged Ke
   // none safe: no Remove all
   const kept = Pages.inbox_html(Cockpit.inbox_sections(inbox({ clean: [rows[1]!] }), [], "", NOW), ui()).join("");
   expect(kept).not.toContain("Remove all");
+});
+
+// the user's ask 2026-11-27: Legion's standing directives (the note
+// Directives.NAME) as a list on the Memory page, each line editable and
+// deletable, one addable; saved as the whole note (the Note act)
+const dir_note = (text: string) => ({ name: "directives", line: "standing orders", text, at: NOW });
+
+test("directives: one row per line of the note, each an edit box and a Delete, an Add box; escaped; not again under Notes", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  (v as any).notebook = [dir_note("- Open PRs by default\n- Never <b>overrule</b> a refused write\n"), ...two_notes()];
+  const html = Pages.memory_html(v).join("");
+  expect(html).toMatch(/>Standing directives</);
+  expect(html.match(/<form class="mdir" data-n="\d+"/g)?.length).toBe(2);
+  expect(html).toContain('value="Open PRs by default"');
+  expect(html).toContain("Never &lt;b&gt;overrule&lt;/b&gt; a refused write");
+  expect(html).not.toContain("<b>overrule");
+  expect(html).toContain('<form class="mdir-add"');
+  expect(html).not.toContain('data-note="directives"'); // edited here, not twice
+  expect(html).toContain('data-note="alpha-plan"');
+});
+
+test("directives: with no note kept, said so and nothing to add to (only Legion makes a note)", async () => {
+  const View = await import("./View.ts");
+  const v = View.view_new();
+  (v as any).notebook = two_notes();
+  const html = Pages.memory_html(v).join("");
+  expect(html).toMatch(/>Standing directives</);
+  expect(html).not.toContain('<form class="mdir-add"');
+});
+
+test("directives_edit: a line edited, dropped or added; other lines kept as they are; one line each", () => {
+  const text = "Intro line\n- one\n- two\n\n- three\n";
+  expect(Pages.directive_lines(text)).toEqual(["one", "two", "three"]);
+  expect(Pages.directives_edit(text, { n: 1, text: " 2nd\n  line " })).toBe("Intro line\n- one\n- 2nd line\n\n- three\n");
+  expect(Pages.directives_edit(text, { n: 0, text: "" })).toBe("Intro line\n- two\n\n- three\n");
+  expect(Pages.directives_edit(text, { n: 2, drop: true })).toBe("Intro line\n- one\n- two\n\n");
+  expect(Pages.directives_edit(text, { add: "four" })).toBe("Intro line\n- one\n- two\n\n- three\n- four\n");
+  expect(Pages.directives_edit("", { add: "first" })).toBe("- first\n");
+  expect(Pages.directives_edit(text, { add: "   " })).toBe(text);
+  expect(Pages.directives_edit(text, { n: 9, drop: true })).toBe(text);
 });

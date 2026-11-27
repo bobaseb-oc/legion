@@ -1645,3 +1645,14 @@ test("no managers: an older manager's note loads as a worker; its workers keep i
   expect(Tools.mode_of(tools, "Kid")).toBe("plan");
   Tools.close(tools);
 });
+
+// user's report 2026-11-27: 0 of 75 workers Legion started set a
+// checklist, so Tracks showed none: the worker's todo asks for one first
+test("todo: a worker is told to set its checklist before any other call, for a task of 2 or more steps", async () => {
+  const { Memory } = await import("./Memory.ts");
+  const tools = Tools.serve(Memory.load(fs.mkdtempSync(os.tmpdir() + "/legion-todo-"), () => ({}) as any), { change: () => {} } as any);
+  tools.agents.set("Wkr", { name: "Wkr", parent: "main", role: { $: "sub", effort: null, model: null }, call: null, live: [], calls: {}, stop: false, replies: [], user: false } as any);
+  const info = Tools.list(tools, "Wkr").find((t) => t.name === "todo")!.info;
+  expect(info).toContain("2 or more steps");
+  expect(info).toMatch(/before (any|your first) other (tool )?call/);
+});
