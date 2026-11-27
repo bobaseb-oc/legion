@@ -415,7 +415,7 @@ function boss(): Spec[] {
 }
 // the checklist of workers (not Legion's: it does no hands-on
 // work), as Claude Code's TodoWrite
-const TODO = spec("todo", "Set your checklist, the whole list each time, in order: the user sees it with your work, and what you are doing. Use it for a task of 3 or more steps: write the steps first, mark one doing as you start it and done as soon as it is, add steps you find. items: each a step's text and its status (pending, the default; doing; done); none clears it. The user may pin items of their own on your track (shown after yours as #n, pinned by the user): they are the user's, not in items, and stay whatever list you set; do them, and mark one's status with pinned: [{n, status}].", {
+const TODO = spec("todo", "Set your checklist, the whole list each time, in order: the user sees it with your work, and what you are doing. For a task of 2 or more steps, set it before any other call (the user's Tracks page shows only what you set here): write the steps first, mark one doing as you start it and done as soon as it is, add steps you find. items: each a step's text and its status (pending, the default; doing; done); none clears it. The user may pin items of their own on your track (shown after yours as #n, pinned by the user): they are the user's, not in items, and stay whatever list you set; do them, and mark one's status with pinned: [{n, status}].", {
   items: { type: "array", items: { type: "object", properties: { text: STR, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text"] } },
   pinned: { type: "array", items: { type: "object", properties: { n: INT, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["n", "status"] } },
 }, ["items"]);

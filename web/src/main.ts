@@ -14,6 +14,7 @@
 // only (another company's would need Sign in with Apple).
 
 import * as Demo from "../../Demo.ts";
+import { Directives } from "../../Directives.ts";
 import * as Hist from "../../Hist.ts";
 import * as Import from "../../Import.ts";
 import * as Md from "../../Md.ts";
@@ -340,6 +341,7 @@ function chat(): void {
   $("#page").addEventListener("submit", memory_find);
   $("#crew").addEventListener("submit", agents_find);
   $("#page").addEventListener("submit", note_edit);
+  $("#page").addEventListener("submit", directive_edit);
   $("#page").addEventListener("submit", explain_ask);
   $("#page").addEventListener("submit", track_edit);
   $("#page").addEventListener("submit", files_find);
@@ -553,6 +555,12 @@ function act(a: View.Act): void {
   const refused = (out: View.Answer) => {
     if (a.$ === "Transcript" && out.error !== undefined) {
       C.reading.delete(a.id);
+    }
+    // a routine's answer, and a note's refusal (the Memory page's edits),
+    // said where it was pressed, not only as a note in the chat
+    const said = Pages.routine_said(a, out) ?? (a.$ === "Note" ? out.error ?? null : null);
+    if (said !== null) {
+      toast(said);
     }
     View.link_note(v, out);
     draw(true);
@@ -1795,6 +1803,26 @@ function note_edit(ev: SubmitEvent): void {
   }
   ev.preventDefault();
   act({ $: "Note", name: form.dataset.note!, text: form.querySelector("textarea")!.value });
+}
+
+// a standing directive saved, deleted (its Delete, or emptied) or added
+// (the Memory page: Pages.directives_html): the whole note sent as the
+// Notes section's Edit, from the note as the view has it now
+function directive_edit(ev: SubmitEvent): void {
+  const form = (ev.target as HTMLElement).closest<HTMLFormElement>("form.mdir, form.mdir-add");
+  const note = (v.notebook ?? []).find((n) => n.name === Directives.NAME);
+  if (form === null || note === undefined) {
+    return;
+  }
+  ev.preventDefault();
+  const text = form.querySelector("input")?.value ?? "";
+  const op: Pages.DirectiveOp = form.classList.contains("mdir-add") ? { add: text }
+    : (ev.submitter as HTMLButtonElement | null)?.name === "drop" ? { n: Number(form.dataset.n), drop: true }
+    : { n: Number(form.dataset.n), text };
+  const next = Pages.directives_edit(note.text, op);
+  if (next !== note.text) {
+    act({ $: "Note", name: Directives.NAME, text: next });
+  }
 }
 
 // a track's box sent: a pin added, or the item its ref names edited (the
