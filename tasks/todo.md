@@ -1461,8 +1461,10 @@ Causes found (live data, read-only):
 - 0 of 75 workers started since PR #76 called `todo`: the tool says "3 or more steps" and nothing else asks for it.
 
 Plan (one branch, red test first each):
-- [ ] A. Routine card "next …" carries the date (Pages.routines_html) → verify: Routines.test.ts
-- [ ] B. Run now says what happened on the page: a toast on send and on an error (web/src/main.ts) → verify: bundle builds; manual
-- [ ] C. Timesheet tab: with the routine on, its next run and a "Draft now" (Routine run) button (Pages.timesheet_html) → verify: Pages.test.ts
-- [ ] D. Workers set a checklist first for a task of 2+ steps (Tools.ts TODO description) → verify: Tools.test.ts
-- [ ] E. Memory page: "Standing directives" section, one row per line of the directives note, Edit/Delete each, Add one; saved as the whole note through the existing Note act (Pages.ts, main.ts) → verify: Pages.test.ts
+- [x] A. Routine card "next …" carries the date (Pages.routines_html) → verify: Routines.test.ts
+- [x] B. Run now says what happened on the page: a toast on send and on an error (web/src/main.ts) → verify: bundle builds; manual
+- [x] C. Timesheet tab: with the routine on, its next run and a "Draft now" (Routine run) button (Pages.timesheet_html) → verify: Pages.test.ts
+- [x] D. Workers set a checklist first for a task of 2+ steps (Tools.ts TODO description) → verify: Tools.test.ts
+- [x] E. Memory page: "Standing directives" section, one row per line of the directives note, Edit/Delete each, Add one; saved as the whole note through the existing Note act (Pages.ts, main.ts) → verify: Pages.test.ts
+
+Review: red tests d55b49e (7 fail first), fix 4b0bbed. Routines, Pages, Tools, Recall, Cockpit suites 171 pass. Mutants: no date, directives listed twice, error unsaid, bullet lost: all killed. B (toasts) is main.ts wiring: built, not clicked in a browser (Chrome remote debugging off). The live directives note is 4,175 bytes on disk, near the 4,096-byte text cap: an Add is refused until lines are trimmed (the refusal is toasted). Several directive lines still name managers or Unii.
